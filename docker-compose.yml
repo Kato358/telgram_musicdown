@@ -1,0 +1,25 @@
+# telegram-musicdown Docker Compose（FR-OPS-02）
+#
+# 首次部署：docker compose up -d 后浏览器打开 http://<host>:8787
+# Web 内完成初始化：api_id / api_hash / bot_token / proxy / 登录 TG（生成会话）。
+# 密钥写入容器内 /data/data/config.yaml；也可提前挂载 config.yaml（env TGM_* 优先）。
+services:
+  musicdown:
+    build: .
+    container_name: musicdown
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      # 可选：env 覆盖 config.yaml（FR-CFG-01）
+      - TGM_WEB_HOST=0.0.0.0
+      - TGM_WEB_PORT=8787
+      - TGM_BASE_DIR=/data
+      # - TGM_API_ID=123456
+      # - TGM_API_HASH=abcdef
+      # - TGM_BOT_TOKEN=123:abc
+    volumes:
+      - ./library:/data/library        # 下载落盘（save_path）
+      - ./sessions:/data/sessions      # TG 会话文件
+      - ./data:/data/data             # SQLite + config.yaml（TGM_BASE_DIR=/data）
+      # - ./config.yaml:/data/data/config.yaml:ro  # 可选：预置密钥
