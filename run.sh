@@ -10,7 +10,8 @@
 # 环境变量（可选）：
 #   TGM_WEB_HOST  默认 0.0.0.0（远程可访问；此时必须设 TGM_WEB_LOGIN_SECRET，否则拒启）
 #   TGM_WEB_PORT  默认 8787
-#   TGM_BASE_DIR  默认脚本所在目录（数据布局：library/ sessions/ data/ logs/ temp/）
+#   TGM_BASE_DIR  默认脚本所在目录（数据布局：downloads/ sessions/ data/ logs/ temp/；
+#                 可用 config.yaml 的 save/session/temp_directory 或同名 TGM_* env 改为绝对路径）
 set -euo pipefail
 cd "$(dirname "$0")"
 

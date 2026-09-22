@@ -2,7 +2,7 @@
 #
 # 首次部署：docker compose up -d 后浏览器打开 http://<host>:8787
 # Web 内完成初始化：api_id / api_hash / bot_token / proxy / 登录 TG（生成会话）。
-# 密钥写入容器内 /data/data/config.yaml；也可提前挂载 config.yaml（env TGM_* 优先）。
+# 密钥写入容器内 /data/config.yaml（= TGM_BASE_DIR/config.yaml，未挂卷则随容器重建丢失）。
 services:
   musicdown:
     build: .
@@ -15,11 +15,16 @@ services:
       - TGM_WEB_HOST=0.0.0.0
       - TGM_WEB_PORT=8787
       - TGM_BASE_DIR=/data
+      # 部署路径（FR-CFG-02）：绝对路径，与下方 volumes 一致
+      - TGM_SAVE_DIRECTORY=/data/downloads
+      - TGM_SESSION_DIRECTORY=/data/sessions
+      - TGM_TEMP_DIRECTORY=/data/temp
       # - TGM_API_ID=123456
       # - TGM_API_HASH=abcdef
       # - TGM_BOT_TOKEN=123:abc
     volumes:
-      - ./library:/data/library        # 下载落盘（save_path）
+      - ./downloads:/data/downloads    # 曲库落盘（save_path）
       - ./sessions:/data/sessions      # TG 会话文件
-      - ./data:/data/data             # SQLite + config.yaml（TGM_BASE_DIR=/data）
-      # - ./config.yaml:/data/data/config.yaml:ro  # 可选：预置密钥
+      - ./temp:/data/temp              # 下载中转 + 试听缓存（temp/preview）
+      - ./data:/data/data              # SQLite（app.db）
+      # - ./config.yaml:/data/config.yaml  # 可选：持久化密钥文件（需先 touch config.yaml 再 up）

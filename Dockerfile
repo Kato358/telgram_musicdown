@@ -15,12 +15,12 @@ RUN pip install --no-cache-dir fastapi uvicorn pydantic pyrogram tgcrypto mutage
 COPY app ./app
 COPY web/dist ./web/dist
 
-# 卷：库、会话、数据库（FR-OPS-02）
-RUN useradd -m tgm && mkdir -p /data/library /data/sessions /data/data \
+# 卷：曲库、会话、临时文件、数据库（FR-OPS-02）
+RUN useradd -m tgm && mkdir -p /data/downloads /data/sessions /data/temp /data/data \
     && chown -R tgm:tgm /opt/app /data
 USER tgm
 
-VOLUME ["/data/library", "/data/sessions", "/data/data"]
+VOLUME ["/data/downloads", "/data/sessions", "/data/temp", "/data/data"]
 
 EXPOSE 8787
 

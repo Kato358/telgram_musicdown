@@ -36,7 +36,18 @@ def client(tmp_path: Path) -> TestClient:
     )
     preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
     tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
-    app = create_app(store, events, downloads, sources, search, preview, tg, "127.0.0.1", "")
+    app = create_app(
+        store,
+        events,
+        downloads,
+        sources,
+        search,
+        preview,
+        tg,
+        base_dir=tmp_path,
+        web_host="127.0.0.1",
+        web_login_secret="",
+    )
     return TestClient(app)
 
 
@@ -77,7 +88,7 @@ def test_auth_required_with_secret(tmp_path: Path) -> None:
     )
     preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
     tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
-    app = create_app(  # noqa: S104  测试注入 0.0.0.0 验证强制密码路径
+    app = create_app(  # 测试注入 0.0.0.0 验证强制密码路径
         store,
         events,
         downloads,
@@ -85,14 +96,39 @@ def test_auth_required_with_secret(tmp_path: Path) -> None:
         search,
         preview,
         tg,
-        "0.0.0.0",  # noqa: S104
-        "s3cret",  # noqa: S104
+        base_dir=tmp_path,
+        web_host="0.0.0.0",  # noqa: S104
+        web_login_secret="s3cret",  # noqa: S106
     )
     c = TestClient(app)
     assert c.get("/api/me").status_code == 401
     token = web_auth.make_session_token("s3cret")
     c.cookies.set(web_auth.SESSION_COOKIE, token)
     assert c.get("/api/me").status_code == 200
+
+
+def test_setup_secrets_writes_to_base_dir(tmp_path: Path) -> None:
+    # FR-OPS-02：密钥写入 base_dir/config.yaml；session_directory 可配置到别处也不影响
+    store = Store(tmp_path / "app.db")
+    events = EventBus()
+    sources = SourceService(store, None)  # type: ignore[arg-type]
+    search = SearchService(store, None)  # type: ignore[arg-type]
+    downloads = DownloadService(
+        store,
+        None,
+        events,
+        tmp_path / "temp",
+        TemplateConfig(save_path=tmp_path / "downloads"),  # type: ignore[arg-type]
+    )
+    preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    tg = TelegramManager(SecretConfig(), tmp_path / "elsewhere" / "sessions")
+    app = create_app(
+        store, events, downloads, sources, search, preview, tg, base_dir=tmp_path
+    )
+    r = TestClient(app).post("/api/setup/secrets", json={"api_id": 12345, "api_hash": "abc"})
+    assert r.status_code == 200
+    assert "abc" in (tmp_path / "config.yaml").read_text(encoding="utf-8")
+    assert not (tmp_path / "elsewhere" / "config.yaml").exists()
 
 
 def test_sse_event_bus_delivers_event() -> None:

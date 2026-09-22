@@ -122,6 +122,7 @@ async def run(base_dir: Path) -> None:
         search=svc.search,
         preview=svc.preview,
         tg=svc.tg,
+        base_dir=base_dir,
         web_host=svc.secrets.web_host,
         web_login_secret=svc.secrets.web_login_secret,
         static_dir=svc.dirs["root"] / "web" / "dist",

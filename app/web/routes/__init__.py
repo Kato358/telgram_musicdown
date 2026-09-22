@@ -40,6 +40,8 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
     search: SearchService,
     preview: PreviewService,
     tg: Any,
+    *,
+    base_dir: Path,
     web_host: str = "127.0.0.1",
     web_login_secret: str = "",
     static_dir: Path | None = None,
@@ -128,7 +130,7 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
         from app.services.setup import save_secrets, setup_complete  # noqa: PLC0415
 
         updated = save_secrets(
-            tg.session_dir.parent,
+            base_dir,
             req.model_dump(exclude_none=True, exclude_unset=True),
         )
         tg.secrets = updated

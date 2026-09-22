@@ -12,6 +12,7 @@ config.yaml
 sessions/
 data/
 temp/
+downloads/
 logs/
 library/
 .testenv

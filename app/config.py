@@ -1,7 +1,8 @@
 """config.yaml/.env 加载，密钥与业务配置分离（FR-CFG-01，SDD §6）。
 
-密钥（api_id/api_hash/bot_token/proxy/web_login_secret/web_host/web_port）
-只在 config.yaml 或环境变量；业务配置入库 settings 表。
+密钥（api_id/api_hash/bot_token/proxy/web_login_secret/web_host/web_port）与
+部署路径（save_directory/session_directory/temp_directory）只在 config.yaml 或
+环境变量；业务配置入库 settings 表。
 """
 
 from __future__ import annotations
@@ -48,15 +49,19 @@ class SecretConfig:
         return self.api_id != 0 and bool(self.api_hash)
 
 
+def _load_config_file(base_dir: Path) -> dict[str, Any]:
+    """读取 base_dir/config.yaml；缺失或非映射时返回空字典。"""
+    path = base_dir / "config.yaml"
+    if not path.exists():
+        return {}
+    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return loaded if isinstance(loaded, dict) else {}
+
+
 def load_secrets(base_dir: Path) -> SecretConfig:
     """从 base_dir/config.yaml 与环境变量装配密钥；env 覆盖文件。"""
     cfg = SecretConfig()
-    path = base_dir / "config.yaml"
-    data: dict[str, Any] = {}
-    if path.exists():
-        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if isinstance(loaded, dict):
-            data = loaded
+    data = _load_config_file(base_dir)
     cfg.api_id = int(_env("api_id") or data.get("api_id") or 0)
     cfg.api_hash = str(_env("api_hash") or data.get("api_hash") or "")
     cfg.bot_token = str(_env("bot_token") or data.get("bot_token") or "")
@@ -80,15 +85,59 @@ def load_secrets(base_dir: Path) -> SecretConfig:
     return cfg
 
 
-def app_dirs(base_dir: Path | None = None) -> dict[str, Path]:
-    """FR-CFG-02 路径布局；目录按需创建。"""
+@dataclass(slots=True)
+class PathConfig:
+    """部署路径布局（FR-CFG-02）；相对值以 TGM_BASE_DIR 为基准，绝对路径原样使用。"""
+
+    save_directory: str = "downloads"
+    session_directory: str = "sessions"
+    temp_directory: str = "temp"
+
+
+def load_path_config(base_dir: Path) -> PathConfig:
+    """路径布局：config.yaml 的 save/session/temp_directory，同名 TGM_* env 覆盖。"""
+    data = _load_config_file(base_dir)
+    cfg = PathConfig()
+    for field in ("save_directory", "session_directory", "temp_directory"):
+        value = _env(field) or data.get(field)
+        if value:
+            setattr(cfg, field, str(value))
+    return cfg
+
+
+def resolve_dir(value: str, root: Path) -> Path:
+    """解析目录配置：相对值相对 root，绝对路径原样使用；返回值恒为绝对路径。
+
+    Windows 上 ``/data/downloads`` 这类无盘符的盘根写法锚定到 root 所在盘
+    （``C:\\data\\downloads``），避免随进程当前盘漂移。
+    """
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return path
+    if path.anchor:  # 仅 Windows：形如 "\data\downloads" 的盘根相对路径
+        drive = root.drive or Path.cwd().drive
+        if drive:
+            return Path(drive + str(path))
+        return Path(str(root.anchor) + str(path).lstrip("\\/"))
+    return (root / path).absolute()
+
+
+def app_dirs(base_dir: Path | None = None, paths: PathConfig | None = None) -> dict[str, Path]:
+    """FR-CFG-02 路径布局；目录按需创建。
+
+    save/session/temp 三目录可由 config.yaml 或同名 TGM_* env 覆盖为绝对路径
+    （如 /data/downloads、/data/sessions、/data/temp）；preview 跟随 temp，
+    data/logs 固定相对 base_dir。
+    """
     root = base_dir or Path.cwd()
+    cfg = paths or load_path_config(root)
+    temp = resolve_dir(cfg.temp_directory, root)
     dirs = {
         "root": root,
-        "save_path": root / "library",
-        "temp": root / "temp",
-        "preview": root / "temp" / "preview",
-        "sessions": root / "sessions",
+        "save_path": resolve_dir(cfg.save_directory, root),
+        "temp": temp,
+        "preview": temp / "preview",
+        "sessions": resolve_dir(cfg.session_directory, root),
         "data": root / "data",
         "logs": root / "logs",
     }

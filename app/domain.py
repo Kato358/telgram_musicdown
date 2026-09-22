@@ -38,4 +38,4 @@ class TemplateConfig:
     file_template: str = "{track:02d} {title}"
     date_format: str = "%Y-%m"
     caption_artist_re: str = r"^\s*(?P<artist>.+?)\s*[-\u2013\u2014]\s*(?P<title>.+?)\s*$"
-    save_path: PurePath = field(default_factory=lambda: Path("./library"))
+    save_path: PurePath = field(default_factory=lambda: Path("./downloads"))
