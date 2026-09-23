@@ -22,9 +22,16 @@ class FakeFloodWait(Exception):
 class FakeUserClient:
     """可脚本化注入的假客户端。"""
 
-    def __init__(self, messages: list[dict[str, Any]], *, content: bytes = b"x" * 100) -> None:
+    def __init__(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        content: bytes = b"x" * 100,
+        dialogs: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.messages = messages
         self.content = content
+        self.dialogs = dialogs or []
         self.flood_queue: list[int] = []  # download_media 前依次弹出的 FloodWait
         self.size_override: int | None = None  # 注入大小不符
         self.download_calls = 0
@@ -37,6 +44,9 @@ class FakeUserClient:
             "username": "music",
             "can_view_history": True,
         }
+
+    async def list_dialogs(self, limit: int) -> list[dict[str, Any]]:
+        return self.dialogs[:limit]
 
     async def search_messages(
         self, chat_id: int, query: str, limit: int, offset: int
@@ -57,7 +67,14 @@ class FakeUserClient:
     async def iter_messages(
         self, chat_id: int, reverse: bool, offset_id: int, limit: int = 100
     ) -> list[dict[str, Any]]:
-        return self.messages[:limit]
+        """按 pyrogram 语义分页：reverse=False 取 id < offset 的降序，True 取 id > offset 升序。"""
+        ordered = sorted(self.messages, key=lambda m: int(m["message_id"]), reverse=not reverse)
+        if offset_id:
+            if reverse:
+                ordered = [m for m in ordered if int(m["message_id"]) > offset_id]
+            else:
+                ordered = [m for m in ordered if int(m["message_id"]) < offset_id]
+        return ordered[:limit]
 
     async def download_media(self, message_ref: dict[str, Any], file_name: str) -> str | None:
         self.download_calls += 1
@@ -95,4 +112,42 @@ def make_audio_message(
         "voice": voice,
         "caption": "周杰伦 - 晴天",
         "message_date": "2026-01-01T00:00:00+00:00",
+    }
+
+
+def make_audio_document_message(message_id: int, *, title: str = "夜的第七章") -> dict[str, Any]:
+    """MIME 为 audio/* 的 document（FR-SRC-02 里 media_scope 的第二档）。"""
+    return {
+        "chat_id": -100123,
+        "message_id": message_id,
+        "audio": None,
+        "document": {
+            "mime_type": "audio/flac",
+            "file_size": 100,
+            "file_unique_id": f"uniq_{message_id}",
+            "file_name": f"{title}.flac",
+            "duration": None,
+        },
+        "voice": False,
+        "caption": None,
+        "message_date": "2026-02-01T00:00:00+00:00",
+    }
+
+
+def make_video_message(message_id: int) -> dict[str, Any]:
+    """视频消息：任何范围都不该入队（验收 #11）。"""
+    return {
+        "chat_id": -100123,
+        "message_id": message_id,
+        "audio": None,
+        "document": {
+            "mime_type": "video/mp4",
+            "file_size": 100,
+            "file_unique_id": f"uniq_{message_id}",
+            "file_name": "clip.mp4",
+            "duration": None,
+        },
+        "voice": False,
+        "caption": None,
+        "message_date": "2026-02-02T00:00:00+00:00",
     }

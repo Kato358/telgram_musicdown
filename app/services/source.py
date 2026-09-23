@@ -1,22 +1,30 @@
 """源管理（FR-SRC-01~05）与搜索（FR-SEARCH-01~04）服务。
 
 services 层不 import pyrogram（编码规范 §2.4 反模式表）；
-Telegram 交互经 TelegramClientProto 协议面（FakeUserClient 可替换，NFR-07）。
+Telegram 交互经 SourceClientProto 协议面（FakeUserClient 可替换，NFR-07）。
+音频判定、卡片映射、源级过滤等跨服务共用的纯规则在 app/domain.py。
 """
 
 from __future__ import annotations
 
-import json
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from app.db.models import Source
 from app.db.store import Store
+from app.domain import (
+    SearchResultCard,
+    is_audio_message,
+    message_to_card,
+    source_tags,
+)
 from app.errors import SourceUnreachableError
 from app.utils.linkparse import ParsedLink
 
 logger = logging.getLogger(__name__)
+
+DISCOVER_LIMIT = 60  # 候选源上限：列表本身是「挑几个加入」，不做全量呈现（FR-SRC-05）
 
 
 class SourceClientProto(Protocol):
@@ -28,6 +36,8 @@ class SourceClientProto(Protocol):
         self, chat_id: int, query: str, limit: int, offset: int
     ) -> list[dict[str, Any]]: ...
 
+    async def list_dialogs(self, limit: int) -> list[dict[str, Any]]: ...
+
 
 @dataclass(slots=True)
 class ChatInfo:
@@ -38,6 +48,18 @@ class ChatInfo:
     type: str  # channel|group|user
     username: str | None = None
     can_view_history: bool = True
+
+
+@dataclass(slots=True)
+class DiscoverCandidate:
+    """候选源（FR-SRC-05）：账号对话中命中音乐关键词的频道/群组/用户。"""
+
+    chat_id: int
+    title: str
+    username: str | None
+    type: str
+    members: int | None
+    tags: list[str]
 
 
 class SourceService:
@@ -99,23 +121,34 @@ class SourceService:
     def delete_source(self, source_id: int, with_history: bool = False) -> None:
         self.store.delete_source(source_id, with_history)
 
+    async def discover_candidates(self, limit: int = DISCOVER_LIMIT) -> list[DiscoverCandidate]:
+        """候选源（FR-SRC-05）：扫账号对话，标题/用户名命中音乐关键词且尚未添加的。
 
-@dataclass(slots=True)
-class SearchResultCard:
-    """搜索结果卡片（FR-SEARCH-02）。"""
-
-    chat_id: int
-    message_id: int
-    title: str | None
-    artist: str | None
-    duration_sec: int | None
-    file_size: int | None
-    ext: str | None
-    mime: str | None
-    channel_title: str | None
-    message_date: str | None
-    caption: str | None
-    file_unique_id: str | None = None
+        非自动全量加入：只列候选，加不加由用户在向导里逐个决定。
+        """
+        added = {s.telegram_chat_id for s in self.store.list_sources()}
+        raw = await self.client.list_dialogs(limit)
+        out: list[DiscoverCandidate] = []
+        for d in raw:
+            chat_id = int(d["chat_id"])
+            if chat_id in added:
+                continue
+            tags = source_tags(str(d.get("title") or ""), d.get("username"))
+            if not tags:
+                continue
+            members = d.get("members")
+            out.append(
+                DiscoverCandidate(
+                    chat_id=chat_id,
+                    title=str(d.get("title") or chat_id),
+                    username=d.get("username"),
+                    type=str(d.get("type") or "user"),
+                    members=int(members) if isinstance(members, int) else None,
+                    tags=tags,
+                )
+            )
+        out.sort(key=lambda c: (c.members or 0, c.title.lower()), reverse=True)
+        return out[:limit]
 
 
 @dataclass(slots=True)
@@ -159,88 +192,12 @@ class SearchService:
                 unreachable.append({"source_id": src.id, "reason": e.reason})
                 continue
             for m in raw:
-                if not self._is_audio(m):
+                if not is_audio_message(m):
                     continue
-                results.append(self._to_card(m, src.title))
+                results.append(message_to_card(m, src.title))
         results.sort(key=lambda c: c.message_date or "", reverse=True)
         start = page * page_size
         return SearchResponse(
             results=results[start : start + page_size],
             meta={"unreachable": unreachable},
         )
-
-    @staticmethod
-    def _is_audio(m: dict[str, Any]) -> bool:
-        """音频判定（SDD §2.1）：msg.audio 或 MIME audio/* document；voice 一律排除。"""
-        if m.get("voice"):
-            return False
-        if m.get("audio"):
-            return True
-        doc = m.get("document")
-        return bool(doc and str(doc.get("mime_type", "")).startswith("audio/"))
-
-    @staticmethod
-    def _to_card(m: dict[str, Any], channel_title: str) -> SearchResultCard:
-        audio = m.get("audio") or {}
-        doc = m.get("document") or {}
-        file_name = audio.get("file_name") or doc.get("file_name")
-        ext = file_name.rsplit(".", 1)[-1] if file_name and "." in file_name else None
-        return SearchResultCard(
-            chat_id=m["chat_id"],
-            message_id=m["message_id"],
-            title=audio.get("title") or file_name,
-            artist=audio.get("performer"),
-            duration_sec=audio.get("duration") or doc.get("duration"),
-            file_size=audio.get("file_size") or doc.get("file_size"),
-            ext=ext,
-            mime=audio.get("mime_type") or doc.get("mime_type"),
-            channel_title=channel_title,
-            message_date=m.get("message_date"),
-            caption=m.get("caption"),
-            file_unique_id=audio.get("file_unique_id") or doc.get("file_unique_id"),
-        )
-
-
-class SourceFilters:
-    """源级过滤（FR-SRC-02）：filters_json 的结构化形式。"""
-
-    @staticmethod
-    def parse(filters_json: str | None) -> dict[str, Any]:
-        if not filters_json:
-            return {}
-        try:
-            data = json.loads(filters_json)
-            return data if isinstance(data, dict) else {}
-        except json.JSONDecodeError:
-            return {}
-
-    @staticmethod
-    def _out_of_duration(f: dict[str, Any], dur: int | None) -> bool:
-        min_d, max_d = f.get("min_duration"), f.get("max_duration")
-        if dur is None:
-            return min_d is not None or max_d is not None
-        return (min_d is not None and dur < min_d) or (max_d is not None and dur > max_d)
-
-    @staticmethod
-    def _caption_blocked(f: dict[str, Any], caption: str | None) -> bool:
-        cap = caption or ""
-        contains = f.get("caption_contains") or []
-        excludes = f.get("caption_exclude") or []
-        has_all = all(k in cap for k in contains) if contains else True
-        has_none = not any(k in cap for k in excludes)
-        return not (has_all and has_none)
-
-    @staticmethod
-    def matches(filters_json: str | None, card: SearchResultCard) -> bool:
-        f = SourceFilters.parse(filters_json)
-        if not f:
-            return True
-        if SourceFilters._out_of_duration(f, card.duration_sec):
-            return False
-        if (exts := f.get("ext_whitelist")) and card.ext not in exts:
-            return False
-        return not SourceFilters._caption_blocked(f, card.caption)
-
-
-def card_to_dict(card: SearchResultCard) -> dict[str, Any]:
-    return asdict(card)

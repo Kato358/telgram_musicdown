@@ -148,6 +148,11 @@ class Store:
     # ---- history ----
 
     def upsert_history(self, h: History) -> int:
+        """写 history；同一 (chat_id, message_id) 再次入队时收敛到同一行并重置为本次状态。
+
+        行在入队时就存在（status=queued），下载结束再改状态；重试同一消息不该新增行
+        （tasks.history_id 与历史页都指向它）。
+        """
         now = utcnow()
         with self._conn:
             if h.id is None:
@@ -155,7 +160,15 @@ class Store:
                     "INSERT INTO history (source_id, chat_id, message_id, file_unique_id,"
                     " file_id, title, artist, album, duration_sec, file_size, mime, ext,"
                     " caption, message_date, save_path, status, error, created_at,"
-                    " finished_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " finished_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                    " ON CONFLICT(chat_id, message_id) DO UPDATE SET"
+                    " source_id=excluded.source_id, file_unique_id=excluded.file_unique_id,"
+                    " file_id=excluded.file_id, title=excluded.title, artist=excluded.artist,"
+                    " album=excluded.album, duration_sec=excluded.duration_sec,"
+                    " file_size=excluded.file_size, mime=excluded.mime, ext=excluded.ext,"
+                    " caption=excluded.caption, message_date=excluded.message_date,"
+                    " status=excluded.status, error=NULL, finished_at=NULL"
+                    " RETURNING id",
                     (
                         h.source_id,
                         h.chat_id,
@@ -178,7 +191,8 @@ class Store:
                         h.finished_at,
                     ),
                 )
-                return int(cur.lastrowid)  # type: ignore[arg-type]  # sqlite3 lastrowid 运行时必为 int
+                row = cur.fetchone()
+                return int(row["id"])
             self._conn.execute(
                 "UPDATE history SET source_id=?, file_unique_id=?, file_id=?, title=?,"
                 " artist=?, album=?, duration_sec=?, file_size=?, mime=?, ext=?,"

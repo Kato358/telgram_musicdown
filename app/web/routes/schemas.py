@@ -11,15 +11,12 @@ class SendCodeRequest(BaseModel):
     phone: str
 
 
-class SendCodeResponse(BaseModel):
-    code_hash: str
-
-
 class SignInRequest(BaseModel):
     phone: str
     code: str
     code_hash: str
     password: str | None = None
+
 
 class ProxySpec(BaseModel):
     scheme: str = "socks5"
@@ -35,6 +32,29 @@ class SetupSecretsRequest(BaseModel):
     bot_token: str | None = None
     web_login_secret: str | None = None
     proxy: ProxySpec | None = None
+
+
+class SetupStatusResponse(BaseModel):
+    """初始化状态（FR-OPS-02）：放行 = 密钥齐备 + 已登录；音乐源可选。
+
+    proxy 只回协议/地址/端口，不回用户名密码（NFR-02）。
+    """
+
+    complete: bool
+    has_api_id: bool
+    has_api_hash: bool
+    has_bot_token: bool
+    proxy: ProxySpec | None = None
+    connected: bool = False
+    display_name: str | None = None
+    username: str | None = None
+
+
+class SendCodeResponse(BaseModel):
+    """发码结果：已有有效会话时 authorized=True 且不填 code_hash。"""
+
+    code_hash: str
+    authorized: bool = False
 
 
 class MeResponse(BaseModel):

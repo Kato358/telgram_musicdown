@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import SecretConfig
+from app.config import SecretConfig, load_secrets
 from app.db.store import Store
 from app.domain import TemplateConfig
 from app.errors import WebAuthConfigError
@@ -16,9 +17,13 @@ from app.events import Event, EventBus
 from app.services.download import DownloadService
 from app.services.preview import PreviewService
 from app.services.source import SearchService, SourceService
+from app.services.sync import INITIAL_IMPORT_LIMIT
 from app.telegram.manager import TelegramManager
 from app.web import auth as web_auth
 from app.web.routes import create_app
+from tests.fakes import FakeUserClient
+
+API_HASH = "0123456789abcdef0123456789abcdef"
 
 
 @pytest.fixture()
@@ -122,13 +127,161 @@ def test_setup_secrets_writes_to_base_dir(tmp_path: Path) -> None:
     )
     preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
     tg = TelegramManager(SecretConfig(), tmp_path / "elsewhere" / "sessions")
-    app = create_app(
-        store, events, downloads, sources, search, preview, tg, base_dir=tmp_path
-    )
-    r = TestClient(app).post("/api/setup/secrets", json={"api_id": 12345, "api_hash": "abc"})
+    app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
+    r = TestClient(app).post("/api/setup/secrets", json={"api_id": 1234567, "api_hash": API_HASH})
     assert r.status_code == 200
-    assert "abc" in (tmp_path / "config.yaml").read_text(encoding="utf-8")
+    assert API_HASH in (tmp_path / "config.yaml").read_text(encoding="utf-8")
     assert not (tmp_path / "elsewhere" / "config.yaml").exists()
+
+
+def _client_with(
+    tmp_path: Path, secrets: SecretConfig | None = None
+) -> tuple[TestClient, TelegramManager]:
+    """带自定密钥的 API 客户端（向导相关用例共用）。"""
+    store = Store(tmp_path / "app.db")
+    events = EventBus()
+    sources = SourceService(store, None)  # type: ignore[arg-type]
+    search = SearchService(store, None)  # type: ignore[arg-type]
+    downloads = DownloadService(
+        store,
+        None,
+        events,
+        tmp_path / "temp",
+        TemplateConfig(save_path=tmp_path / "downloads"),  # type: ignore[arg-type]
+    )
+    preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    tg = TelegramManager(secrets or SecretConfig(), tmp_path / "sessions")
+    app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
+    return TestClient(app), tg
+
+
+def test_setup_secrets_rejects_bad_api_id_and_keeps_file(tmp_path: Path) -> None:
+    # FR-OPS-02：校验在写盘前做（api_id 必须 5–10 位数字）
+    client, _ = _client_with(tmp_path)
+    r = client.post("/api/setup/secrets", json={"api_id": 12, "api_hash": API_HASH})
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "invalid_secrets"
+    assert not (tmp_path / "config.yaml").exists()
+
+
+def test_setup_secrets_proxy_null_clears_existing(tmp_path: Path) -> None:
+    # 关掉「走代理」后保存：config.yaml 里的 proxy 段被清除（不残留旧代理）
+    (tmp_path / "config.yaml").write_text(
+        "api_id: 1234567\n"
+        f"api_hash: {API_HASH}\n"
+        "proxy:\n  scheme: http\n  hostname: 127.0.0.1\n  port: 7890\n",
+        encoding="utf-8",
+    )
+    client, _ = _client_with(tmp_path)
+    r = client.post("/api/setup/secrets", json={"proxy": None})
+    assert r.status_code == 200
+    assert "proxy" not in (tmp_path / "config.yaml").read_text(encoding="utf-8")
+
+
+def test_setup_secrets_proxy_keeps_unseen_credentials(tmp_path: Path) -> None:
+    # 向导不回显代理用户名/密码（NFR-02）：表单没填时沿用已有值，不能因为看不见就删掉
+    (tmp_path / "config.yaml").write_text(
+        "api_id: 1234567\n"
+        f"api_hash: {API_HASH}\n"
+        "proxy:\n  scheme: socks5\n  hostname: 10.0.0.9\n  port: 1080\n"
+        "  username: alice\n  password: s3cret\n  enable_proxy: true\n",
+        encoding="utf-8",
+    )
+    client, _ = _client_with(tmp_path)
+    r = client.post(
+        "/api/setup/secrets",
+        json={"proxy": {"scheme": "http", "hostname": "10.0.0.10", "port": 8080}},
+    )
+    assert r.status_code == 200
+    body = (tmp_path / "config.yaml").read_text(encoding="utf-8")
+    assert "hostname: 10.0.0.10" in body
+    assert "username: alice" in body and "password: s3cret" in body
+    assert "enable_proxy: true" in body
+
+
+def test_setup_status_requires_login_for_complete(tmp_path: Path) -> None:
+    # 放行判据 = 密钥 + 登录（向导第 3 步的源可选）：只有密钥不算完成
+    client, tg = _client_with(tmp_path, SecretConfig(api_id=1234567, api_hash=API_HASH))
+    body = client.get("/api/setup/status").json()
+    assert body["has_api_id"] is True and body["has_api_hash"] is True
+    assert body["connected"] is False
+    assert body["complete"] is False
+    tg.authorized = True
+    assert client.get("/api/setup/status").json()["complete"] is True
+
+
+def test_setup_status_hides_proxy_credentials(tmp_path: Path) -> None:
+    # NFR-02：状态接口只回协议/地址/端口，用户名密码不出网
+    (tmp_path / "config.yaml").write_text(
+        "api_id: 1234567\n"
+        f"api_hash: {API_HASH}\n"
+        "proxy:\n  scheme: socks5\n  hostname: 10.0.0.9\n  port: 1080\n"
+        "  username: u\n  password: p\n",
+        encoding="utf-8",
+    )
+    client, _ = _client_with(tmp_path, load_secrets(tmp_path))
+    proxy = client.get("/api/setup/status").json()["proxy"]
+    assert proxy == {
+        "scheme": "socks5",
+        "hostname": "10.0.0.9",
+        "port": 1080,
+        "username": None,
+        "password": None,
+    }
+
+
+def test_send_code_without_credentials_reports_missing_secrets(tmp_path: Path) -> None:
+    # FR-AUTH-01：没保存密钥就点「发送验证码」→ 明确原因，不去连 Telegram
+    client, _ = _client_with(tmp_path)
+    r = client.post("/api/auth/telegram/send-code", json={"phone": "+8613800000000"})
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "secrets_missing"
+
+
+def test_send_code_rejects_bad_phone(tmp_path: Path) -> None:
+    client, _ = _client_with(tmp_path, SecretConfig(api_id=1234567, api_hash=API_HASH))
+    r = client.post("/api/auth/telegram/send-code", json={"phone": "12"})
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "phone_invalid"
+
+
+def test_discover_requires_login(tmp_path: Path) -> None:
+    # FR-SRC-05：未登录时候选源接口报未连接，不返回空列表假装没有候选
+    client, _ = _client_with(tmp_path)
+    r = client.get("/api/sources/discover")
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "not_connected"
+
+
+def test_add_source_enqueues_initial_import(tmp_path: Path) -> None:
+    # 向导第 3 步：添加源后立刻建一条 sync 任务（最近 200 条的一次性导入）
+    store = Store(tmp_path / "app.db")
+    events = EventBus()
+    client = FakeUserClient([])
+    sources = SourceService(store, client)  # type: ignore[arg-type]
+    search = SearchService(store, client)  # type: ignore[arg-type]
+    downloads = DownloadService(
+        store,
+        client,
+        events,
+        tmp_path / "temp",
+        TemplateConfig(save_path=tmp_path / "downloads"),
+    )
+    preview = PreviewService(store, client, events, tmp_path / "temp" / "preview")
+    tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
+    app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
+    body = TestClient(app).post("/api/sources", json={"link": "@music_library"}).json()
+    assert body["username"] == "music"
+    task = store.get_task(body["import_task_id"])
+    assert task is not None
+    assert task.type == "sync"
+    assert json.loads(task.payload_json)["limit"] == INITIAL_IMPORT_LIMIT
+
+
+def test_backfill_unknown_source_404(tmp_path: Path) -> None:
+    client, _ = _client_with(tmp_path)
+    r = client.post("/api/sources/999/backfill", json={"direction": "backward"})
+    assert r.status_code == 404
 
 
 def test_sse_event_bus_delivers_event() -> None:

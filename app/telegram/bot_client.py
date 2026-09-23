@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -15,9 +16,10 @@ from pyrogram.client import Client
 from pyrogram.types import Message
 
 from app.config import SecretConfig
+from app.domain import TrackMeta, card_to_meta
 from app.errors import AppError
 from app.services.download import DownloadRequest, DownloadService
-from app.telegram.user_client import _proxy_dict
+from app.telegram.user_client import CONNECT_TIMEOUT_SEC, _connect_error, _proxy_dict
 from app.utils.linkparse import parse_link
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,7 @@ class BotClient:
     ) -> None:
         self.downloads = downloads
         self.search = search
+        self.secrets = secrets
         self._last_results: dict[int, list[Any]] = {}
         self.allowed_user_ids = allowed_user_ids or set()
         self.client = Client(
@@ -127,7 +130,7 @@ class BotClient:
             await msg.reply("链接需要包含消息 id")
             return
         task_id = await self.downloads.enqueue(
-            DownloadRequest(chat_id=link.chat_id, message_id=link.message_id)
+            DownloadRequest(meta=TrackMeta(chat_id=link.chat_id, message_id=link.message_id))
         )
         if task_id is None:
             await msg.reply("任务 #dedupe：已存在，跳过")
@@ -176,14 +179,7 @@ class BotClient:
             await msg.reply(f"序号需在 1~{len(results)} 之间")
             return
         card = results[index - 1]
-        task_id = await self.downloads.enqueue(
-            DownloadRequest(
-                chat_id=card.chat_id,
-                message_id=card.message_id,
-                file_unique_id=card.file_unique_id,
-                file_size=card.file_size,
-            )
-        )
+        task_id = await self.downloads.enqueue(DownloadRequest(meta=card_to_meta(card)))
         if task_id is None:
             await msg.reply("已存在，跳过")
             return
@@ -193,8 +189,7 @@ class BotClient:
         """转发/直接上传音频（FR-LINK-04）：不依赖源配置。"""
         task_id = await self.downloads.enqueue(
             DownloadRequest(
-                chat_id=msg.chat.id if msg.chat else 0,
-                message_id=msg.id,
+                meta=TrackMeta(chat_id=msg.chat.id if msg.chat else 0, message_id=msg.id)
             )
         )
         if task_id is None:
@@ -203,7 +198,13 @@ class BotClient:
         await msg.reply(f"任务 #{task_id}")
 
     async def start(self) -> None:
-        await self.client.start()
+        """启动 Bot（FR-AUTH-04）：与 User 同样的硬超时，避免死代理下无限重试。"""
+        try:
+            await asyncio.wait_for(self.client.start(), timeout=CONNECT_TIMEOUT_SEC)
+        except TimeoutError as e:
+            raise _connect_error(self.secrets, e) from e
+        except (OSError, ConnectionError) as e:
+            raise _connect_error(self.secrets, e) from e
 
     async def stop(self) -> None:
         await self.client.stop()

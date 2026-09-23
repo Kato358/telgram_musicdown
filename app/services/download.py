@@ -7,6 +7,9 @@
 
 关键点：
 - 并发：asyncio.Semaphore（max_download_task，默认 3）。
+- 入队同时建 history 行（status=queued）并把 id 挂到 tasks.history_id：历史页、恢复流程
+  与去重都以它为准（SDD §2.3/§3.2）。
+- 元数据走 TrackMeta 单一契约（SDD §2.2）：渲染路径、写 history、写标签共用一份。
 - 完整性：os.path.getsize(temp) == file_size 必须一致才 os.replace（NFR-01）。
 - 去重在入队时做（FR-DL-05）；「强制重新下载」绕过检查。
 - 重试计数存 tasks 表；指数退避 min(2^n * 30s, 1h)。
@@ -19,13 +22,14 @@ import asyncio
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from app.db.models import Task
+from app.db.models import History, Task
 from app.db.store import utcnow
-from app.domain import TemplateConfig, TrackMeta
+from app.domain import TemplateConfig, TrackMeta, meta_from_dict
+from app.errors import AppError
 from app.events import Event, EventBus
 from app.services.path_builder import render_path, resolve_conflict
 from app.services.tags import TagService
@@ -51,14 +55,17 @@ class TelegramClientProto(Protocol):
     def download_media(self, message_ref: dict[str, Any], file_name: str) -> Any: ...
 
 
+class SyncRunnerProto(Protocol):
+    """源同步执行器协议面（FR-SRC-04，实现在 services/sync.py）。"""
+
+    async def run(self, task_id: int, payload: dict[str, Any]) -> Any: ...
+
+
 @dataclass(slots=True)
 class DownloadRequest:
     """单条下载请求（payload_json 的结构化形式）。"""
 
-    chat_id: int
-    message_id: int
-    file_unique_id: str | None = None
-    file_size: int | None = None
+    meta: TrackMeta
     source_id: int | None = None
     force: bool = False
 
@@ -87,21 +94,22 @@ class DownloadService:
         self._worker_tasks: list[asyncio.Task[None]] = []
         self._paused_tasks: set[int] = set()
         self.tags = TagService()
+        self.sync_runner: SyncRunnerProto | None = None
+
+    def set_sync_runner(self, runner: SyncRunnerProto) -> None:
+        """装配源同步执行器（FR-SRC-04）：tasks.type='sync' 由本 Worker 池执行。"""
+        self.sync_runner = runner
 
     async def enqueue(self, req: DownloadRequest) -> int | None:
-        """入队：去重检查（FR-DL-05）→ 建任务；命中返回 None（调用方标 skipped）。"""
-        hit = self.store.find_history_success(req.chat_id, req.message_id, req.file_unique_id)
+        """入队：去重检查（FR-DL-05）→ 建 history + task（FR-DL-01）；命中返回 None。"""
+        meta = req.meta
+        hit = self.store.find_history_success(meta.chat_id, meta.message_id, meta.unique_id)
         if hit and not req.force:
-            logger.info("dedupe hit chat=%s msg=%s", req.chat_id, req.message_id)
-            self.events.publish_nowait(
-                Event("task.status", {"task_id": hit.id, "status": "skipped", "error": None})
-            )
+            logger.info("dedupe hit chat=%s msg=%s", meta.chat_id, meta.message_id)
             return None
+        history_id = self.store.upsert_history(_history_row(meta, req.source_id))
         payload = {
-            "chat_id": req.chat_id,
-            "message_id": req.message_id,
-            "file_unique_id": req.file_unique_id,
-            "file_size": req.file_size,
+            "meta": asdict(meta),
             "source_id": req.source_id,
             "force": req.force,
         }
@@ -110,6 +118,7 @@ class DownloadService:
                 id=None,
                 type="link",
                 payload_json=json.dumps(payload, ensure_ascii=False),
+                history_id=history_id,
             )
         )
         await self.events.publish(
@@ -198,13 +207,17 @@ class DownloadService:
         return task
 
     async def _run_task(self, task: dict[str, Any]) -> None:
-        """执行单任务：下载 → 校验 → os.replace → 写标签（SDD §2.3 状态机）。"""
+        """按任务类型分发：sync 走源同步执行器，其余是单条下载（SDD §2.3 状态机）。"""
+        if task["type"] == "sync":
+            await self._run_sync(task)
+            return
         payload = json.loads(task["payload_json"])
         task_id: int = task["id"]
         history_id: int | None = task.get("history_id")
-        chat_id: int = payload["chat_id"]
-        message_id: int = payload["message_id"]
-        expected_size: int | None = payload.get("file_size")
+        meta = _meta_from_payload(payload)
+        chat_id: int = meta.chat_id
+        message_id: int = meta.message_id
+        expected_size: int | None = meta.file_size
 
         async with self._sem:
             if task_id in self._paused_tasks:
@@ -240,7 +253,6 @@ class DownloadService:
                     )
                     return  # NFR-01：损坏文件不落 save_path
             # 渲染路径 + 冲突处理
-            meta = self._meta_from_payload(payload)
             rendered = render_path(meta, self.cfg)
             target, dedupe_hit = resolve_conflict(Path(rendered), expected_size=expected_size)
             if dedupe_hit:
@@ -265,6 +277,30 @@ class DownloadService:
                 Event("task.status", {"task_id": task_id, "status": "success", "error": None})
             )
 
+    async def _run_sync(self, task: dict[str, Any]) -> None:
+        """源同步/回溯（FR-SRC-04）：交给 SyncRunner，本处只做状态与错误落库。"""
+        task_id: int = task["id"]
+        if self.sync_runner is None:
+            reason = "sync runner not wired"
+            self.store.update_task(task_id, status="failed", error=reason)
+            await self.events.publish(
+                Event("task.status", {"task_id": task_id, "status": "failed", "error": reason})
+            )
+            return
+        payload = json.loads(task["payload_json"])
+        try:
+            await self.sync_runner.run(task_id, payload)  # 扫描计数由 SyncRunner 记日志
+        except AppError as e:  # 领域错误：写人类可读原因（NFR-08）
+            self.store.update_task(task_id, status="failed", error=e.message)
+            await self.events.publish(
+                Event("task.status", {"task_id": task_id, "status": "failed", "error": e.message})
+            )
+            return
+        self.store.update_task(task_id, status="success")
+        await self.events.publish(
+            Event("task.status", {"task_id": task_id, "status": "success", "error": None})
+        )
+
     def _discard_temp(self, temp_path: Path) -> None:
         if temp_path.exists():
             temp_path.unlink()
@@ -279,14 +315,28 @@ class DownloadService:
             except Exception:
                 logger.exception("tag write failed for %s (task continues)", save_path)
 
-    def _meta_from_payload(self, payload: dict[str, Any]) -> TrackMeta:
-        return TrackMeta(
-            chat_id=payload["chat_id"],
-            message_id=payload["message_id"],
-            title=payload.get("title"),
-            artist=payload.get("artist"),
-            album=payload.get("album"),
-            track=payload.get("track"),
-            ext=payload.get("ext"),
-            file_size=payload.get("file_size"),
-        )
+
+def _history_row(meta: TrackMeta, source_id: int | None) -> History:
+    """入队即建 history 行（status=queued）：历史页与恢复流程都以它为准。"""
+    return History(
+        id=None,
+        chat_id=meta.chat_id,
+        message_id=meta.message_id,
+        source_id=source_id,
+        file_unique_id=meta.unique_id,
+        title=meta.title,
+        artist=meta.artist,
+        album=meta.album,
+        duration_sec=meta.duration_sec,
+        file_size=meta.file_size,
+        mime=meta.mime,
+        ext=meta.ext,
+        caption=meta.caption,
+        message_date=meta.message_date,
+        status="queued",
+    )
+
+
+def _meta_from_payload(payload: dict[str, Any]) -> TrackMeta:
+    """payload['meta'] → TrackMeta；缺失字段走回退链（FR-NAME-02）。"""
+    return meta_from_dict(payload.get("meta") or {})

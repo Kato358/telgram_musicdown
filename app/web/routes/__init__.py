@@ -4,23 +4,26 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.db.models import Task
 from app.db.store import Store
-from app.domain import TemplateConfig, TrackMeta
-from app.errors import AppError
+from app.domain import TemplateConfig, TrackMeta, card_to_dict, meta_from_dict
+from app.errors import AppError, AuthError
 from app.events import Event, EventBus
 from app.services.download import DownloadRequest, DownloadService
 from app.services.path_builder import render_path
 from app.services.preview import PreviewService
-from app.services.source import SearchService, SourceService, card_to_dict
+from app.services.source import SearchService, SourceService
+from app.services.sync import INITIAL_IMPORT_LIMIT
 from app.utils.linkparse import parse_link
 from app.web import auth as web_auth
 from app.web.routes import schemas
@@ -30,6 +33,25 @@ logger = logging.getLogger(__name__)
 
 def _envelope(code: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=400, content={"error": {"code": code, "message": message}})
+
+
+_PHONE_RE = re.compile(r"^\+?\d{6,15}$")
+
+
+def _normalize_phone(raw: str) -> str:
+    """手机号归一：去掉空格/连字符/括号（用户从通讯录复制时常带这些）。"""
+    return re.sub(r"[\s\-()]", "", raw or "")
+
+
+def _enqueue_sync(store: Store, source_id: int, **payload: Any) -> int:
+    """建一条 sync 任务（FR-SRC-04）：由下载 Worker 池执行，Web 请求不阻塞。"""
+    return store.create_task(
+        Task(
+            id=None,
+            type="sync",
+            payload_json=json.dumps({"source_id": source_id, **payload}, ensure_ascii=False),
+        )
+    )
 
 
 def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天然超限
@@ -63,29 +85,48 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
             payload["reason"] = exc.reason
         return JSONResponse(status_code=400, content={"error": payload})
 
+    @app.exception_handler(RequestValidationError)
+    async def validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        """Pydantic 校验失败也走同一错误包络（NFR-08/§4），前端只需认一种错误形状。"""
+        first = exc.errors()[0] if exc.errors() else {}
+        field = ".".join(str(p) for p in first.get("loc", ()) if p != "body")
+        message = f"{field}: {first.get('msg', 'invalid request')}".lstrip(": ")
+        return JSONResponse(
+            status_code=400, content={"error": {"code": "validation_error", "message": message}}
+        )
+
     # ---- auth ----
 
     @app.post("/api/auth/telegram/send-code")
     async def send_code(
         req: schemas.SendCodeRequest, _: None = Depends(check_session)
-    ) -> dict[str, str]:
-        """发验证码（FR-AUTH-01）：UserClient 连接 + send_code。"""
-        me = await tg.connect_user()  # 确保客户端存在并已连接
-        del me
-        if tg.user is None:
-            raise HTTPException(status_code=503, detail="client unavailable")
-        code_hash = await tg.user.send_code(req.phone)
-        return {"code_hash": code_hash}
+    ) -> dict[str, Any]:
+        """发验证码（FR-AUTH-01）：连接 UserClient；已有有效会话则直接报已登录。"""
+        if not tg.secrets.has_credentials:
+            raise AuthError("secrets_missing", "先在第 1 步保存 api_id / api_hash，才能登录")
+        phone = _normalize_phone(req.phone)
+        if not _PHONE_RE.match(phone):
+            raise AuthError("phone_invalid", "手机号要带国家码，例如 +8613800000000")
+        await tg.connect_user()  # 用当前 config.yaml 的密钥建连（向导第 1 步保存的值）
+        if tg.authorized:
+            return {"code_hash": "", "authorized": True, "me": await tg.me()}
+        if tg.user is None:  # pragma: no cover - connect_user 必建 client
+            raise AuthError("not_authorized", "Telegram 客户端未就绪，请重试")
+        code_hash = await tg.user.send_code(phone)
+        return {"code_hash": code_hash, "authorized": False, "me": None}
 
     @app.post("/api/auth/telegram/sign-in")
     async def sign_in(
         req: schemas.SignInRequest, _: None = Depends(check_session)
     ) -> dict[str, Any]:
-        """登录（FR-AUTH-01）：生成 sessions/ 会话文件；2FA 需 password。"""
+        """登录（FR-AUTH-01）：会话文件落 sessions/；两步验证缺密码报 password_required。"""
         if tg.user is None:
-            raise HTTPException(status_code=409, detail="send code first")
+            raise AuthError("not_authorized", "先发送验证码，再提交验证码")
         await tg.user.sign_in(req.phone, req.code, req.code_hash, req.password)
-        return await tg.user.get_me()
+        tg.mark_authorized()
+        await tg.start_bot_configured()  # bot_token 已配置时按新会话启动 Bot（FR-AUTH-04）
+        info: dict[str, Any] = await tg.user.get_me()
+        return info
 
     @app.post("/api/auth/logout")
     async def logout(response: Response, _: None = Depends(check_session)) -> dict[str, bool]:
@@ -96,46 +137,62 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
     @app.get("/api/me")
     async def me(_: None = Depends(check_session)) -> schemas.MeResponse:
         """账号信息 + 连接状态（FR-AUTH-01/02）。"""
-        if tg.user is None:
+        info = await tg.me()
+        if info is None:
             return schemas.MeResponse(connected=False)
-        try:
-            info = await tg.user.get_me()
-            return schemas.MeResponse(
-                display_name=info.get("display_name"),
-                username=info.get("username"),
-                premium=bool(info.get("premium", False)),
-                connected=True,
-            )
-        except AppError:
-            return schemas.MeResponse(connected=False)
+        return schemas.MeResponse(
+            display_name=info.get("display_name"),
+            username=info.get("username"),
+            premium=bool(info.get("premium", False)),
+            connected=True,
+        )
 
     # ---- setup（首次部署初始化，FR-OPS-02）----
 
     @app.get("/api/setup/status")
-    async def setup_status(_: None = Depends(check_session)) -> dict[str, Any]:
+    async def setup_status(_: None = Depends(check_session)) -> schemas.SetupStatusResponse:
+        """初始化状态：放行 = 密钥齐备 + 已登录（音乐源可选，向导第 3 步）。"""
         from app.services.setup import setup_complete  # noqa: PLC0415
 
-        return {
-            "complete": setup_complete(tg.secrets),
-            "has_api_id": tg.secrets.api_id != 0,
-            "has_api_hash": bool(tg.secrets.api_hash),
-            "has_bot_token": bool(tg.secrets.bot_token),
-            "proxy": tg.secrets.proxy is not None,
-            "connected": tg.user is not None,
-        }
+        secrets = tg.secrets
+        proxy = secrets.proxy
+        info = await tg.me()
+        return schemas.SetupStatusResponse(
+            complete=setup_complete(secrets, tg.authorized),
+            has_api_id=secrets.api_id != 0,
+            has_api_hash=bool(secrets.api_hash),
+            has_bot_token=bool(secrets.bot_token),
+            proxy=(
+                None
+                if proxy is None
+                else schemas.ProxySpec(
+                    scheme=proxy.scheme,
+                    hostname=proxy.hostname,
+                    port=proxy.port,
+                )
+            ),
+            connected=tg.authorized,
+            display_name=(info or {}).get("display_name"),
+            username=(info or {}).get("username"),
+        )
 
     @app.post("/api/setup/secrets")
     async def setup_secrets(req: schemas.SetupSecretsRequest) -> dict[str, Any]:
-        """保存密钥到 config.yaml（不入库，NFR-02）；凭据类字段保存后需重启生效。"""
+        """保存密钥到 config.yaml（不入库，NFR-02）。
+
+        校验看合并后的内容（前端校验只是即时反馈）；已连上的客户端不热换密钥，
+        故返回 ``restart_required`` 让界面说明重启后生效。
+        """
         from app.services.setup import save_secrets, setup_complete  # noqa: PLC0415
 
-        updated = save_secrets(
-            base_dir,
-            req.model_dump(exclude_none=True, exclude_unset=True),
-        )
+        updated = save_secrets(base_dir, req.model_dump(exclude_unset=True))
         tg.secrets = updated
-        return {"ok": True, "complete": setup_complete(updated), "restart_required": True}
-
+        alive = tg.user is not None or tg.bot is not None
+        return {
+            "ok": True,
+            "complete": setup_complete(updated, tg.authorized),
+            "restart_required": alive,
+        }
 
     # ---- sources ----
 
@@ -147,8 +204,19 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
     async def add_source(
         req: schemas.SourceUpsertRequest, _: None = Depends(check_session)
     ) -> dict[str, Any]:
+        """添加源（FR-SRC-01）+ 一次初始导入（最近 200 条，向导第 3 步的承诺）。"""
         src = await sources.add_source(parse_link(req.link))
-        return _src_dict(src)
+        task_id = _enqueue_sync(
+            store,
+            int(src.id or 0),
+            direction="backward",
+            limit=INITIAL_IMPORT_LIMIT,
+            initial=True,
+        )
+        await events.publish(
+            Event("task.status", {"task_id": task_id, "status": "queued", "error": None})
+        )
+        return {**_src_dict(src), "import_task_id": task_id}
 
     @app.put("/api/sources/{source_id}")
     async def update_source(
@@ -184,14 +252,16 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
     async def backfill(
         source_id: int, req: schemas.BackfillRequest, _: None = Depends(check_session)
     ) -> dict[str, int]:
-        task_id = store.create_task(
-            Task(
-                id=None,
-                type="sync",
-                payload_json=json.dumps(
-                    {"source_id": source_id, **req.model_dump()}, ensure_ascii=False
-                ),
-            )
+        """历史回溯（FR-SRC-04）：交给 sync 任务；方向与锚点原样入 payload。"""
+        if store.get_source(source_id) is None:
+            raise HTTPException(status_code=404, detail="source not found")
+        task_id = _enqueue_sync(
+            store,
+            source_id,
+            direction=req.direction,
+            limit=req.limit,
+            to_message_id=req.to_message_id,
+            to_date=req.to_date,
         )
         await events.publish(
             Event("task.status", {"task_id": task_id, "status": "queued", "error": None})
@@ -199,8 +269,12 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
         return {"task_id": task_id}
 
     @app.get("/api/sources/discover")
-    async def discover(_: None = Depends(check_session)) -> list[dict[str, Any]]:
-        return []
+    async def discover(_: None = Depends(check_session)) -> dict[str, Any]:
+        """候选源（FR-SRC-05）：账号对话中标题/用户名含音乐关键词、尚未添加的。"""
+        if not tg.authorized:
+            raise AuthError("not_connected", "先完成 Telegram 登录，才能扫你的会话")
+        items = await sources.discover_candidates()
+        return {"items": [_candidate_dict(c) for c in items]}
 
     # ---- search ----
 
@@ -220,11 +294,15 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
     async def create_downloads(
         req: schemas.DownloadsRequest, _: None = Depends(check_session)
     ) -> dict[str, Any]:
+        """入队（FR-LINK-01/02、FR-DL-01）：urls 逐条解析，message_refs 直接建任务。
+
+        message_refs 里带的元数据（title/artist/ext…）原样进 TrackMeta，
+        搜索结果直接下载时模板才有真实字段可用。
+        """
         out: list[dict[str, Any]] = []
-        refs: list[tuple[int, int]] = []
+        refs: list[dict[str, Any]] = []
         if req.message_refs:
-            for r in req.message_refs:
-                refs.append((int(r["chat_id"]), int(r["message_id"])))
+            refs.extend(req.message_refs)
         if req.urls:
             for url in req.urls:
                 try:
@@ -235,12 +313,11 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
                 if link.chat_id is None or link.message_id is None:
                     out.append({"url": url, "error": "link needs chat and message id"})
                     continue
-                refs.append((link.chat_id, link.message_id))
-        for chat_id, message_id in refs:
-            task_id = await downloads.enqueue(
-                DownloadRequest(chat_id=chat_id, message_id=message_id, force=req.force)
-            )
-            out.append({"chat_id": chat_id, "message_id": message_id, "task_id": task_id})
+                refs.append({"chat_id": link.chat_id, "message_id": link.message_id})
+        for ref in refs:
+            meta = meta_from_dict(ref)
+            task_id = await downloads.enqueue(DownloadRequest(meta=meta, force=req.force))
+            out.append({"chat_id": meta.chat_id, "message_id": meta.message_id, "task_id": task_id})
         return {"items": out}
 
     @app.get("/api/downloads")
@@ -400,6 +477,18 @@ def _src_dict(s: Any) -> dict[str, Any]:
         "last_message_id": s.last_message_id,
         "media_scope": json.loads(s.media_scope),
         "note": s.note,
+    }
+
+
+def _candidate_dict(c: Any) -> dict[str, Any]:
+    """候选源（FR-SRC-05）：username 不带 @，由前端统一展示（与 SourceRow 一致）。"""
+    return {
+        "chat_id": c.chat_id,
+        "title": c.title,
+        "username": c.username,
+        "type": c.type,
+        "members": c.members,
+        "tags": c.tags,
     }
 
 

@@ -58,16 +58,19 @@ def _load_config_file(base_dir: Path) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
-def load_secrets(base_dir: Path) -> SecretConfig:
-    """从 base_dir/config.yaml 与环境变量装配密钥；env 覆盖文件。"""
+def secrets_from_data(data: dict[str, Any]) -> SecretConfig:
+    """config.yaml 内容 → SecretConfig（不含环境变量覆盖）。
+
+    供 load_secrets 与向导的「写盘前校验」共用：校验必须看即将落盘的内容，
+    而不是当前进程里可能被 TGM_* 覆盖过的值。
+    """
     cfg = SecretConfig()
-    data = _load_config_file(base_dir)
-    cfg.api_id = int(_env("api_id") or data.get("api_id") or 0)
-    cfg.api_hash = str(_env("api_hash") or data.get("api_hash") or "")
-    cfg.bot_token = str(_env("bot_token") or data.get("bot_token") or "")
-    cfg.web_host = str(_env("web_host") or data.get("web_host") or "127.0.0.1")
-    cfg.web_port = int(_env("web_port") or data.get("web_port") or 8787)
-    cfg.web_login_secret = str(_env("web_login_secret") or data.get("web_login_secret") or "")
+    cfg.api_id = int(data.get("api_id") or 0)
+    cfg.api_hash = str(data.get("api_hash") or "")
+    cfg.bot_token = str(data.get("bot_token") or "")
+    cfg.web_host = str(data.get("web_host") or "127.0.0.1")
+    cfg.web_port = int(data.get("web_port") or 8787)
+    cfg.web_login_secret = str(data.get("web_login_secret") or "")
     proxy_raw = data.get("proxy")
     if isinstance(proxy_raw, dict):
         cfg.proxy = ProxyConfig(
@@ -77,6 +80,18 @@ def load_secrets(base_dir: Path) -> SecretConfig:
             username=proxy_raw.get("username"),
             password=proxy_raw.get("password"),
         )
+    return cfg
+
+
+def load_secrets(base_dir: Path) -> SecretConfig:
+    """从 base_dir/config.yaml 与环境变量装配密钥；env 覆盖文件。"""
+    cfg = secrets_from_data(_load_config_file(base_dir))
+    cfg.api_id = int(_env("api_id") or cfg.api_id)
+    cfg.api_hash = _env("api_hash") or cfg.api_hash
+    cfg.bot_token = _env("bot_token") or cfg.bot_token
+    cfg.web_host = _env("web_host") or cfg.web_host
+    cfg.web_port = int(_env("web_port") or cfg.web_port)
+    cfg.web_login_secret = _env("web_login_secret") or cfg.web_login_secret
     if _env("proxy_host"):
         cfg.proxy = ProxyConfig(
             hostname=_env("proxy_host") or "127.0.0.1",

@@ -21,46 +21,53 @@ logger = logging.getLogger(__name__)
 
 
 class _UserProxy:
-    """SourceService/SearchService 所需协议面；未连接时报错。"""
+    """SourceService/SearchService/SyncRunner 所需协议面；未登录时报错。"""
 
     def __init__(self, mgr: TelegramManager) -> None:
         self._mgr = mgr
 
     def _client(self) -> UserClient:
-        c = self._mgr.user
+        c = self._mgr.authorized_client()
         if c is None:
             raise AppError("not_connected", "telegram 未登录：请先在 Web 完成初始化登录")
         return c
 
-    def search_messages(
+    async def search_messages(
         self, chat_id: int, query: str, limit: int, offset: int
     ) -> list[dict[str, Any]]:
-        return self._client().search_messages(chat_id, query, limit, offset)
+        return await self._client().search_messages(chat_id, query, limit, offset)
 
-    def get_chat(self, entity: str | int) -> dict[str, Any]:
-        return self._client().get_chat(entity)
+    async def get_chat(self, entity: str | int) -> dict[str, Any]:
+        return await self._client().get_chat(entity)
 
-    def iter_messages(
+    async def iter_messages(
         self, chat_id: int, reverse: bool, offset_id: int, limit: int
     ) -> list[dict[str, Any]]:
-        return self._client().iter_messages(chat_id, reverse, offset_id, limit)
+        return await self._client().iter_messages(chat_id, reverse, offset_id, limit)
+
+    async def list_dialogs(self, limit: int) -> list[dict[str, Any]]:
+        return await self._client().list_dialogs(limit)
 
 
 class _DownloadProxy:
-    """DownloadService/PreviewService 所需协议面；未连接时报错。"""
+    """DownloadService/PreviewService 所需协议面；未登录时报错。"""
 
     def __init__(self, mgr: TelegramManager) -> None:
         self._mgr = mgr
 
     def download_media(self, message_ref: dict[str, Any], file_name: str) -> Any:
-        c = self._mgr.user
+        c = self._mgr.authorized_client()
         if c is None:
             raise AppError("not_connected", "telegram 未登录：请先在 Web 完成初始化登录")
         return c.download_media(message_ref, file_name)
 
 
 class TelegramManager:
-    """持有 User/Bot Client；登录前为 None，登录后可重建。"""
+    """持有 User/Bot Client 与其生命周期（FR-AUTH-01/02/04）。
+
+    ``user`` 在「已连接但未授权」（登录中途）时也非 None，故是否已登录一律看
+    ``authorized``；``authorized_client()`` 是下载/搜索/同步层取客户端的唯一入口。
+    """
 
     _downloads: Any = None
     _search: Any = None
@@ -70,38 +77,91 @@ class TelegramManager:
         self.session_dir = session_dir
         self.user: UserClient | None = None
         self.bot: BotClient | None = None
+        self.authorized = False
         self.user_client_proxy = _UserProxy(self)
         self.download_client_proxy = _DownloadProxy(self)
 
+    def authorized_client(self) -> UserClient | None:
+        """已登录则返回 UserClient，否则 None（调用方决定报错还是降级）。"""
+        return self.user if self.authorized else None
+
     async def start(self) -> None:
-        """启动已配置的客户端：User 需已有会话；Bot 可选。"""
-        # User client 仅在会话文件已存在时自动连接（登录由 Web 初始化完成）
+        """启动已配置的客户端：User 需已有会话；Bot 可选。
+
+        连接失败不阻断启动——Web 向导就是用来修配置与重新登录的（FR-OPS-02）；
+        会话文件被其它实例占用仍视为致命错误，由上层退出。
+        """
         session_file = self.session_dir / "musicdown.session"
         if self.secrets.has_credentials and session_file.exists():
-            await self.connect_user()
-        if self.secrets.has_credentials and self.secrets.bot_token and self._downloads is not None:
-            self.bot = BotClient(self.secrets, self.session_dir, self._downloads, self._search)
-
+            try:
+                await self.connect_user()
+            except SessionLockedError:
+                raise
+            except AppError as e:  # 连不上（代理/网络）：留给向导修，Web 照常可用
+                logger.warning("user client not connected at startup: %s", e.message)
+            except Exception:  # noqa: BLE001  其余启动期异常只记录，不挡 Web
+                logger.warning("user client connect failed at startup", exc_info=True)
+        await self.start_bot_configured()
 
     def set_services(self, downloads: Any, search: Any) -> None:
         """注入 DownloadService/SearchService（Bot handlers 需要）。"""
         self._downloads = downloads
         self._search = search
 
-    async def connect_user(self) -> dict[str, Any]:
-        """连接/重建 UserClient；返回 me。会话无效抛出，由路由提示重登。"""
+    async def me(self) -> dict[str, Any] | None:
+        """已登录账号信息；未连接/未授权返回 None。"""
+        if self.authorized_client() is None:
+            return None
+        try:
+            return await self.user.get_me()  # type: ignore[union-attr]
+        except AppError:
+            return None
+
+    async def connect_user(self) -> dict[str, Any] | None:
+        """连接/重建 UserClient；返回 me（未授权时 None）。会话无效抛出，由路由提示重登。"""
         await self.disconnect_user()
         self.user = UserClient(self.secrets, self.session_dir)
         try:
             await self.user.connect()
+            self.authorized = await self.user.is_authorized()
         except sqlite3.OperationalError as e:
             self.user = None
+            self.authorized = False
             if "locked" not in str(e).lower():
                 raise
             raise SessionLockedError(
                 f"会话文件被另一个运行实例占用（{self.session_dir}），请先停止旧进程再启动"
             ) from e
-        return await self.user.get_me()
+        return await self.user.get_me() if self.authorized else None
+
+    def mark_authorized(self) -> None:
+        """登录成功后置位（FR-AUTH-01）。"""
+        self.authorized = True
+
+    async def start_bot_configured(self) -> bool:
+        """登录后按当前密钥启动 Bot（FR-AUTH-04）：bot_token 为空则不动。
+
+        Bot 起不来（token 错、连不上）不该阻断登录本身：记录警告、留 None，
+        用户仍可用 Web 搜索与下载。
+        """
+        if self._downloads is None or not self.secrets.bot_token:
+            return False
+        if self.bot is not None:
+            return True
+        allowed: set[int] = set()
+        info = await self.me()
+        if info and info.get("id"):
+            allowed.add(int(info["id"]))  # allowed_user_ids 默认 me（FR-AUTH-04）
+        self.bot = BotClient(self.secrets, self.session_dir, self._downloads, self._search, allowed)
+        try:
+            await self.start_bot()
+        except SessionLockedError:
+            raise
+        except Exception as e:  # noqa: BLE001  Bot 不可用不是致命错误
+            logger.warning("bot start failed: %s", e)
+            self.bot = None
+            return False
+        return True
 
     async def disconnect_user(self) -> None:
         if self.user is not None:
@@ -110,6 +170,7 @@ class TelegramManager:
             except Exception:  # noqa: BLE001  断连失败不影响重登
                 logger.warning("user disconnect failed", exc_info=True)
             self.user = None
+        self.authorized = False
 
     async def start_bot(self) -> None:
         if self.bot is not None:

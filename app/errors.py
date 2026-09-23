@@ -70,6 +70,22 @@ class TaskNotFoundError(AppError):
         super().__init__("not_found", message)
 
 
+class SetupError(AppError):
+    """初始化向导的密钥校验失败（FR-OPS-02）：message 列出全部待修项。"""
+
+    def __init__(self, message: str, code: str = "invalid_secrets") -> None:
+        super().__init__(code, message)
+
+
+class AuthError(AppError):
+    """Telegram 登录流程错误（FR-AUTH-01）。
+
+    code 取值：secrets_missing / phone_invalid / phone_banned / code_invalid /
+    code_expired / password_required / password_invalid / not_authorized。
+    前端按 code 决定是否展开「两步验证密码」输入。
+    """
+
+
 class SessionLockedError(AppError):
     """会话文件被另一个运行实例占用（sqlite database is locked）。"""
 

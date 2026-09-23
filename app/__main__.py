@@ -22,6 +22,7 @@ from app.events import EventBus
 from app.services.download import DownloadService
 from app.services.preview import PreviewService
 from app.services.source import SearchService, SourceService
+from app.services.sync import SyncRunner
 from app.telegram.manager import TelegramManager
 from app.web import auth as web_auth
 from app.web.routes import create_app
@@ -84,6 +85,8 @@ def build_services(base_dir: Path) -> AppServices:
         template,
         max_concurrent=int(store.get_setting("max_download_task", "3") or 3),
     )
+    # 源同步/回溯（FR-SRC-04）由下载 Worker 池执行：扫描 → 逐条入队
+    downloads.set_sync_runner(SyncRunner(store, tg.user_client_proxy, downloads))
     preview = PreviewService(
         store,
         tg.download_client_proxy,
@@ -108,6 +111,7 @@ def build_services(base_dir: Path) -> AppServices:
 async def run(base_dir: Path) -> None:
     """单 asyncio loop：uvicorn + worker 池（SDD §1.3）。"""
     import uvicorn  # noqa: PLC0415  延迟导入保持模块加载轻
+
     svc = build_services(base_dir)
     store = svc.store
     recovered = store.recover_interrupted()
@@ -129,8 +133,7 @@ async def run(base_dir: Path) -> None:
     )
     svc.tg.set_services(svc.downloads, svc.search)
     await svc.downloads.start_workers()
-    await svc.tg.start()
-    await svc.tg.start_bot()
+    await svc.tg.start()  # User（有会话时）与 Bot（有 token 时）一起装配并启动
 
     config = uvicorn.Config(
         app,
