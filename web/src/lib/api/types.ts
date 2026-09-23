@@ -10,20 +10,64 @@ export interface MeResponse {
   connected: boolean;
 }
 
+/** 代理（回读时只有协议/地址/端口，用户名密码不出网，NFR-02）。 */
+export interface SetupProxy {
+  scheme: string;
+  hostname: string;
+  port: number;
+  username?: string | null;
+  password?: string | null;
+}
+
+/** `GET /api/setup/status`：放行 = 密钥 + 登录（源可选，向导第 3 步）。 */
 export interface SetupStatus {
   complete: boolean;
   has_api_id: boolean;
   has_api_hash: boolean;
   has_bot_token: boolean;
-  proxy: boolean;
+  proxy: SetupProxy | null;
   connected: boolean;
+  display_name: string | null;
+  username: string | null;
+}
+
+/** 提交的代理（用户名密码可选；回读时不返回，NFR-02）。 */
+export interface SetupProxyInput {
+  scheme: string;
+  hostname: string;
+  port: number;
+  username?: string;
+  password?: string;
 }
 
 export interface SetupSecretsPayload {
   api_id?: number;
   api_hash?: string;
   bot_token?: string;
-  proxy?: { scheme: string; hostname: string; port: number };
+  /** 明确给 `null` = 清除 config.yaml 里的代理段（关掉「走代理」后保存）。 */
+  proxy?: SetupProxyInput | null;
+}
+
+export interface SendCodeResponse {
+  code_hash: string;
+  /** 已有有效会话：没发码，直接可用。 */
+  authorized: boolean;
+  me: MeResponse | null;
+}
+
+/** 候选源（`GET /api/sources/discover`，FR-SRC-05）。 */
+export interface DiscoverCandidate {
+  chat_id: number;
+  title: string;
+  username: string | null;
+  type: string;
+  /** 成员数；Telegram 没给就是 null，不猜。 */
+  members: number | null;
+  tags: string[];
+}
+
+export interface DiscoverResponse {
+  items: DiscoverCandidate[];
 }
 
 export interface SourceRow {
@@ -38,6 +82,8 @@ export interface SourceRow {
   last_message_id: number | null;
   media_scope: string[];
   note: string | null;
+  /** 添加源时那条一次性导入任务的 id（最近 200 条，向导第 3 步）。 */
+  import_task_id?: number | null;
 }
 
 export interface TaskRow {

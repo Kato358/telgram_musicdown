@@ -37,6 +37,15 @@ export function formatEta(sec: number | null | undefined): string {
   return `${(sec / 3600).toFixed(1)} 时`;
 }
 
+/** 计数（成员数等）：按浏览器语言缩写，大数走紧凑写法（zh「12.8万」/ en「128.4K」）。 */
+export function formatCount(n: number | null | undefined): string {
+  if (n == null || n < 0 || !Number.isFinite(n)) return "--";
+  return new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(n);
+}
+
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "--";
   const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);

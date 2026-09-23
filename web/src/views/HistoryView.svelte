@@ -221,7 +221,7 @@
         title={row.title ?? t("common.unknown")}
         artist={row.artist}
         {path}
-        missing={path ? null : t("history.noPath")}
+        missing={path === null && row.status === "success" ? t("history.noPath") : null}
         duration={row.duration_sec}
         size={row.file_size}
         date={row.created_at}
