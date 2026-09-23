@@ -29,6 +29,7 @@
     SelectValue,
   } from "$lib/components/ui/select";
   import { Switch } from "$lib/components/ui/switch";
+  import DataTable, { ROW_CLASS, type Column } from "$lib/components/app/DataTable.svelte";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
   import Field from "$lib/components/app/Field.svelte";
   import Lamp from "$lib/components/app/Lamp.svelte";
@@ -65,6 +66,14 @@
   let removeError = $state("");
 
   const enabledCount = $derived(rows.filter((row) => row.enabled).length);
+
+  /** 表头与数据行引用同一份列定义，列宽因此天然对齐（设计规范 §5.4）。 */
+  const columns = $derived<Column[]>([
+    { key: "source", label: t("table.source"), class: "min-w-0 flex-1" },
+    { key: "enabled", label: t("table.enabled"), class: "hidden w-28 shrink-0 sm:flex" },
+    { key: "autoSync", label: t("table.autoSync"), class: "hidden w-28 shrink-0 md:flex" },
+    { key: "actions", label: "", class: "flex w-[168px] shrink-0 items-center justify-end gap-2" },
+  ]);
 
   /** 触发器关闭时 bits-ui 不渲染选项，标签只能由 items 提供。 */
   const directionItems = $derived([
@@ -203,17 +212,17 @@
   });
 </script>
 
-<div class="flex flex-col gap-5">
-  <PageHeader title={t("sources.title")} lede={t("sources.lede")}>
-    {#snippet aside()}
-      <span class="tabular text-micro text-muted-foreground">
-        {t("sources.enabledCount", { on: enabledCount, total: rows.length })}
-      </span>
-    {/snippet}
-  </PageHeader>
+<PageHeader title={t("sources.title")} lede={t("sources.lede")}>
+  {#snippet aside()}
+    <span class="tabular text-caption text-muted-foreground">
+      {t("sources.enabledCount", { on: enabledCount, total: rows.length })}
+    </span>
+  {/snippet}
+</PageHeader>
 
+<div class="card p-4 md:p-5">
   <form
-    class="flex flex-wrap items-center gap-2"
+    class="flex flex-wrap items-center gap-3"
     onsubmit={(event) => {
       event.preventDefault();
       void add();
@@ -226,82 +235,84 @@
         placeholder={t("sources.linkPlaceholder")}
       />
     </div>
-    <Button type="submit" disabled={adding || link.trim().length === 0}>
+    <Button type="submit" size="lg" disabled={adding || link.trim().length === 0}>
       {adding ? t("sources.adding") : t("sources.add")}
     </Button>
   </form>
+</div>
 
-  {#if addError}
-    <Note tone="fail">{addError}</Note>
+{#if addError}
+  <Note tone="fail">{addError}</Note>
+{/if}
+
+{#if listError}
+  <Note tone="fail">{listError}</Note>
+{/if}
+
+{#if rows.length === 0}
+  {#if !loaded}
+    <p class="text-caption text-muted-foreground">{t("common.loading")}</p>
+  {:else if !listError}
+    <EmptyState title={t("sources.empty")} />
   {/if}
-
-  {#if listError}
-    <Note tone="fail">{listError}</Note>
-  {/if}
-
-  {#if rows.length === 0}
-    {#if !loaded}
-      <p class="text-micro text-muted-foreground">{t("common.loading")}</p>
-    {:else if !listError}
-      <EmptyState title={t("sources.empty")} />
-    {/if}
-  {:else}
-    <ul class="divide-y divide-rule">
-      {#each rows as row (row.id)}
-        {@const handle = handleOf(row)}
-        <li class="flex flex-wrap items-center gap-3 py-3">
+{:else}
+  <DataTable {columns}>
+    {#each rows as row (row.id)}
+      {@const handle = handleOf(row)}
+      {@const note = notes[row.id] ?? null}
+      <li class="{ROW_CLASS} hover:bg-rule">
+        <div class="flex min-w-0 flex-1 items-center gap-3">
           <Lamp tone={row.enabled ? "done" : "idle"} />
 
-          <div class="min-w-0 flex-1">
-            <p class="truncate text-small font-medium">{row.title}</p>
-            <p class="tabular truncate text-micro text-muted-foreground">
+          <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <p class="truncate text-body font-medium">{row.title}</p>
+            <p class="truncate text-code text-muted-foreground">
               {handle ? `${handle} | ${row.telegram_chat_id}` : row.telegram_chat_id}
             </p>
+            {#if note}
+              <Note tone={note.tone} class="mt-1">{note.text}</Note>
+            {/if}
+          </div>
+        </div>
+
+        {#key syncEpoch}
+          <div class="hidden w-28 shrink-0 items-center gap-2 sm:flex">
+            <Label for={`source-enabled-${row.id}`} class="text-caption text-muted-foreground">
+              {t("sources.enabled")}
+            </Label>
+            <Switch
+              id={`source-enabled-${row.id}`}
+              checked={row.enabled}
+              aria-label={t("sources.enabled")}
+              onCheckedChange={(checked) => void patch(row, { enabled: checked })}
+            />
           </div>
 
-          {#key syncEpoch}
-            <div class="flex items-center gap-2">
-              <Label for={`source-enabled-${row.id}`} class="text-micro text-muted-foreground">
-                {t("sources.enabled")}
-              </Label>
-              <Switch
-                id={`source-enabled-${row.id}`}
-                checked={row.enabled}
-                aria-label={t("sources.enabled")}
-                onCheckedChange={(checked) => void patch(row, { enabled: checked })}
-              />
-            </div>
-
-            <div class="flex items-center gap-2">
-              <Label for={`source-autosync-${row.id}`} class="text-micro text-muted-foreground">
-                {t("sources.autoSync")}
-              </Label>
-              <Switch
-                id={`source-autosync-${row.id}`}
-                checked={row.auto_sync}
-                aria-label={t("sources.autoSync")}
-                onCheckedChange={(checked) => void patch(row, { auto_sync: checked })}
-              />
-            </div>
-          {/key}
-
-          <div class="flex shrink-0 items-center gap-1">
-            <Button variant="ghost" size="xs" onclick={() => openBackfill(row)}>
-              {t("sources.backfill")}
-            </Button>
-            <Button variant="destructive" size="xs" onclick={() => openRemove(row)}>
-              {t("sources.remove")}
-            </Button>
+          <div class="hidden w-28 shrink-0 items-center gap-2 md:flex">
+            <Label for={`source-autosync-${row.id}`} class="text-caption text-muted-foreground">
+              {t("sources.autoSync")}
+            </Label>
+            <Switch
+              id={`source-autosync-${row.id}`}
+              checked={row.auto_sync}
+              aria-label={t("sources.autoSync")}
+              onCheckedChange={(checked) => void patch(row, { auto_sync: checked })}
+            />
           </div>
+        {/key}
 
-          {#if notes[row.id]}
-            <Note tone={notes[row.id].tone} class="basis-full">{notes[row.id].text}</Note>
-          {/if}
-        </li>
-      {/each}
-    </ul>
-  {/if}
-</div>
+        <div class="flex w-[168px] shrink-0 items-center justify-end gap-2">
+          <Button variant="outline" size="xs" onclick={() => openBackfill(row)}>
+            {t("sources.backfill")}
+          </Button>
+          <Button variant="destructive" size="xs" onclick={() => openRemove(row)}>
+            {t("sources.remove")}
+          </Button>
+        </div>
+      </li>
+    {/each}
+  </DataTable>
+{/if}
 
 <Dialog
   bind:open={backfillOpen}
@@ -312,8 +323,10 @@
   <DialogContent>
     {#if backfillTarget}
       <DialogHeader>
-        <DialogTitle>{t("sources.backfillTitle", { title: backfillTarget.title })}</DialogTitle>
-        <DialogDescription>{t("sources.backfillHint")}</DialogDescription>
+        <DialogTitle class="text-h2 font-semibold">
+          {t("sources.backfillTitle", { title: backfillTarget.title })}
+        </DialogTitle>
+        <DialogDescription class="text-caption">{t("sources.backfillHint")}</DialogDescription>
       </DialogHeader>
 
       <div class="flex flex-col gap-4">
@@ -351,7 +364,7 @@
 
       <DialogFooter>
         <Button variant="outline" onclick={closeBackfill}>{t("common.cancel")}</Button>
-        <Button disabled={backfilling} onclick={() => void startBackfill()}>
+        <Button size="lg" disabled={backfilling} onclick={() => void startBackfill()}>
           {t("sources.start")}
         </Button>
       </DialogFooter>
@@ -368,8 +381,10 @@
   <DialogContent>
     {#if removeTarget}
       <DialogHeader>
-        <DialogTitle>{t("sources.removeTitle", { title: removeTarget.title })}</DialogTitle>
-        <DialogDescription>{t("sources.removeBody")}</DialogDescription>
+        <DialogTitle class="text-h2 font-semibold">
+          {t("sources.removeTitle", { title: removeTarget.title })}
+        </DialogTitle>
+        <DialogDescription class="text-caption">{t("sources.removeBody")}</DialogDescription>
       </DialogHeader>
 
       <div class="flex items-center gap-2">
@@ -378,7 +393,7 @@
           bind:checked={removeHistory}
           aria-label={t("sources.removeHistory")}
         />
-        <Label for="remove-history" class="text-small">{t("sources.removeHistory")}</Label>
+        <Label for="remove-history" class="text-body">{t("sources.removeHistory")}</Label>
       </div>
 
       {#if removeError}
@@ -387,7 +402,12 @@
 
       <DialogFooter>
         <Button variant="outline" onclick={closeRemove}>{t("common.cancel")}</Button>
-        <Button variant="destructive" disabled={removing} onclick={() => void confirmRemove()}>
+        <Button
+          variant="destructive"
+          size="lg"
+          disabled={removing}
+          onclick={() => void confirmRemove()}
+        >
           {t("sources.removeConfirm")}
         </Button>
       </DialogFooter>

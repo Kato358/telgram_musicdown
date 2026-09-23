@@ -1,7 +1,8 @@
 <script lang="ts">
-  /** 应用外壳：初始化闸门 + 侧栏/顶栏/内容区/播放条四段结构（SDD §5.1）。
+  /** 应用外壳：初始化闸门 + 侧栏/顶栏/内容区/播放条四段结构（设计规范 §2.1、SDD §5.1）。
    *
-   * 全站唯一常驻的四处：导航、会话仪表行、内容出口、播放条。其余都是路由内容。
+   * 全站唯一常驻的四处：导航、顶栏、内容出口、播放条。其余都是路由内容。
+   * 键盘快捷键只在注册一次——顶栏搜索的 Ctrl/⌘+K 从这里发信号，不在组件里各挂各的。
    */
   import { onMount } from "svelte";
   import type { Component } from "svelte";
@@ -11,8 +12,8 @@
   import { theme } from "$lib/stores/theme.svelte";
   import { queue } from "$lib/stores/queue.svelte";
   import { session } from "$lib/stores/session.svelte";
-  import Rail from "$lib/components/app/Rail.svelte";
-  import StatusStrip from "$lib/components/app/StatusStrip.svelte";
+  import Sidebar from "$lib/components/app/Sidebar.svelte";
+  import TopBar from "$lib/components/app/TopBar.svelte";
   import TransportBar from "$lib/components/app/TransportBar.svelte";
   import DashboardView from "@/views/DashboardView.svelte";
   import HistoryView from "@/views/HistoryView.svelte";
@@ -33,6 +34,9 @@
     logs: LogsView,
     setup: SetupView,
   };
+
+  /** Ctrl/⌘+K 的单一注册点：递增信号，由 TopBar 聚焦搜索框。 */
+  let searchFocus = $state(0);
 
   $effect(() => {
     const label = router.key === "setup" ? t("setup.title") : t(`nav.${router.key}`);
@@ -56,8 +60,8 @@
 
   onMount(() => {
     theme.start();
-    if (window.location.pathname !== pathOf(router.key)) {
-      navigate(pathOf(router.key), { replace: true });
+    if (window.location.pathname !== router.path) {
+      navigate(router.path + router.search, { replace: true });
     }
     events.connect();
     queue.start();
@@ -69,7 +73,15 @@
         // 状态接口不可用时保持界面可用，由各页自行提示错误
       }
     })();
+    const onKeydown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchFocus += 1;
+      }
+    };
+    window.addEventListener("keydown", onKeydown);
     return () => {
+      window.removeEventListener("keydown", onKeydown);
       events.disconnect();
       queue.stop();
     };
@@ -77,7 +89,7 @@
 </script>
 
 {#if !session.checked}
-  <div class="grid min-h-dvh place-items-center text-micro text-muted-foreground">
+  <div class="grid min-h-dvh place-items-center text-caption text-muted-foreground">
     {t("common.loading")}
   </div>
 {:else if router.key === "setup"}
@@ -87,14 +99,14 @@
 {:else}
   <div class="flex h-dvh flex-col overflow-hidden bg-background">
     <div class="flex min-h-0 flex-1">
-      <Rail />
+      <Sidebar />
       <div class="flex min-w-0 flex-1 flex-col">
-        <StatusStrip />
+        <TopBar focusSignal={searchFocus} />
         <main class="min-h-0 flex-1 overflow-y-auto">
-          <div class="mx-auto w-full max-w-[1100px] px-4 py-6 lg:px-8">
+          <div class="mx-auto w-full max-w-[1100px] px-4 py-6 md:px-6">
             {#key router.key}
               {@const View = VIEWS[router.key]}
-              <div class="route-fade">
+              <div class="route-fade flex flex-col gap-4 md:gap-6">
                 <View />
               </div>
             {/key}

@@ -64,13 +64,6 @@ export function t(key: string, params?: Record<string, string | number>): string
   return i18n.t(key, params);
 }
 
-/** 状态枚举文案：`t("tasks.status.downloading")`，未知状态原样显示。 */
-export function statusText(status: string): string {
-  const key = `tasks.status.${status}`;
-  const text = i18n.t(key);
-  return text === key ? status : text;
-}
-
 /** 任务类型文案（link/bot/sync/preview/search）；未知类型原样显示，不假装认识。 */
 export function taskTypeText(type: string): string {
   const key = `tasks.type.${type}`;

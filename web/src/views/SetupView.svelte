@@ -2,6 +2,7 @@
   /** 初始化向导（FR-OPS-02）：两件事——密钥与登录。步骤编号在此是真序列，故允许编号。
    *
    * 密钥写入 config.yaml（不入库），凭据类字段重启才生效；登录会话落 sessions/。
+   * 本页是唯一不套侧栏/顶栏/播放条的全屏闸门，故自带页面容器（§2.2 页面外边距）。
    */
   import { api, errorText } from "$lib/api/client";
   import type { SetupSecretsPayload } from "$lib/api/types";
@@ -106,46 +107,56 @@
   }
 </script>
 
-<div class="mx-auto flex min-h-dvh w-full max-w-[560px] flex-col gap-6 px-5 py-10">
-  <header class="border-b border-rule pb-3">
-    <p class="tabular text-micro text-muted-foreground">{t("app.repo")}</p>
-    <h1 class="mt-1 text-title font-semibold">{t("setup.title")}</h1>
-    <p class="mt-1 text-small text-muted-foreground">{t("setup.lede")}</p>
+<div class="mx-auto flex min-h-dvh w-full max-w-[560px] flex-col gap-4 p-4 md:gap-6 md:p-6">
+  <header class="flex flex-col gap-1">
+    <p class="tabular text-caption text-muted-foreground">{t("app.repo")}</p>
+    <h1 class="text-h1 font-bold">{t("setup.title")}</h1>
+    <p class="text-body text-muted-foreground">{t("setup.lede")}</p>
   </header>
 
-  <section>
-    <h2 class="text-micro text-muted-foreground">{t("setup.checklist")}</h2>
-    <ul class="mt-2 divide-y divide-rule border-y border-rule">
-      <li class="flex items-center justify-between py-2">
-        <span class="text-small">api_id</span>
+  <section class="card overflow-hidden">
+    <h2 class="p-4 text-h2 font-semibold md:p-5">{t("setup.checklist")}</h2>
+    <ul>
+      <li
+        class="flex items-center justify-between gap-3 border-b border-rule px-5 py-3 last:border-b-0"
+      >
+        <span class="text-body">api_id</span>
         <Lamp
           tone={status?.has_api_id ? "done" : "fail"}
           label={status?.has_api_id ? t("setup.ready") : t("setup.missing")}
         />
       </li>
-      <li class="flex items-center justify-between py-2">
-        <span class="text-small">api_hash</span>
+      <li
+        class="flex items-center justify-between gap-3 border-b border-rule px-5 py-3 last:border-b-0"
+      >
+        <span class="text-body">api_hash</span>
         <Lamp
           tone={status?.has_api_hash ? "done" : "fail"}
           label={status?.has_api_hash ? t("setup.ready") : t("setup.missing")}
         />
       </li>
-      <li class="flex items-center justify-between py-2">
-        <span class="text-small">bot_token</span>
+      <li
+        class="flex items-center justify-between gap-3 border-b border-rule px-5 py-3 last:border-b-0"
+      >
+        <span class="text-body">bot_token</span>
         <Lamp
           tone={status?.has_bot_token ? "done" : "idle"}
           label={status?.has_bot_token ? t("setup.ready") : t("setup.optionalMissing")}
         />
       </li>
-      <li class="flex items-center justify-between py-2">
-        <span class="text-small">{t("setup.proxy")}</span>
+      <li
+        class="flex items-center justify-between gap-3 border-b border-rule px-5 py-3 last:border-b-0"
+      >
+        <span class="text-body">{t("setup.proxy")}</span>
         <Lamp
           tone={status?.proxy ? "done" : "idle"}
           label={status?.proxy ? t("setup.proxyOn") : t("setup.proxyOff")}
         />
       </li>
-      <li class="flex items-center justify-between py-2">
-        <span class="text-small">{t("setup.connection")}</span>
+      <li
+        class="flex items-center justify-between gap-3 border-b border-rule px-5 py-3 last:border-b-0"
+      >
+        <span class="text-body">{t("setup.connection")}</span>
         <Lamp
           tone={status?.connected ? "done" : "fail"}
           label={status?.connected ? t("app.connected") : t("app.disconnected")}
@@ -155,18 +166,18 @@
   </section>
 
   {#if done}
-    <section class="flex flex-col gap-3">
-      <h2 class="text-body font-medium">{t("setup.doneTitle")}</h2>
-      <p class="text-small text-muted-foreground">{t("setup.doneHint")}</p>
-      <Button class="self-start" onclick={() => navigate(pathOf("dashboard"))}>
+    <section class="card flex flex-col gap-4 p-4 md:p-6">
+      <h2 class="text-h2 font-semibold">{t("setup.doneTitle")}</h2>
+      <p class="text-body text-muted-foreground">{t("setup.doneHint")}</p>
+      <Button size="lg" class="self-start" onclick={() => navigate(pathOf("dashboard"))}>
         {t("setup.enter")}
       </Button>
     </section>
   {:else}
-    <section class="flex flex-col gap-4 border-t border-rule pt-4">
-      <div>
-        <h2 class="text-body font-medium">{t("setup.step1")}</h2>
-        <p class="mt-1 text-small text-muted-foreground">{t("setup.step1Hint")}</p>
+    <section class="card flex flex-col gap-4 p-5 md:p-6">
+      <div class="flex flex-col gap-1">
+        <h2 class="text-h2 font-semibold">{t("setup.step1")}</h2>
+        <p class="text-body text-muted-foreground">{t("setup.step1Hint")}</p>
       </div>
 
       <Field label={t("setup.apiId")} for="setup-api-id">
@@ -175,18 +186,18 @@
       <Field label={t("setup.apiHash")} for="setup-api-hash">
         <Input id="setup-api-hash" class="tabular" bind:value={apiHash} />
       </Field>
-      <Field label={`${t("setup.botToken")}（${t("setup.optional")}）`} for="setup-bot-token">
+      <Field label={`${t("setup.botToken")} (${t("setup.optional")})`} for="setup-bot-token">
         <Input id="setup-bot-token" class="tabular" type="password" bind:value={botToken} />
       </Field>
 
       <div class="flex flex-col gap-3">
-        <label class="flex items-center gap-2 text-small">
+        <label class="flex items-center gap-2 text-body">
           <Checkbox bind:checked={useProxy} />
           {t("setup.proxy")}
         </label>
         {#if useProxy}
-          <p class="text-micro text-muted-foreground">{t("setup.proxyHint")}</p>
-          <div class="grid grid-cols-3 gap-2">
+          <p class="text-caption text-muted-foreground">{t("setup.proxyHint")}</p>
+          <div class="grid grid-cols-3 gap-3">
             <Field label={t("setup.proxyScheme")}>
               <Select type="single" bind:value={proxyScheme}>
                 <SelectTrigger class="w-full">
@@ -208,19 +219,19 @@
         {/if}
       </div>
 
-      <div class="flex items-center gap-2">
-        <Button disabled={busy} onclick={() => void saveSecrets()}>
+      <div class="flex flex-col gap-2">
+        <Button size="lg" class="self-start" disabled={busy} onclick={() => void saveSecrets()}>
           {busy ? t("setup.saving") : t("setup.save")}
         </Button>
         {#if notice}<Note tone="done">{notice}</Note>{/if}
+        {#if error}<Note tone="fail">{error}</Note>{/if}
       </div>
-      {#if error}<Note tone="fail">{error}</Note>{/if}
     </section>
 
-    <section class="flex flex-col gap-4 border-t border-rule pt-4">
-      <div>
-        <h2 class="text-body font-medium">{t("setup.step2")}</h2>
-        <p class="mt-1 text-small text-muted-foreground">{t("setup.step2Hint")}</p>
+    <section class="card flex flex-col gap-4 p-5 md:p-6">
+      <div class="flex flex-col gap-1">
+        <h2 class="text-h2 font-semibold">{t("setup.step2")}</h2>
+        <p class="text-body text-muted-foreground">{t("setup.step2Hint")}</p>
       </div>
 
       {#if !keysReady}
@@ -248,13 +259,11 @@
           <Field label={t("setup.code")} for="setup-code">
             <Input id="setup-code" class="tabular" bind:value={code} />
           </Field>
-          <Field
-            label={`${t("setup.password2fa")}（${t("setup.optional")}）`}
-            for="setup-password"
-          >
+          <Field label={`${t("setup.password2fa")} (${t("setup.optional")})`} for="setup-password">
             <Input id="setup-password" type="password" bind:value={password} />
           </Field>
           <Button
+            size="lg"
             class="self-start"
             disabled={busy || code.trim().length === 0}
             onclick={() => void signIn()}

@@ -159,121 +159,123 @@
   });
 </script>
 
-<div class="flex flex-col gap-5">
-  <PageHeader title={t("settings.title")} lede={t("settings.lede")} />
+<PageHeader title={t("settings.title")} lede={t("settings.lede")} />
 
-  {#if loadError}
-    <Note tone="fail">{loadError}</Note>
+{#if loadError}
+  <Note tone="fail">{loadError}</Note>
+{/if}
+
+<section class="card flex flex-col gap-4 p-5 md:p-6">
+  <h2 class="text-h2 font-semibold">{t("settings.pathSection")}</h2>
+  <p class="text-body text-muted-foreground">{t("settings.pathHint")}</p>
+
+  <Field label={t("settings.dirTemplate")} for="setting-dir-template">
+    <Input id="setting-dir-template" class="tabular" bind:value={dirTemplate} />
+  </Field>
+
+  <Field label={t("settings.fileTemplate")} for="setting-file-template">
+    <Input id="setting-file-template" class="tabular" bind:value={fileTemplate} />
+  </Field>
+
+  <Field label={t("settings.dateFormat")} for="setting-date-format">
+    <Input id="setting-date-format" class="tabular w-40" bind:value={dateFormat} />
+  </Field>
+
+  <div class="flex flex-col gap-1.5">
+    <span class="text-caption text-muted-foreground">{t("settings.preview")}</span>
+    {#if preview}
+      <code class="rounded-control border border-border bg-surface-subtle p-3 text-code break-all"
+        >{preview}</code
+      >
+    {:else if !loadError}
+      <p
+        class="rounded-control border border-border bg-surface-subtle p-3 text-code break-all text-faint-foreground"
+      >
+        {t("common.loading")}
+      </p>
+    {/if}
+  </div>
+
+  {#if previewError}
+    <Note tone="fail">{previewError}</Note>
   {/if}
 
-  <section class="flex flex-col gap-4 border-t border-rule pt-4">
-    <h2 class="text-body font-medium">{t("settings.pathSection")}</h2>
-    <p class="text-small text-muted-foreground">{t("settings.pathHint")}</p>
-
-    <Field label={t("settings.dirTemplate")} for="setting-dir-template">
-      <Input id="setting-dir-template" class="tabular" bind:value={dirTemplate} />
-    </Field>
-
-    <Field label={t("settings.fileTemplate")} for="setting-file-template">
-      <Input id="setting-file-template" class="tabular" bind:value={fileTemplate} />
-    </Field>
-
-    <Field label={t("settings.dateFormat")} for="setting-date-format">
-      <Input id="setting-date-format" class="tabular w-40" bind:value={dateFormat} />
-    </Field>
-
-    <div class="flex flex-col gap-1.5">
-      <span class="text-micro text-muted-foreground">{t("settings.preview")}</span>
-      {#if preview}
-        <code class="tabular rounded-md bg-muted px-3 py-2 text-body break-all">{preview}</code>
-      {:else if !loadError}
-        <p class="tabular rounded-md bg-muted px-3 py-2 text-body break-all text-muted-foreground">
-          {t("common.loading")}
-        </p>
-      {/if}
-    </div>
-
-    {#if previewError}
-      <Note tone="fail">{previewError}</Note>
+  <div class="flex items-center gap-3">
+    <Button size="lg" disabled={saving || !loaded} onclick={() => void save()}>
+      {saving ? t("settings.saving") : t("settings.save")}
+    </Button>
+    {#if savedKey !== null && !dirty}
+      <Note tone="done">{t("settings.saved")}</Note>
     {/if}
+  </div>
 
-    <div class="flex items-center gap-3">
-      <Button disabled={saving || !loaded} onclick={() => void save()}>
-        {saving ? t("settings.saving") : t("settings.save")}
-      </Button>
-      {#if savedKey !== null && !dirty}
-        <Note tone="done">{t("settings.saved")}</Note>
-      {/if}
-    </div>
+  {#if saveError}
+    <Note tone="fail">{saveError}</Note>
+  {/if}
+</section>
 
-    {#if saveError}
-      <Note tone="fail">{saveError}</Note>
-    {/if}
-  </section>
+<section class="card flex flex-col gap-4 p-5 md:p-6">
+  <h2 class="text-h2 font-semibold">{t("settings.downloadSection")}</h2>
 
-  <section class="flex flex-col gap-4 border-t border-rule pt-4">
-    <h2 class="text-body font-medium">{t("settings.downloadSection")}</h2>
+  <Field label={t("settings.maxTasks")} for="setting-max-tasks" hint={t("settings.maxTasksHint")}>
+    <Input
+      id="setting-max-tasks"
+      type="number"
+      min="1"
+      class="tabular w-32"
+      bind:value={maxTasks}
+    />
+  </Field>
 
-    <Field label={t("settings.maxTasks")} for="setting-max-tasks" hint={t("settings.maxTasksHint")}>
-      <Input
-        id="setting-max-tasks"
-        type="number"
-        min="1"
-        class="tabular w-32"
-        bind:value={maxTasks}
-      />
-    </Field>
+  <Field
+    label={t("settings.previewCache")}
+    for="setting-preview-cache"
+    hint={t("settings.previewCacheHint")}
+  >
+    <Input
+      id="setting-preview-cache"
+      type="number"
+      min="64"
+      class="tabular w-32"
+      bind:value={cacheMb}
+    />
+  </Field>
 
-    <Field
-      label={t("settings.previewCache")}
-      for="setting-preview-cache"
-      hint={t("settings.previewCacheHint")}
+  <p class="text-caption text-muted-foreground">{t("settings.restartHint")}</p>
+</section>
+
+<section class="card flex flex-col gap-4 p-5 md:p-6">
+  <h2 class="text-h2 font-semibold">{t("settings.interfaceSection")}</h2>
+  <p class="text-body text-muted-foreground">{t("settings.interfaceHint")}</p>
+
+  <Field label={t("settings.language")} for="setting-language">
+    <Select type="single" value={i18n.locale} items={LOCALES} onValueChange={changeLocale}>
+      <SelectTrigger id="setting-language" class="w-48">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {#each LOCALES as locale (locale.value)}
+          <SelectItem value={locale.value}>{locale.label}</SelectItem>
+        {/each}
+      </SelectContent>
+    </Select>
+  </Field>
+
+  <Field label={t("settings.theme")} for="setting-appearance">
+    <Select
+      type="single"
+      value={theme.preference}
+      items={appearanceItems}
+      onValueChange={changeAppearance}
     >
-      <Input
-        id="setting-preview-cache"
-        type="number"
-        min="64"
-        class="tabular w-32"
-        bind:value={cacheMb}
-      />
-    </Field>
-
-    <p class="text-micro text-lamp-wait">{t("settings.restartHint")}</p>
-  </section>
-
-  <section class="flex flex-col gap-4 border-t border-rule pt-4">
-    <h2 class="text-body font-medium">{t("settings.interfaceSection")}</h2>
-    <p class="text-small text-muted-foreground">{t("settings.interfaceHint")}</p>
-
-    <Field label={t("settings.language")} for="setting-language">
-      <Select type="single" value={i18n.locale} items={LOCALES} onValueChange={changeLocale}>
-        <SelectTrigger id="setting-language" class="w-48">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {#each LOCALES as locale (locale.value)}
-            <SelectItem value={locale.value}>{locale.label}</SelectItem>
-          {/each}
-        </SelectContent>
-      </Select>
-    </Field>
-
-    <Field label={t("settings.theme")} for="setting-appearance">
-      <Select
-        type="single"
-        value={theme.preference}
-        items={appearanceItems}
-        onValueChange={changeAppearance}
-      >
-        <SelectTrigger id="setting-appearance" class="w-48">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {#each THEME_OPTIONS as option (option.value)}
-            <SelectItem value={option.value}>{t(option.label)}</SelectItem>
-          {/each}
-        </SelectContent>
-      </Select>
-    </Field>
-  </section>
-</div>
+      <SelectTrigger id="setting-appearance" class="w-48">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {#each THEME_OPTIONS as option (option.value)}
+          <SelectItem value={option.value}>{t(option.label)}</SelectItem>
+        {/each}
+      </SelectContent>
+    </Select>
+  </Field>
+</section>

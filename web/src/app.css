@@ -2,81 +2,117 @@
 @import "tw-animate-css";
 @import "shadcn-svelte/tailwind.css";
 
-/* 字体自带：不向外部 CDN 取字（自托管nas/局域网离线可用）。
-   Archivo 承载所有拉丁与数字，CJK 回落到系统字体（docs/前端设计规范.md §3）。 */
-@import "@fontsource-variable/archivo/index.css";
+/* 字体自带：不向外部 CDN 取字（局域网离线可用）。
+   Inter 承载界面文字与数字（tabular-nums），CJK 回落系统字体（docs/前端设计规范.md §4.1）。 */
+@import "@fontsource-variable/inter/index.css";
 @import "@fontsource/dm-mono/400.css";
 @import "@fontsource/dm-mono/500.css";
 
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================================
-   设计令牌 — 唯一事实源（docs/前端设计规范.md §2）
-   语义命名沿用 shadcn-svelte（background/primary/border…），
-   故 ui/ 组件无需改动即继承本设计语言。
+   设计令牌 — 唯一事实源（docs/前端设计规范.md §2.3/§3/§4）
+   浅色是默认态（:root），深色是同名令牌的机械派生（.dark），
+   语义命名沿用 shadcn-svelte，故 ui/ 生成物无需改动即继承本设计语言。
    ============================================================ */
 
 :root {
-  /* 工作日主题：冷灰米白纸面 + 深橄榄墨 */
-  --background: #f2f2ed;
-  --foreground: #1b211c;
+  /* 页面底灰白、卡片纯白；深墨绿是唯一的「在做」信号 */
+  --background: #f4f6f5;
+  --foreground: #1d2129;
+
   --card: #ffffff;
-  --card-foreground: #1b211c;
+  --card-foreground: var(--foreground);
   --popover: #ffffff;
-  --popover-foreground: #1b211c;
-  --primary: #8a5410;
-  --primary-foreground: #fdf6ea;
-  --secondary: #e6e8df;
-  --secondary-foreground: #1b211c;
-  --muted: #e8eae1;
-  --muted-foreground: #5d6a60;
-  --accent: #e4e7dd;
-  --accent-foreground: #1b211c;
-  --destructive: #b23a22;
-  --border: #d5d9cf;
-  --input: #d5d9cf;
-  --ring: #8a5410;
-  --rule: #c8cec2;
-  --rule-strong: #a8b0a3;
-  --lamp-live: #a8630b;
+  --popover-foreground: var(--foreground);
+
+  --muted-foreground: #4e5969; /* 路径、歌手、副标题、表头 */
+  --faint-foreground: #86909c; /* 仅冗余字段：时长、大小、单位（3.2:1，不达 AA） */
+
+  --primary: #1e513b;
+  --primary-hover: #236b53;
+  --primary-soft: #eaf4ef; /* 只做底：激活导航、chip、选中行 */
+  --primary-surface: #f0f7f3; /* 只做底：传输状态卡 */
+  --primary-foreground: #ffffff;
+
+  --surface-subtle: #f7f8fa; /* 路径框、搜索框、表头底 */
+
+  /* shadcn 生成物的次级底：与 --rule 同值，不为它们新增颜色 */
+  --secondary: #f2f3f5;
+  --secondary-foreground: var(--foreground);
+  --muted: #f2f3f5;
+  --accent: #f2f3f5;
+  --accent-foreground: var(--foreground);
+
+  --destructive: #f53f3f; /* 图标/圆点/边框（3.70:1） */
+  --destructive-text: #d32f2f; /* 错误文案（4.98:1） */
+
+  --border: #e5e6eb;
+  --input: #e5e6eb;
+  --rule: #f2f3f5; /* 表格行底边、分区细线、hover 行底 */
+  --ring: #1e513b;
+
+  /* 进度与音量共用的两段色（线型与波形同一内核） */
+  --progress-fill: var(--primary);
+  --progress-track: var(--rule);
+
+  /* 状态灯（§8）：灯 + 词，禁止仅用颜色表达状态 */
+  --lamp-live: var(--primary);
   --lamp-done: #1c7a4e;
-  --lamp-fail: #b23a22;
-  --lamp-wait: #7d6236;
-  --lamp-idle: #78857b;
-  --meter-on: #8a5410;
-  --meter-off: #d5d9cf;
-  --radius: 0.25rem;
+  --lamp-fail: var(--destructive);
+  --lamp-wait: #4e5969;
+  --lamp-idle: #86909c;
+
+  /* 圆角：五个显式档位，控件 10px 也是 shadcn 的 --radius */
+  --radius: 10px;
+  --radius-card: 16px;
+  --radius-nav: 12px;
+  --radius-control: 10px;
+  --radius-chip: 8px;
 }
 
 .dark {
-  /* 听音室主题：深橄榄石墨底 + 琥珀灯 */
-  --background: #1a201c;
-  --foreground: #e9e9df;
-  --card: #222923;
-  --card-foreground: #e9e9df;
-  --popover: #222923;
-  --popover-foreground: #e9e9df;
-  --primary: #e0a03c;
-  --primary-foreground: #20180a;
-  --secondary: #2a322b;
-  --secondary-foreground: #e9e9df;
-  --muted: #2a322b;
+  --background: #121715;
+  --foreground: #e8edea;
+
+  --card: #1a211e;
+  --card-foreground: var(--foreground);
+  --popover: #1a211e;
+  --popover-foreground: var(--foreground);
+
   --muted-foreground: #9aa69c;
-  --accent: #2a322b;
-  --accent-foreground: #e9e9df;
-  --destructive: #e0705a;
-  --border: #343d35;
-  --input: #3a443b;
-  --ring: #e0a03c;
-  --rule: #333d36;
-  --rule-strong: #465146;
-  --lamp-live: #e0a03c;
+  --faint-foreground: #7c867f;
+
+  --primary: #3e9c76;
+  --primary-hover: #4fb08a;
+  --primary-soft: #1c2b24;
+  --primary-surface: #18231e;
+  --primary-foreground: #06120c;
+
+  --surface-subtle: #171e1b;
+
+  --secondary: #232b27;
+  --secondary-foreground: var(--foreground);
+  --muted: #232b27;
+  --accent: #232b27;
+  --accent-foreground: var(--foreground);
+
+  --destructive: #ff6b6b;
+  --destructive-text: #ff8a8a;
+
+  --border: #2c3531;
+  --input: #2c3531;
+  --rule: #232b27;
+  --ring: #3e9c76;
+
+  --progress-fill: var(--primary);
+  --progress-track: var(--rule);
+
+  --lamp-live: var(--primary);
   --lamp-done: #5fbf8e;
-  --lamp-fail: #dc7159;
-  --lamp-wait: #c9a55f;
-  --lamp-idle: #7b8a7f;
-  --meter-on: #e0a03c;
-  --meter-off: #333d36;
+  --lamp-fail: var(--destructive);
+  --lamp-wait: #9aa69c;
+  --lamp-idle: #7c867f;
 }
 
 @theme inline {
@@ -88,52 +124,59 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-surface: var(--primary-surface);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-faint-foreground: var(--faint-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-text: var(--destructive-text);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-
-  /* 本项目自有语义色 */
   --color-rule: var(--rule);
-  --color-rule-strong: var(--rule-strong);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-progress-fill: var(--progress-fill);
+  --color-progress-track: var(--progress-track);
+
   --color-lamp-live: var(--lamp-live);
   --color-lamp-done: var(--lamp-done);
   --color-lamp-fail: var(--lamp-fail);
   --color-lamp-wait: var(--lamp-wait);
   --color-lamp-idle: var(--lamp-idle);
-  --color-meter-on: var(--meter-on);
-  --color-meter-off: var(--meter-off);
 
   --font-sans:
-    "Archivo Variable", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+    Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", sans-serif;
   --font-mono: "DM Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 
-  --radius-sm: calc(var(--radius) * 0.5);
-  --radius-md: calc(var(--radius) * 0.75);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.5);
-  --radius-2xl: calc(var(--radius) * 2);
-  --radius-3xl: calc(var(--radius) * 2.5);
+  /* shadcn 生成物的 rounded-md/lg/xl 落在 chip/control/nav 三档上 */
+  --radius-sm: 6px;
+  --radius-md: var(--radius-chip);
+  --radius-lg: var(--radius-control);
+  --radius-xl: var(--radius-nav);
+  --radius-2xl: var(--radius-card);
+  --radius-card: var(--radius-card);
+  --radius-nav: var(--radius-nav);
+  --radius-control: var(--radius-control);
+  --radius-chip: var(--radius-chip);
 
-  /* 排版尺度：4 级，1.25 比率作为主序列（docs/前端设计规范.md §3） */
-  --text-micro: 0.6875rem; /* 11px — 次级 meta、单位 */
-  --text-micro--line-height: 1.35;
-  --text-small: 0.8125rem; /* 13px — 表格、正文 */
-  --text-small--line-height: 1.5;
-  --text-body: 0.9375rem; /* 15px — 段落 */
-  --text-body--line-height: 1.6;
-  --text-title: 1.375rem; /* 22px — 页面标题 */
-  --text-title--line-height: 1.2;
-  --text-title--letter-spacing: -0.015em;
-  --text-display: 2.25rem; /* 36px — 仪表盘主数值 */
-  --text-display--line-height: 1.05;
-  --text-display--letter-spacing: -0.03em;
+  /* 五个排版令牌即全部层级，不写一次性字号（§4.3） */
+  --text-h1: 1.5rem; /* 24px */
+  --text-h1--line-height: 1.3;
+  --text-h2: 1.125rem; /* 18px */
+  --text-h2--line-height: 1.4;
+  --text-body: 0.875rem; /* 14px */
+  --text-body--line-height: 1.5;
+  --text-caption: 0.75rem; /* 12px */
+  --text-caption--line-height: 1.5;
+  --text-code: 0.75rem; /* 12px，配 --font-mono */
+  --text-code--line-height: 1.4;
 }
 
 @layer base {
@@ -147,21 +190,18 @@
   }
 
   body {
-    @apply bg-background text-foreground;
-    font-size: var(--text-small);
+    @apply bg-background text-body text-foreground;
   }
 
-  /* 数字、ID、路径、时长的对齐是这张控制台的主要信息面：一律等宽 + 等宽数字 */
+  /* 数字对齐：时长、大小、速率、时间码一律等宽数字（Inter 原生支持），
+     只有路径/id/日志这类字符串型机器数据才用 --font-mono（.text-code）。 */
   .tabular {
-    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
   }
 
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
-    border-radius: 2px;
   }
 
   ::selection {
@@ -170,40 +210,40 @@
 }
 
 @layer utilities {
-  /* 结构性表面：无阴影、无渐变，靠 1px 线分区（docs/前端设计规范.md §4） */
-  .panel {
-    @apply border border-rule bg-card;
+  /* 卡片化的事实分区：页面底灰白、卡片纯白（§1） */
+  .card {
+    @apply rounded-card border border-border bg-card;
   }
 
-  .rule-t {
-    @apply border-t border-rule;
+  /* text-code 的另一半：字号由 @theme 的 --text-code 提供，字体族在这里补上——
+     路径、id、日志是字符串型机器数据，一律等宽（§4.2）。 */
+  .text-code {
+    font-family: var(--font-mono);
   }
 
-  .label-quiet {
-    @apply text-micro text-muted-foreground;
+  /* 交互过渡：只有颜色 130ms；scale 只走 transform，不触发 layout（§6.2） */
+  .ui-transition {
+    transition:
+      background-color 130ms ease-out,
+      color 130ms ease-out,
+      border-color 130ms ease-out,
+      transform 130ms ease-out;
   }
 }
 
-/* 唯一的两处动效：路由内容整体淡入一次、传输梯级宽度推进。
-   prefers-reduced-motion 下两者都关闭（docs/前端设计规范.md §5）。 */
+/* 动效只有三处：hover/active 过渡（.ui-transition）、路由内容淡入、进行中状态点呼吸。
+   prefers-reduced-motion: reduce 时全部关闭（§7）。 */
 @media (prefers-reduced-motion: no-preference) {
   .route-fade {
     animation: route-fade 140ms ease-out both;
   }
 
-  .ladder-step {
-    transition:
-      background-color 120ms linear,
-      opacity 120ms linear;
-  }
-
-  /* 总量未知的传输：只有这一段游标在呼吸，表示「还在动，但算不出百分比」。 */
-  .ladder-pulse {
-    animation: ladder-pulse 1.6s ease-in-out infinite;
+  .dot-pulse {
+    animation: dot-pulse 1.6s ease-in-out infinite;
   }
 }
 
-@keyframes ladder-pulse {
+@keyframes dot-pulse {
   0%,
   100% {
     opacity: 0.35;

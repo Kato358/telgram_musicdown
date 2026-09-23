@@ -1,13 +1,14 @@
 <!doctype html>
-<html lang="zh-CN" class="dark">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark light" />
+    <meta name="color-scheme" content="light dark" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Telegram 音乐库</title>
     <script>
-      // 主题在首帧前落定，避免闪白（FR-WEB-06）；与 src/lib/stores/theme.svelte.ts 同键。
+      // 浅色是默认态；tgm-theme 为 dark 或系统深色时才加 .dark（设计规范 §3.2）。
+      // 首帧前落定，避免闪白（FR-WEB-06）；与 src/lib/stores/theme.svelte.ts 同键。
       (function () {
         try {
           var mode = localStorage.getItem("tgm-theme") || "system";
@@ -16,7 +17,7 @@
             (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
           document.documentElement.classList.toggle("dark", dark);
         } catch (e) {
-          /* 隐私模式下 localStorage 不可用时走默认暗色 */
+          /* 隐私模式下 localStorage 不可用时保持浅色 */
         }
       })();
     </script>

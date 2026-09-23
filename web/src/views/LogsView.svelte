@@ -14,35 +14,36 @@
   }
 </script>
 
-<div class="flex flex-col gap-5">
-  <PageHeader title={t("logs.title")} lede={t("logs.lede")}>
-    {#snippet aside()}
-      <span class="tabular text-micro text-muted-foreground">
-        {t("logs.count", { n: events.errors.length })}
-      </span>
-      <Button
-        variant="ghost"
-        size="xs"
-        disabled={events.errors.length === 0}
-        onclick={() => events.clearErrors()}
-      >
-        {t("logs.clear")}
-      </Button>
-    {/snippet}
-  </PageHeader>
+<PageHeader title={t("logs.title")} lede={t("logs.lede")}>
+  {#snippet aside()}
+    <span class="tabular text-caption text-muted-foreground">
+      {t("logs.count", { n: events.errors.length })}
+    </span>
+    <Button
+      variant="ghost"
+      disabled={events.errors.length === 0}
+      onclick={() => events.clearErrors()}
+    >
+      {t("logs.clear")}
+    </Button>
+  {/snippet}
+</PageHeader>
 
-  {#if events.errors.length === 0}
-    <EmptyState title={t("logs.empty")} />
-  {:else}
-    <ul class="divide-y divide-rule">
+{#if events.errors.length === 0}
+  <EmptyState title={t("logs.empty")} />
+{:else}
+  <div class="card overflow-hidden">
+    <ul>
       {#each events.errors as entry (entry.id)}
-        <li class="flex gap-3 py-2">
-          <span class="tabular shrink-0 text-micro text-muted-foreground">{timeOf(entry.ts)}</span>
-          <span class="tabular min-w-0 flex-1 text-small text-lamp-fail break-all">
+        <li
+          class="flex gap-3 border-b border-rule px-4 py-3 ui-transition last:border-b-0 md:px-6 hover:bg-rule"
+        >
+          <span class="tabular shrink-0 text-caption text-faint-foreground">{timeOf(entry.ts)}</span>
+          <span class="min-w-0 flex-1 text-code text-destructive-text break-all">
             {entry.message}
           </span>
         </li>
       {/each}
     </ul>
-  {/if}
-</div>
+  </div>
+{/if}
