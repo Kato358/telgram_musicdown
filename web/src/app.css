@@ -1,0 +1,223 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn-svelte/tailwind.css";
+
+/* 字体自带：不向外部 CDN 取字（自托管nas/局域网离线可用）。
+   Archivo 承载所有拉丁与数字，CJK 回落到系统字体（docs/前端设计规范.md §3）。 */
+@import "@fontsource-variable/archivo/index.css";
+@import "@fontsource/dm-mono/400.css";
+@import "@fontsource/dm-mono/500.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================
+   设计令牌 — 唯一事实源（docs/前端设计规范.md §2）
+   语义命名沿用 shadcn-svelte（background/primary/border…），
+   故 ui/ 组件无需改动即继承本设计语言。
+   ============================================================ */
+
+:root {
+  /* 工作日主题：冷灰米白纸面 + 深橄榄墨 */
+  --background: #f2f2ed;
+  --foreground: #1b211c;
+  --card: #ffffff;
+  --card-foreground: #1b211c;
+  --popover: #ffffff;
+  --popover-foreground: #1b211c;
+  --primary: #8a5410;
+  --primary-foreground: #fdf6ea;
+  --secondary: #e6e8df;
+  --secondary-foreground: #1b211c;
+  --muted: #e8eae1;
+  --muted-foreground: #5d6a60;
+  --accent: #e4e7dd;
+  --accent-foreground: #1b211c;
+  --destructive: #b23a22;
+  --border: #d5d9cf;
+  --input: #d5d9cf;
+  --ring: #8a5410;
+  --rule: #c8cec2;
+  --rule-strong: #a8b0a3;
+  --lamp-live: #a8630b;
+  --lamp-done: #1c7a4e;
+  --lamp-fail: #b23a22;
+  --lamp-wait: #7d6236;
+  --lamp-idle: #78857b;
+  --meter-on: #8a5410;
+  --meter-off: #d5d9cf;
+  --radius: 0.25rem;
+}
+
+.dark {
+  /* 听音室主题：深橄榄石墨底 + 琥珀灯 */
+  --background: #1a201c;
+  --foreground: #e9e9df;
+  --card: #222923;
+  --card-foreground: #e9e9df;
+  --popover: #222923;
+  --popover-foreground: #e9e9df;
+  --primary: #e0a03c;
+  --primary-foreground: #20180a;
+  --secondary: #2a322b;
+  --secondary-foreground: #e9e9df;
+  --muted: #2a322b;
+  --muted-foreground: #9aa69c;
+  --accent: #2a322b;
+  --accent-foreground: #e9e9df;
+  --destructive: #e0705a;
+  --border: #343d35;
+  --input: #3a443b;
+  --ring: #e0a03c;
+  --rule: #333d36;
+  --rule-strong: #465146;
+  --lamp-live: #e0a03c;
+  --lamp-done: #5fbf8e;
+  --lamp-fail: #dc7159;
+  --lamp-wait: #c9a55f;
+  --lamp-idle: #7b8a7f;
+  --meter-on: #e0a03c;
+  --meter-off: #333d36;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* 本项目自有语义色 */
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-lamp-live: var(--lamp-live);
+  --color-lamp-done: var(--lamp-done);
+  --color-lamp-fail: var(--lamp-fail);
+  --color-lamp-wait: var(--lamp-wait);
+  --color-lamp-idle: var(--lamp-idle);
+  --color-meter-on: var(--meter-on);
+  --color-meter-off: var(--meter-off);
+
+  --font-sans:
+    "Archivo Variable", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.5);
+  --radius-2xl: calc(var(--radius) * 2);
+  --radius-3xl: calc(var(--radius) * 2.5);
+
+  /* 排版尺度：4 级，1.25 比率作为主序列（docs/前端设计规范.md §3） */
+  --text-micro: 0.6875rem; /* 11px — 次级 meta、单位 */
+  --text-micro--line-height: 1.35;
+  --text-small: 0.8125rem; /* 13px — 表格、正文 */
+  --text-small--line-height: 1.5;
+  --text-body: 0.9375rem; /* 15px — 段落 */
+  --text-body--line-height: 1.6;
+  --text-title: 1.375rem; /* 22px — 页面标题 */
+  --text-title--line-height: 1.2;
+  --text-title--letter-spacing: -0.015em;
+  --text-display: 2.25rem; /* 36px — 仪表盘主数值 */
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.03em;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply font-sans;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-size: var(--text-small);
+  }
+
+  /* 数字、ID、路径、时长的对齐是这张控制台的主要信息面：一律等宽 + 等宽数字 */
+  .tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 30%, transparent);
+  }
+}
+
+@layer utilities {
+  /* 结构性表面：无阴影、无渐变，靠 1px 线分区（docs/前端设计规范.md §4） */
+  .panel {
+    @apply border border-rule bg-card;
+  }
+
+  .rule-t {
+    @apply border-t border-rule;
+  }
+
+  .label-quiet {
+    @apply text-micro text-muted-foreground;
+  }
+}
+
+/* 唯一的两处动效：路由内容整体淡入一次、传输梯级宽度推进。
+   prefers-reduced-motion 下两者都关闭（docs/前端设计规范.md §5）。 */
+@media (prefers-reduced-motion: no-preference) {
+  .route-fade {
+    animation: route-fade 140ms ease-out both;
+  }
+
+  .ladder-step {
+    transition:
+      background-color 120ms linear,
+      opacity 120ms linear;
+  }
+
+  /* 总量未知的传输：只有这一段游标在呼吸，表示「还在动，但算不出百分比」。 */
+  .ladder-pulse {
+    animation: ladder-pulse 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes ladder-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes route-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
