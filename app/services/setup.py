@@ -110,3 +110,23 @@ def setup_complete(secrets: SecretConfig, connected: bool) -> bool:
     只配了密钥却登不进去时，控制台里的每一条接口都不可用，故不放行。
     """
     return secrets.has_credentials and connected
+
+
+# 重新初始化要清掉的键：向导第 1 步的三项 + 代理段（FR-OPS-02）。
+# ``web_login_secret`` 是控制台口令，不是向导内容；清掉它会让 0.0.0.0 绑定失去保护。
+RESET_KEYS = ("api_id", "api_hash", "bot_token", "proxy")
+
+
+def clear_secrets(base_dir: Path) -> SecretConfig:
+    """重新执行初始化（FR-OPS-02）：删除密钥段，保留 Web 认证、端口与部署路径。
+
+    只删密钥类键，不动 ``web_host``/``web_port``/``web_login_secret`` 与
+    ``save_directory`` 等路径键——那些不是向导要重新确认的内容。
+    """
+    data = _load(base_dir)
+    for key in RESET_KEYS:
+        data.pop(key, None)
+    (base_dir / "config.yaml").write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    return load_secrets(base_dir)

@@ -64,6 +64,21 @@ class MeResponse(BaseModel):
     connected: bool = False
 
 
+class LogoutResponse(BaseModel):
+    """退出登录（FR-AUTH-02）：回被删的会话文件名，界面据此说明「下次要重新输码」。"""
+
+    ok: bool = True
+    removed_sessions: list[str] = Field(default_factory=list)
+
+
+class ResetResponse(BaseModel):
+    """重新执行初始化（FR-OPS-02）：清掉的 config.yaml 键 + 删除的会话文件。"""
+
+    ok: bool = True
+    cleared_keys: list[str] = Field(default_factory=list)
+    removed_sessions: list[str] = Field(default_factory=list)
+
+
 class SourceUpsertRequest(BaseModel):
     link: str
     enabled: bool = True

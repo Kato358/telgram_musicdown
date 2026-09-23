@@ -14,7 +14,9 @@ from typing import Any
 
 from app.config import SecretConfig
 from app.errors import AppError, SessionLockedError
+from app.telegram.bot_client import SESSION_NAME as BOT_SESSION_NAME
 from app.telegram.bot_client import BotClient
+from app.telegram.user_client import SESSION_NAME as USER_SESSION_NAME
 from app.telegram.user_client import UserClient
 
 logger = logging.getLogger(__name__)
@@ -171,6 +173,28 @@ class TelegramManager:
                 logger.warning("user disconnect failed", exc_info=True)
             self.user = None
         self.authorized = False
+
+    async def logout(self, *, purge_bot_session: bool = False) -> list[str]:
+        """登出（FR-AUTH-02）：停 Bot、断 User、删会话文件；下载文件与数据库不动。
+
+        必须删会话文件：留着它下次启动会判「已有有效会话」直接放行，用户点了退出却还在登录。
+        Bot 会话只在重新初始化时一并删——那时 bot_token 多半要换，旧会话文件会让新 token
+        复用旧 Bot 身份（ApiBot 的 auth key 与 token 绑定）。
+        """
+        await self.stop()
+        return self.delete_sessions(purge_bot_session=purge_bot_session)
+
+    def delete_sessions(self, *, purge_bot_session: bool = False) -> list[str]:
+        """删除会话文件（含 sqlite 的 -journal/-wal 边车），返回被删文件名。"""
+        names = [USER_SESSION_NAME]
+        if purge_bot_session:
+            names.append(BOT_SESSION_NAME)
+        removed: list[str] = []
+        for name in names:
+            for path in sorted(self.session_dir.glob(f"{name}.session*")):
+                path.unlink(missing_ok=True)
+                removed.append(path.name)
+        return removed
 
     async def start_bot(self) -> None:
         if self.bot is not None:

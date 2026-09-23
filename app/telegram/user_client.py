@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 MAX_DIALOG_SCAN = 200  # 候选源扫描上限：一次 get_dialogs，不做逐会话额外请求（FR-SRC-05）
 CONNECT_TIMEOUT_SEC = 30  # Pyrogram 对连不上的代理会无限重试，故本层给硬超时（FR-AUTH-03）
+SESSION_NAME = "musicdown"  # 会话文件名（sessions/musicdown.session）；登出按此名删除
 
 
 def _proxy_text(cfg: SecretConfig) -> str:
@@ -68,7 +69,7 @@ class UserClient:
     def __init__(self, secrets: SecretConfig, session_dir: Any) -> None:
         self.secrets = secrets
         self.client = Client(
-            "musicdown",
+            SESSION_NAME,
             api_id=secrets.api_id,
             api_hash=secrets.api_hash,
             workdir=str(session_dir),

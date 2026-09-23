@@ -25,6 +25,7 @@
   } from "$lib/api/types";
   import { t } from "$lib/i18n/index.svelte";
   import { navigate, pathOf } from "$lib/router.svelte";
+  import { API_HASH_RE, API_ID_RE, BOT_TOKEN_RE, MAX_PORT, PORT_RE } from "$lib/secrets";
   import { session } from "$lib/stores/session.svelte";
   import { formatCount } from "$lib/format";
   import type { Tone } from "$lib/tone";
@@ -49,10 +50,6 @@
 
   const STEPS: Step[] = [1, 2, 3];
   const REC_PAGE = 4; // 推荐每次显示 4 条，「换一批」翻页
-  const API_ID_RE = /^\d{5,10}$/;
-  const API_HASH_RE = /^[0-9a-fA-F]{32}$/;
-  const BOT_TOKEN_RE = /^\d{6,12}:[A-Za-z0-9_-]{30,}$/;
-  const PORT_RE = /^\d{1,5}$/;
 
   let step = $state<Step>(1);
   let tab = $state<Tab>("rec");
@@ -322,7 +319,7 @@
     if (useProxy) {
       if (proxyHost.trim() === "") problems.push(t("setup.proxyHostRequired"));
       const port = Number(proxyPort.trim());
-      if (!PORT_RE.test(proxyPort.trim()) || port < 1 || port > 65535) {
+      if (!PORT_RE.test(proxyPort.trim()) || port < 1 || port > MAX_PORT) {
         problems.push(t("setup.proxyPortInvalid"));
       }
     }

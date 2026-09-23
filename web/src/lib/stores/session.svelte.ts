@@ -27,9 +27,11 @@ class Session {
     this.checked = true;
   }
 
+  /** 退出 Telegram 账号（FR-AUTH-02）：服务端删会话文件，随即回到初始化向导。 */
   async signOut() {
     await api.post("/api/auth/logout");
     this.me = { display_name: null, username: null, premium: false, connected: false };
+    await this.loadSetup(); // 放行判据含登录：退出后 complete 变 false，闸门自己会把人送回向导
   }
 }
 

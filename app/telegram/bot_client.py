@@ -24,6 +24,8 @@ from app.utils.linkparse import parse_link
 
 logger = logging.getLogger(__name__)
 
+SESSION_NAME = "musicdown-bot"  # 会话文件名（sessions/musicdown-bot.session）
+
 
 class BotClient:
     """Bot Client：链接与音频指令（FR-LINK-03/04/05）+ 搜索（bot 可搜索音乐）。"""
@@ -44,7 +46,7 @@ class BotClient:
         self._last_results: dict[int, list[Any]] = {}
         self.allowed_user_ids = allowed_user_ids or set()
         self.client = Client(
-            "musicdown-bot",
+            SESSION_NAME,
             api_id=secrets.api_id,
             api_hash=secrets.api_hash,
             bot_token=secrets.bot_token or None,  # type: ignore[arg-type]

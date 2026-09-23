@@ -135,7 +135,11 @@ def test_setup_secrets_writes_to_base_dir(tmp_path: Path) -> None:
 
 
 def _client_with(
-    tmp_path: Path, secrets: SecretConfig | None = None
+    tmp_path: Path,
+    secrets: SecretConfig | None = None,
+    *,
+    web_host: str = "127.0.0.1",
+    web_login_secret: str = "",
 ) -> tuple[TestClient, TelegramManager]:
     """带自定密钥的 API 客户端（向导相关用例共用）。"""
     store = Store(tmp_path / "app.db")
@@ -151,7 +155,18 @@ def _client_with(
     )
     preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
     tg = TelegramManager(secrets or SecretConfig(), tmp_path / "sessions")
-    app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
+    app = create_app(
+        store,
+        events,
+        downloads,
+        sources,
+        search,
+        preview,
+        tg,
+        base_dir=tmp_path,
+        web_host=web_host,
+        web_login_secret=web_login_secret,
+    )
     return TestClient(app), tg
 
 
@@ -208,6 +223,74 @@ def test_setup_status_requires_login_for_complete(tmp_path: Path) -> None:
     assert body["complete"] is False
     tg.authorized = True
     assert client.get("/api/setup/status").json()["complete"] is True
+
+
+def test_setup_secrets_requires_session_when_auth_on(tmp_path: Path) -> None:
+    # 密钥写入是改配置的敏感操作：开了认证就必须带会话（未带 → 401，不落盘）
+    client, _ = _client_with(
+        tmp_path,
+        web_host="0.0.0.0",  # noqa: S104  测试注入的是绑定字符串
+        web_login_secret="s3cret",  # noqa: S106
+    )
+    r = client.post("/api/setup/secrets", json={"api_id": 1234567, "api_hash": API_HASH})
+    assert r.status_code == 401
+    assert not (tmp_path / "config.yaml").exists()
+
+
+def test_logout_deletes_session_files_and_keeps_data(tmp_path: Path) -> None:
+    # FR-AUTH-02：退出登录 = 删会话文件（留着它下次启动会判「已有有效会话」直接放行）
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    (sessions / "musicdown.session").write_bytes(b"session")
+    (sessions / "musicdown.session-journal").write_bytes(b"journal")
+    (sessions / "musicdown-bot.session").write_bytes(b"bot")
+    client, _ = _client_with(tmp_path)
+    r = client.post("/api/auth/logout")
+    assert r.status_code == 200
+    assert r.json()["removed_sessions"] == ["musicdown.session", "musicdown.session-journal"]
+    assert not (sessions / "musicdown.session").exists()
+    assert (sessions / "musicdown-bot.session").exists()  # Bot 是独立身份，token 没换就留着
+
+
+def test_logout_keeps_web_console_session(tmp_path: Path) -> None:
+    # 退出的是 Telegram 账号，不是 Web 控制台：没有登录页，清掉 cookie 会把人锁在门外
+    client, _ = _client_with(
+        tmp_path,
+        web_host="0.0.0.0",  # noqa: S104  测试注入的是绑定字符串
+        web_login_secret="s3cret",  # noqa: S106
+    )
+    client.cookies.set(web_auth.SESSION_COOKIE, web_auth.make_session_token("s3cret"))
+    assert client.post("/api/auth/logout").status_code == 200
+    assert client.get("/api/me").status_code == 200
+
+
+def test_setup_reset_clears_keys_and_sessions(tmp_path: Path) -> None:
+    # FR-OPS-02「重新执行初始化」：密钥段与会话全清，Web 口令与部署路径一个不动
+    (tmp_path / "config.yaml").write_text(
+        "api_id: 1234567\n"
+        f"api_hash: {API_HASH}\n"
+        "bot_token: 123456:ABC-DEF\n"
+        "web_login_secret: keepme\n"
+        "save_directory: /data/downloads\n"
+        "proxy:\n  scheme: http\n  hostname: 10.0.0.9\n  port: 7890\n",
+        encoding="utf-8",
+    )
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    (sessions / "musicdown.session").write_bytes(b"session")
+    (sessions / "musicdown-bot.session").write_bytes(b"bot")
+    client, _ = _client_with(tmp_path, load_secrets(tmp_path))
+    assert client.get("/api/setup/status").json()["has_api_id"] is True
+
+    body = client.post("/api/setup/reset").json()
+    assert body["cleared_keys"] == ["api_id", "api_hash", "bot_token", "proxy"]
+    text = (tmp_path / "config.yaml").read_text(encoding="utf-8")
+    assert "api_id" not in text and "bot_token" not in text and "proxy" not in text
+    assert "web_login_secret: keepme" in text
+    assert "save_directory: /data/downloads" in text
+    assert not list(sessions.glob("*.session"))  # User 与 Bot 会话都没了
+    status = client.get("/api/setup/status").json()
+    assert status["has_api_id"] is False and status["complete"] is False
 
 
 def test_setup_status_hides_proxy_credentials(tmp_path: Path) -> None:

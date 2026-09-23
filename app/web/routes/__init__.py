@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -129,10 +129,14 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
         return info
 
     @app.post("/api/auth/logout")
-    async def logout(response: Response, _: None = Depends(check_session)) -> dict[str, bool]:
-        response.delete_cookie(web_auth.SESSION_COOKIE)
-        await tg.disconnect_user()
-        return {"ok": True}
+    async def logout(_: None = Depends(check_session)) -> schemas.LogoutResponse:
+        """退出登录（FR-AUTH-02）：断开 User Client 并删除会话文件，下载文件与数据库不动。
+
+        删会话文件才算真退出——留着它下次启动会判「已有有效会话」直接放行。
+        这里是退出 Telegram 账号，不是退出 Web 控制台，故不动会话 cookie。
+        """
+        removed = await tg.logout()
+        return schemas.LogoutResponse(removed_sessions=removed)
 
     @app.get("/api/me")
     async def me(_: None = Depends(check_session)) -> schemas.MeResponse:
@@ -177,7 +181,9 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
         )
 
     @app.post("/api/setup/secrets")
-    async def setup_secrets(req: schemas.SetupSecretsRequest) -> dict[str, Any]:
+    async def setup_secrets(
+        req: schemas.SetupSecretsRequest, _: None = Depends(check_session)
+    ) -> dict[str, Any]:
         """保存密钥到 config.yaml（不入库，NFR-02）。
 
         校验看合并后的内容（前端校验只是即时反馈）；已连上的客户端不热换密钥，
@@ -193,6 +199,20 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
             "complete": setup_complete(updated, tg.authorized),
             "restart_required": alive,
         }
+
+    @app.post("/api/setup/reset")
+    async def setup_reset(_: None = Depends(check_session)) -> schemas.ResetResponse:
+        """重新执行初始化（FR-OPS-02）：清密钥段 + 退出登录 + 删会话，回到向导第 1 步。
+
+        设置页的入口在这里；做完 ``complete`` 变 false，前端闸门随即把人送回向导。
+        Bot 会话一并删：重新初始化后 bot_token 多半要换，旧会话文件会让新 token 复用旧身份。
+        下载文件、历史与音乐源不动（FR-AUTH-02）。
+        """
+        from app.services.setup import RESET_KEYS, clear_secrets  # noqa: PLC0415
+
+        removed = await tg.logout(purge_bot_session=True)
+        tg.secrets = clear_secrets(base_dir)
+        return schemas.ResetResponse(cleared_keys=list(RESET_KEYS), removed_sessions=removed)
 
     # ---- sources ----
 
