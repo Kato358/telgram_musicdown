@@ -43,10 +43,15 @@
     document.title = `${label} · ${t("app.name")}`;
   });
 
-  /** 未完成初始化时强制进入向导；已完成则从向导放行。 */
+  /** 未确认「初始化完成」就不渲染控制台：状态取不到（401 / 网络不通）也按未初始化处理——
+   *  宁可停在向导（它自带原因提示与修复入口），也不要卡在加载态或放一个用不了的控制台进去。
+   *  注意「已确认」这一半不能省：`checked` 之前 setup 还是 null，照它跳转会把已完成初始化的
+   *  用户也钉在向导里。 */
+  const setupGate = $derived(session.checked && !session.setup?.complete);
+
+  /** 地址栏与渲染保持一致：强制进向导时用 replace，不留一条控制台历史。 */
   $effect(() => {
-    if (!session.checked) return;
-    if (!session.setup?.complete && router.key !== "setup") {
+    if (setupGate && router.key !== "setup") {
       navigate(pathOf("setup"), { replace: true });
     }
   });
@@ -67,10 +72,10 @@
     queue.start();
     void (async () => {
       try {
-        await session.loadSetup();
+        await session.loadSetup(); // 失败也会置 checked：闸门据此停在向导并写明原因
         await session.loadMe();
       } catch {
-        // 状态接口不可用时保持界面可用，由各页自行提示错误
+        // 账号信息取不到不影响闸门判断：未完成初始化就留在向导
       }
     })();
     const onKeydown = (event: KeyboardEvent) => {
@@ -92,7 +97,7 @@
   <div class="grid min-h-dvh place-items-center text-caption text-muted-foreground">
     {t("common.loading")}
   </div>
-{:else if router.key === "setup"}
+{:else if setupGate || router.key === "setup"}
   <div class="min-h-dvh bg-background">
     <SetupView />
   </div>

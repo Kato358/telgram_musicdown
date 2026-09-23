@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from app.config import app_dirs, load_path_config, resolve_dir
+from app import config as app_config
+from app.config import app_dirs, load_path_config, resolve_dir, web_dist_dir
 
 
 def _write_config(base: Path, text: str) -> None:
@@ -52,3 +53,19 @@ def test_env_overrides_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     _write_config(tmp_path, "save_directory: from-file\n")
     monkeypatch.setenv("TGM_SAVE_DIRECTORY", "from-env")
     assert load_path_config(tmp_path).save_directory == "from-env"
+
+
+def test_web_dist_dir_follows_code_not_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 首次部署：Docker 的 TGM_BASE_DIR=/data，产物在代码旁的 web/dist，
+    # 拿数据目录拼路径会让首屏 404，初始化向导不可达
+    monkeypatch.delenv("TGM_STATIC_DIR", raising=False)
+    monkeypatch.setenv("TGM_BASE_DIR", str(tmp_path))
+    assert web_dist_dir() == Path(app_config.__file__).resolve().parent.parent / "web" / "dist"
+    assert tmp_path not in web_dist_dir().parents
+
+
+def test_web_dist_dir_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TGM_STATIC_DIR", str(tmp_path / "static"))
+    assert web_dist_dir() == (tmp_path / "static").absolute()

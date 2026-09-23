@@ -11,7 +11,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.db.models import Task
@@ -29,6 +29,17 @@ from app.web import auth as web_auth
 from app.web.routes import schemas
 
 logger = logging.getLogger(__name__)
+
+# 前端产物缺失时的首屏说明（首次部署的唯一出路就是把产物建出来）
+_FRONTEND_MISSING = """前端产物缺失，暂时打不开界面。
+
+在源码根构建一次再启动：
+  cd web && npm install && npm run build
+或用 ./run.sh（缺产物时会自动构建）。
+
+Docker：镜像构建前要先有 web/dist（Dockerfile 会 COPY web/dist）。
+产物在别处时用 TGM_STATIC_DIR 指过去。
+"""
 
 
 def _envelope(code: str, message: str) -> JSONResponse:
@@ -480,6 +491,17 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
             if request.url.path.startswith("/api"):
                 return JSONResponse(status_code=404, content={"detail": "Not Found"})
             return FileResponse(static_dir / "index.html")
+    else:
+        # 前端产物缺失：首次部署最常见的原因（本地还没构建、Docker 镜像里没 COPY 进去）。
+        # 这里给可操作说明而不是 404 裸 JSON——否则首屏只有一行 {"detail":"Not Found"}，
+        # 用户没有任何入口去进初始化向导。
+        logger.error("web frontend missing at %s: run a build (npm run build) first", static_dir)
+
+        @app.exception_handler(404)
+        async def spa_missing(request: Request, exc: Any) -> Any:
+            if request.url.path.startswith("/api"):
+                return JSONResponse(status_code=404, content={"detail": "Not Found"})
+            return PlainTextResponse(_FRONTEND_MISSING, status_code=503)
 
     return app
 

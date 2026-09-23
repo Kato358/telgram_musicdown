@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from app.config import SecretConfig, app_dirs, load_secrets
+from app.config import SecretConfig, app_dirs, load_secrets, web_dist_dir
 from app.db.store import Store
 from app.domain import TemplateConfig
 from app.errors import SessionLockedError, WebAuthConfigError
@@ -129,7 +129,7 @@ async def run(base_dir: Path) -> None:
         base_dir=base_dir,
         web_host=svc.secrets.web_host,
         web_login_secret=svc.secrets.web_login_secret,
-        static_dir=svc.dirs["root"] / "web" / "dist",
+        static_dir=web_dist_dir(),
     )
     svc.tg.set_services(svc.downloads, svc.search)
     await svc.downloads.start_workers()

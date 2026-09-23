@@ -34,7 +34,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (resp.status === 401) {
-    throw new ApiError("unauthorized", "会话已失效，请重新登录", 401);
+    throw new ApiError(
+      "unauthorized",
+      "Web 会话无效或缺失：这台部署设了 web_login_secret，浏览器要带有效的会话 cookie（tgm_session）",
+      401,
+    );
   }
   if (!resp.ok) {
     let envelope: ErrorEnvelope | null = null;

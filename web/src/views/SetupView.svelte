@@ -65,6 +65,8 @@
   let loginNote = $state<Feedback | null>(null);
   let recNote = $state<Feedback | null>(null);
   let manualNote = $state<Feedback | null>(null);
+  /** 页面级提示：状态/账号接口拉不到（401、后端未起）时说明原因，不退化成空白向导。 */
+  let pageNote = $state<Feedback | null>(null);
 
   let apiId = $state("");
   let apiHash = $state("");
@@ -278,9 +280,18 @@
     }
   }
 
-  /** 刷新三个事实源（状态、账号、源列表），并同步候选池与当前步骤。 */
+  /** 刷新三个事实源（状态、账号、源列表），并同步候选池与当前步骤。
+   *
+   * 状态/账号接口失败时（401、后端没起来）仍留在向导：`pageNote` 写清原因，
+   * 各步的表单与重试照常可用——首次部署没有别的入口。
+   */
   async function refresh(options: { keepStep?: boolean } = {}) {
-    await Promise.all([session.loadSetup(), session.loadMe(), loadSources()]);
+    try {
+      await Promise.all([session.loadSetup(), session.loadMe(), loadSources()]);
+      pageNote = null;
+    } catch (err) {
+      pageNote = { tone: "fail", text: authErrorText(err) };
+    }
     me = session.me;
     if (!(options.keepStep ?? false)) {
       // 首次进入落在第一个未满足的步骤：续做的人不必从第 1 步翻起
@@ -535,6 +546,10 @@
     <h1 class="text-h1 font-bold">{t("setup.title")}</h1>
     <p class="text-body text-muted-foreground">{t("setup.lede")}</p>
   </header>
+
+  {#if pageNote}
+    <Note tone={pageNote.tone}>{pageNote.text}</Note>
+  {/if}
 
   <ol class="flex items-center">
     {#each STEPS as n (n)}

@@ -159,3 +159,16 @@ def app_dirs(base_dir: Path | None = None, paths: PathConfig | None = None) -> d
     for d in dirs.values():
         d.mkdir(parents=True, exist_ok=True)
     return dirs
+
+
+def web_dist_dir() -> Path:
+    """前端构建产物目录：跟随**代码**位置，不跟随 TGM_BASE_DIR。
+
+    Docker 里 ``TGM_BASE_DIR=/data`` 而代码在 ``/opt/app``（产物 ``/opt/app/web/dist``）；
+    拿数据目录拼路径会让首次部署打开 Web 只拿到 404，初始化向导因此不可达。
+    需要放到别处时用 ``TGM_STATIC_DIR`` 覆盖。
+    """
+    override = _env("static_dir")
+    if override:
+        return Path(override).expanduser().absolute()
+    return Path(__file__).resolve().parent.parent / "web" / "dist"

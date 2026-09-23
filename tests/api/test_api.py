@@ -140,6 +140,7 @@ def _client_with(
     *,
     web_host: str = "127.0.0.1",
     web_login_secret: str = "",
+    static_dir: Path | None = None,
 ) -> tuple[TestClient, TelegramManager]:
     """带自定密钥的 API 客户端（向导相关用例共用）。"""
     store = Store(tmp_path / "app.db")
@@ -166,6 +167,7 @@ def _client_with(
         base_dir=tmp_path,
         web_host=web_host,
         web_login_secret=web_login_secret,
+        static_dir=static_dir,
     )
     return TestClient(app), tg
 
@@ -223,6 +225,26 @@ def test_setup_status_requires_login_for_complete(tmp_path: Path) -> None:
     assert body["complete"] is False
     tg.authorized = True
     assert client.get("/api/setup/status").json()["complete"] is True
+
+
+def test_missing_frontend_serves_actionable_page(tmp_path: Path) -> None:
+    # 首次部署没构建前端时首屏要说清怎么办（而不是一行 404 JSON），/api 仍回 JSON
+    client, _ = _client_with(tmp_path)
+    r = client.get("/")
+    assert r.status_code == 503
+    assert "npm run build" in r.text
+    assert client.get("/api/nope").json() == {"detail": "Not Found"}
+
+
+def test_spa_serves_index_and_falls_back_for_routes(tmp_path: Path) -> None:
+    # 首次使用靠 URL 直达向导：非 /api 路径一律回退 index.html，否则 /setup 刷不出来
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html>spa</html>", encoding="utf-8")
+    client, _ = _client_with(tmp_path, static_dir=dist)
+    assert client.get("/").status_code == 200
+    assert "spa" in client.get("/setup").text
+    assert client.get("/api/nope").json() == {"detail": "Not Found"}
 
 
 def test_setup_secrets_requires_session_when_auth_on(tmp_path: Path) -> None:

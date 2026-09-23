@@ -23,8 +23,12 @@ class Session {
   }
 
   async loadSetup() {
-    this.setup = await api.get<SetupStatus>("/api/setup/status");
-    this.checked = true;
+    try {
+      this.setup = await api.get<SetupStatus>("/api/setup/status");
+    } finally {
+      // 失败也算「已确认」：闸门据此停在向导（页头写原因），否则首屏会永远停在加载态
+      this.checked = true;
+    }
   }
 
   /** 退出 Telegram 账号（FR-AUTH-02）：服务端删会话文件，随即回到初始化向导。 */
