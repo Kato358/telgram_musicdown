@@ -17,22 +17,22 @@
    ============================================================ */
 
 :root {
-  /* 页面底灰白、卡片纯白；深墨绿是唯一的「在做」信号 */
-  --background: #f4f6f5;
-  --foreground: #1d2129;
+  /* 页面底薄荷、卡片纯白；亮绿是唯一的「在做」信号（参考图配色，§3.1） */
+  --background: #edf6f1;
+  --foreground: #101828;
 
   --card: #ffffff;
   --card-foreground: var(--foreground);
   --popover: #ffffff;
   --popover-foreground: var(--foreground);
 
-  --muted-foreground: #4e5969; /* 路径、歌手、副标题、表头 */
-  --faint-foreground: #86909c; /* 仅冗余字段：时长、大小、单位（3.2:1，不达 AA） */
+  --muted-foreground: #5b6472; /* 路径、歌手、副标题、表头 */
+  --faint-foreground: #7c8797; /* 仅冗余字段：时长、大小、单位（3.64:1，不达 AA） */
 
-  --primary: #1e513b;
-  --primary-hover: #236b53;
-  --primary-soft: #eaf4ef; /* 只做底：激活导航、chip、选中行 */
-  --primary-surface: #f0f7f3; /* 只做底：传输状态卡 */
+  --primary: #0b7a55;
+  --primary-hover: #0a6b4a;
+  --primary-soft: #e4f4eb; /* 只做底：激活导航、chip、选中行 */
+  --primary-surface: #e7f5ee; /* 只做底：传输状态卡 */
   --primary-foreground: #ffffff;
 
   --surface-subtle: #f7f8fa; /* 路径框、搜索框、表头底 */
@@ -44,13 +44,16 @@
   --accent: #f2f3f5;
   --accent-foreground: var(--foreground);
 
-  --destructive: #f53f3f; /* 图标/圆点/边框（3.70:1） */
+  --destructive: #f53f3f; /* 图标/圆点/边框（3.71:1） */
   --destructive-text: #d32f2f; /* 错误文案（4.98:1） */
 
   --border: #e5e6eb;
   --input: #e5e6eb;
   --rule: #f2f3f5; /* 表格行底边、分区细线、hover 行底 */
-  --ring: #1e513b;
+  --ring: #0b7a55;
+
+  /* 卡片浮起：薄荷底与白卡之间补一层极浅的投影（§5.1） */
+  --card-shadow: 0 1px 2px rgb(16 24 40 / 0.05), 0 14px 30px -22px rgb(16 24 40 / 0.28);
 
   /* 进度与音量共用的两段色（线型与波形同一内核） */
   --progress-fill: var(--primary);
@@ -60,8 +63,8 @@
   --lamp-live: var(--primary);
   --lamp-done: #1c7a4e;
   --lamp-fail: var(--destructive);
-  --lamp-wait: #4e5969;
-  --lamp-idle: #86909c;
+  --lamp-wait: #5b6472;
+  --lamp-idle: #7c8797;
 
   /* 圆角：五个显式档位，控件 10px 也是 shadcn 的 --radius */
   --radius: 10px;
@@ -72,19 +75,19 @@
 }
 
 .dark {
-  --background: #121715;
+  --background: #101613;
   --foreground: #e8edea;
 
-  --card: #1a211e;
+  --card: #18211d;
   --card-foreground: var(--foreground);
-  --popover: #1a211e;
+  --popover: #18211d;
   --popover-foreground: var(--foreground);
 
   --muted-foreground: #9aa69c;
   --faint-foreground: #7c867f;
 
-  --primary: #3e9c76;
-  --primary-hover: #4fb08a;
+  --primary: #4fb08a;
+  --primary-hover: #5cbe95;
   --primary-soft: #1c2b24;
   --primary-surface: #18231e;
   --primary-foreground: #06120c;
@@ -103,7 +106,9 @@
   --border: #2c3531;
   --input: #2c3531;
   --rule: #232b27;
-  --ring: #3e9c76;
+  --ring: #4fb08a;
+
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.45), 0 14px 30px -22px rgb(0 0 0 / 0.7);
 
   --progress-fill: var(--primary);
   --progress-track: var(--rule);
@@ -210,9 +215,10 @@
 }
 
 @layer utilities {
-  /* 卡片化的事实分区：页面底灰白、卡片纯白（§1） */
+  /* 卡片化的事实分区：页面底薄荷、卡片纯白，白卡靠极浅投影从薄荷底上浮起（§5.1） */
   .card {
     @apply rounded-card border border-border bg-card;
+    box-shadow: var(--card-shadow);
   }
 
   /* text-code 的另一半：字号由 @theme 的 --text-code 提供，字体族在这里补上——
