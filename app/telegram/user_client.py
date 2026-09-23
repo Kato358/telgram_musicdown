@@ -236,16 +236,27 @@ class UserClient:
     ) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         try:
-            # iter_messages 是 pyrogram 内置方法；mypy stub 不全
-            async for m in self.client.iter_messages(  # type: ignore[attr-defined]
-                chat_id, offset_id=offset_id, reverse=reverse
-            ):
-                out.append(_message_dict(m))
-                if len(out) >= limit:
-                    break
+            # get_chat_history 是 pyrogram v2 的历史遍历 API（v1 的 iter_messages 已移除）
+            gen = self.client.get_chat_history(  # type: ignore[call-arg]
+                chat_id, offset_id=offset_id, reverse=reverse, limit=limit
+            )
+            if gen is not None:
+                async for m in gen:
+                    out.append(_message_dict(m))
+                    if len(out) >= limit:
+                        break
         except RPCError as e:
             raise _translate_rpc(e) from e
         return out
+
+    async def get_messages(self, chat_id: int, message_ids: list[int]) -> list[dict[str, Any]]:
+        """按 id 取消息 dict（DownloadService meta 补全用）；单条返回也归一为列表。"""
+        try:
+            result = await self.client.get_messages(chat_id, message_ids=message_ids)
+        except RPCError as e:
+            raise _translate_rpc(e) from e
+        msgs = result if isinstance(result, list) else [result]
+        return [_message_dict(m) for m in msgs if m is not None]
 
     async def download_media(self, message_ref: dict[str, Any], file_name: str) -> str | None:
         """下载（FR-DL-01）：msg → temp 路径；经 with_flood_retry（NFR-09）。"""

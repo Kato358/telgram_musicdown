@@ -72,6 +72,29 @@ async def test_download_success_saves_to_save_path(
     assert row.save_path
 
 
+async def test_bare_link_task_hydrates_meta(
+    svc: tuple[DownloadService, Store, FakeUserClient], tmp_path: Path
+) -> None:
+    # bot 链接/转发入队只有 chat_id/message_id：下载前取消息补全 ext/file_size，
+    # 落盘带扩展名（标签容器依赖它）且大小校验生效。
+    service, store, client = svc
+    task_id = await service.enqueue(req(1))  # meta 全空
+    assert task_id is not None
+    await service._run_task(worker_row(store, task_id))
+    assert store.get_task(task_id).status == "success"  # type: ignore[union-attr]
+    # ext 来自 Fake 消息的 audio.file_name（晴天.mp3），文件名不再是无后缀 message_1
+    saved = [p for p in (tmp_path / "library").rglob("*") if p.is_file()]
+    assert saved and saved[0].suffix == ".mp3"
+    # 大小校验现在生效：Fake 内容 100 字节，注入不符 → failed 且不落盘
+    client.size_override = 99
+    task_id2 = await service.enqueue(
+        DownloadRequest(meta=TrackMeta(chat_id=CHAT_ID, message_id=2), force=True)
+    )
+    assert task_id2 is not None
+    await service._run_task(worker_row(store, task_id2))
+    assert store.get_task(task_id2).status == "failed"  # type: ignore[union-attr]
+
+
 async def test_size_mismatch_not_saved(
     svc: tuple[DownloadService, Store, FakeUserClient], tmp_path: Path
 ) -> None:

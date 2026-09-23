@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from app.db.models import History, Task
 from app.db.store import utcnow
-from app.domain import TemplateConfig, TrackMeta, meta_from_dict
+from app.domain import TemplateConfig, TrackMeta, card_to_meta, message_to_card, meta_from_dict
 from app.errors import AppError
 from app.events import Event, EventBus
 from app.services.path_builder import render_path, resolve_conflict
@@ -53,6 +53,8 @@ class TelegramClientProto(Protocol):
     """下载所需协议面（FakeUserClient 实现，NFR-07）。"""
 
     def download_media(self, message_ref: dict[str, Any], file_name: str) -> Any: ...
+
+    def get_messages(self, chat_id: int, message_ids: list[int]) -> Any: ...
 
 
 class SyncRunnerProto(Protocol):
@@ -215,6 +217,10 @@ class DownloadService:
         task_id: int = task["id"]
         history_id: int | None = task.get("history_id")
         meta = _meta_from_payload(payload)
+        # bot 链接/转发入队只有 chat_id/message_id：下载前取一次消息补全 meta
+        #（ext 决定落盘扩展名与标签容器，file_size 决定完整性校验）。
+        if meta.ext is None and meta.file_size is None and meta.title is None:
+            meta = await self._hydrate_meta(meta)
         chat_id: int = meta.chat_id
         message_id: int = meta.message_id
         expected_size: int | None = meta.file_size
@@ -276,6 +282,26 @@ class DownloadService:
             await self.events.publish(
                 Event("task.status", {"task_id": task_id, "status": "success", "error": None})
             )
+
+    async def _hydrate_meta(self, meta: TrackMeta) -> TrackMeta:
+        """meta 只有 chat_id/message_id 时（bot 链接/转发入队），取消息补全元数据。
+
+        取不到消息或非音频 → 原样返回，行为与之前一致（message_{id} 回退）。
+        """
+        try:
+            msgs = await self.client.get_messages(meta.chat_id, [meta.message_id])
+        except AppError:
+            return meta
+        msg = (msgs if isinstance(msgs, list) else [msgs])[0]
+        if msg is None:
+            return meta
+        card = message_to_card(msg, channel_title=meta.channel_title)
+        hydrated = card_to_meta(card)
+        if hydrated.ext is None and hydrated.mime:
+            hydrated.ext = {"audio/flac": "flac", "audio/mpeg": "mp3"}.get(hydrated.mime)
+        hydrated.track = meta.track
+        hydrated.album = meta.album or hydrated.album
+        return hydrated
 
     async def _run_sync(self, task: dict[str, Any]) -> None:
         """源同步/回溯（FR-SRC-04）：交给 SyncRunner，本处只做状态与错误落库。"""

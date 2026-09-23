@@ -63,6 +63,12 @@ class _DownloadProxy:
             raise AppError("not_connected", "telegram 未登录：请先在 Web 完成初始化登录")
         return c.download_media(message_ref, file_name)
 
+    def get_messages(self, chat_id: int, message_ids: list[int]) -> Any:
+        c = self._mgr.authorized_client()
+        if c is None:
+            raise AppError("not_connected", "telegram 未登录：请先在 Web 完成初始化登录")
+        return c.get_messages(chat_id, message_ids=message_ids)
+
 
 class TelegramManager:
     """持有 User/Bot Client 与其生命周期（FR-AUTH-01/02/04）。
