@@ -413,8 +413,52 @@ def test_event_bus_publish_nowait_from_worker_thread() -> None:
         )
         event = await asyncio.wait_for(q.get(), timeout=1)
         return str(event.payload["progress_bytes"])
+
     assert asyncio.run(scenario()) == "3"
 
+
+def test_stats_counts_written_tracks_and_tasks(client: TestClient, tmp_path: Path) -> None:
+    # 统计卡的判据：已入库 = 有落盘路径的行（入队但还没写盘的不算，免得数字比曲库大）；
+    # 占用去磁盘上量，所以「记录里有路径、文件却不在磁盘」的那条不算占用。
+    library = tmp_path / "library"
+    library.mkdir()
+    on_disk = library / "on-disk.mp3"
+    on_disk.write_bytes(b"x" * 1000)
+    store = Store(tmp_path / "app.db")
+    store.upsert_history(
+        History(
+            id=None,
+            chat_id=-1001,
+            message_id=1,
+            title="On Disk",
+            status="success",
+            save_path=str(on_disk),
+            file_size=999,  # DB 里的账目与磁盘不一致时，占用以磁盘为准
+        )
+    )
+    store.upsert_history(
+        History(
+            id=None,
+            chat_id=-1001,
+            message_id=2,
+            title="Moved Away",
+            status="success",
+            save_path=str(library / "gone.mp3"),
+        )
+    )
+    store.upsert_history(
+        History(id=None, chat_id=-1001, message_id=3, title="Queued", status="queued")
+    )
+    store.upsert_history(
+        History(id=None, chat_id=-1001, message_id=4, title="Failed", status="failed")
+    )
+    store.create_task(Task(id=None, type="link", payload_json="{}", status="downloading"))
+
+    body = client.get("/api/stats").json()
+    assert body["library"] == {"tracks": 2, "bytes": 1000, "failed": 1}
+    assert body["tasks"]["downloading"] == 1
+    assert body["tasks"]["success"] == 0
+    assert body["uptime_sec"] >= 0
 
 
 def test_download_list_and_lifecycle_routes(client: TestClient, tmp_path: Path) -> None:

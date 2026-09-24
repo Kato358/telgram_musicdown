@@ -64,6 +64,41 @@ class MeResponse(BaseModel):
     connected: bool = False
 
 
+class TaskCounts(BaseModel):
+    queued: int = 0
+    downloading: int = 0
+    paused: int = 0
+    failed: int = 0
+    success: int = 0
+
+
+class LibraryCounts(BaseModel):
+    """曲库计数：`tracks` 只算已写盘的行（save_path 非空）。
+
+    `bytes` 是这些文件在磁盘上的实际大小之和——刻意不取 `history.file_size` 求和：
+    链接/转发入队时 Telegram 经常不给大小，那样求和会让「占用」长期停在 0。
+    磁盘才是这个数字的事实源（文件被移走就不算占用）。
+    """
+
+    tracks: int = 0
+    bytes: int = 0
+    failed: int = 0
+
+
+class SourceCounts(BaseModel):
+    total: int = 0
+    enabled: int = 0
+
+
+class StatsResponse(BaseModel):
+    """控制台统计（`GET /api/stats`）：统计卡与系统状态一次取全，前端不再自己数列表。"""
+
+    tasks: TaskCounts
+    library: LibraryCounts
+    sources: SourceCounts
+    uptime_sec: float = 0.0
+
+
 class LogoutResponse(BaseModel):
     """退出登录（FR-AUTH-02）：回被删的会话文件名，界面据此说明「下次要重新输码」。"""
 
