@@ -75,15 +75,16 @@
   --accent-amber: #b45309; /* 4.57:1 */
   --accent-amber-soft: #fdf3e3;
 
-  /* 渐变（v3.4）：只出现在「欢迎横幅」「快速操作卡头」「侧栏底部曲库卡」三处；都是页面级
-     入口装饰，不进列表、不进表格。深浅两态同一份定义——变量在使用处解析，自动跟随；
+  /* 渐变（v3.4，v3.7 调整横幅）：只出现在「页面横幅」「快速操作卡头」「侧栏底部曲库卡」三处；
+     都是页面级入口装饰，不进列表、不进表格。深浅两态同一份定义——变量在使用处解析，自动跟随；
      起点一律用 color-mix 把主色掺进底里，而不是直接取 --primary-surface：后者在深色态
-     几乎等于卡片底，渐变会整条消失。掺入比例按「一眼看得出来、又不过头」定：
-     横幅 20% 掺白卡、曲库卡 22% 掺浅绿（掺白卡时分不清有没有渲染，见 §3.5）。 */
+     几乎等于卡片底，渐变会整条消失。横幅自上而下由明显的绿收到近白（v3.7：统计卡进横幅，
+     卡片坐在这片淡绿上，参考图实测顶部约 24% 掺主色）。 */
   --gradient-banner: linear-gradient(
-    120deg,
-    color-mix(in oklab, var(--primary) 20%, var(--card)) 0%,
-    var(--card) 72%
+    170deg,
+    color-mix(in oklab, var(--primary) 24%, var(--card)) 0%,
+    color-mix(in oklab, var(--primary) 10%, var(--card)) 48%,
+    var(--card) 100%
   );
   --gradient-brand: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
   --gradient-promo: linear-gradient(

@@ -25,13 +25,29 @@ class Queue {
   #timer: number | undefined = undefined;
   #unsubscribe: (() => void) | null = null;
 
-  /** 某一行当下的读数（下载任务页与仪表盘共用，避免各自拼一遍帧与快照）。 */
+  /** 某一行当下的读数（下载页与仪表盘共用，避免各自拼一遍帧与快照）。 */
   readings(task: TaskRow): TaskReadings {
     const frame = events.progress[task.id];
     return {
       received: frame?.progress_bytes ?? task.progress_bytes,
       total: frame?.total_bytes ?? task.total_bytes,
       speed: frame?.speed ?? task.speed,
+      eta: frame?.eta ?? null,
+    };
+  }
+
+  /** 按 task_id 取读数：下载页的行是历史记录，实时数字得靠它挂着的任务。
+   *
+   *  帧与快照都没有（任务已不在最近 50 条里）返回 null——「没有读数」与「读数是 0」是两件事。
+   */
+  readingsFor(taskId: number): TaskReadings | null {
+    const frame = events.progress[taskId];
+    const task = this.tasks.find((item) => item.id === taskId);
+    if (frame === undefined && task === undefined) return null;
+    return {
+      received: frame?.progress_bytes ?? task?.progress_bytes ?? 0,
+      total: frame?.total_bytes ?? task?.total_bytes ?? null,
+      speed: frame?.speed ?? task?.speed ?? null,
       eta: frame?.eta ?? null,
     };
   }

@@ -6,7 +6,6 @@
    */
   import type { Component } from "svelte";
   import DownloadIcon from "@lucide/svelte/icons/download";
-  import HistoryIcon from "@lucide/svelte/icons/history";
   import LayoutDashboardIcon from "@lucide/svelte/icons/layout-dashboard";
   import MenuIcon from "@lucide/svelte/icons/menu";
   import RadioTowerIcon from "@lucide/svelte/icons/radio-tower";
@@ -23,8 +22,7 @@
   const ICONS: Record<RouteKey, Component> = {
     dashboard: LayoutDashboardIcon,
     search: SearchIcon,
-    tasks: DownloadIcon,
-    history: HistoryIcon,
+    downloads: DownloadIcon,
     sources: RadioTowerIcon,
     settings: SettingsIcon,
     logs: ScrollTextIcon,
@@ -35,7 +33,7 @@
   let trigger = $state<HTMLButtonElement | undefined>();
 
   function countFor(key: RouteKey): number {
-    if (key === "tasks") return queue.activeCount;
+    if (key === "downloads") return queue.activeCount;
     if (key === "logs") return events.errors.length;
     return 0;
   }

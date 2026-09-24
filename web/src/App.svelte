@@ -17,19 +17,17 @@
   import TopBar from "$lib/components/app/TopBar.svelte";
   import TransportBar from "$lib/components/app/TransportBar.svelte";
   import DashboardView from "@/views/DashboardView.svelte";
-  import HistoryView from "@/views/HistoryView.svelte";
+  import DownloadsView from "@/views/DownloadsView.svelte";
   import LogsView from "@/views/LogsView.svelte";
   import SearchView from "@/views/SearchView.svelte";
   import SettingsView from "@/views/SettingsView.svelte";
   import SetupView from "@/views/SetupView.svelte";
   import SourcesView from "@/views/SourcesView.svelte";
-  import TasksView from "@/views/TasksView.svelte";
 
   const VIEWS: Record<RouteKey, Component> = {
     dashboard: DashboardView,
     search: SearchView,
-    tasks: TasksView,
-    history: HistoryView,
+    downloads: DownloadsView,
     sources: SourcesView,
     settings: SettingsView,
     logs: LogsView,

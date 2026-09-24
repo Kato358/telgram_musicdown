@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  /** 任务行的两种终态判据（下载任务页与仪表盘的行动作都据此推）。 */
+  /** 任务行的两种终态判据（仪表盘的任务行与下载页的行都据此推）。 */
   export function taskFinished(status: string): boolean {
     return ["success", "failed", "skipped", "cancelled"].includes(status);
   }
@@ -12,7 +12,7 @@
 </script>
 
 <script lang="ts">
-  /** 下载任务行（设计规范 §5.4、§5.6）：下载任务页与仪表盘共用同一套行规格。
+  /** 下载任务行（设计规范 §5.4、§5.6）：仪表盘「最近下载任务」用这一件。
    *
    * 一行 = DB 快照（行的存在、状态）+ SSE 进度帧（字节、速率、剩余），拼起来才是活的；
    * 两类数据的合并收在 `queue.readings()`，视图不各拼一遍。
@@ -34,12 +34,10 @@
     task: Task;
     progress: TaskReadings;
     onact: (action: TaskAction) => void;
-    /** 删除是破坏性动作（带确认对话框），只有下载任务页提供。 */
-    ondelete?: () => void;
     class?: string;
   }
 
-  let { columns, task, progress, onact, ondelete, class: className = "" }: Props = $props();
+  let { columns, task, progress, onact, class: className = "" }: Props = $props();
 
   /** 行内动作是软色药丸（参考图的做法）：底 `--primary-soft`、字 `--primary`，不描边；
    *  取消/删除仍走 destructive 的浅红底，破坏性动作不假装成普通按钮。 */
@@ -122,11 +120,6 @@
             onclick={() => onact("cancel")}
           >
             {t("tasks.cancel")}
-          </Button>
-        {/if}
-        {#if ondelete}
-          <Button variant="destructive" size="xs" class="rounded-full" onclick={() => ondelete?.()}>
-            {t("tasks.delete")}
           </Button>
         {/if}
       </div>

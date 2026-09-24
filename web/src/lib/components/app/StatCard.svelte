@@ -61,9 +61,9 @@
 
   <div class="flex flex-col gap-0.5">
     <p class="text-caption text-muted-foreground">{label}</p>
-    <!-- 数值在窄档（含带右栏的 lg 档）用 h2：四张卡并排时列宽只有 ~130px，
-         h1 的 24px 会让「117 MB」顶出卡片内边距。 -->
-    <p class="tabular text-h2 font-bold xl:text-h1">{value}</p>
+    <!-- 右栏在场的主栏 ~590px 时每张卡约 140px，h1 的 24px 仍放得下「117 MB」；
+         xl 以下（单栏窄档）用 h2。 -->
+    <p class="tabular text-h2 font-bold lg:text-h1">{value}</p>
   </div>
 
   {#if hint || href}

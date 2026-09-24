@@ -7,9 +7,10 @@
     class: string;
   }
 
-  /** 数据行外壳：高 60px（窄屏 56px）、1px 分割线、整行 hover 底 --rule。 */
+  /** 数据行外壳：高 60px（窄屏 56px）、1px 分割线、整行 hover 底 --rule。
+   *  列间距 8px（v3.7 由 12 收窄）：右栏在场时主栏 ~590px，八列定宽全靠它腾出歌名列。 */
   export const ROW_CLASS =
-    "flex h-14 items-center gap-3 border-b border-rule px-4 ui-transition last:border-b-0 md:h-[60px] md:px-6";
+    "flex h-14 items-center gap-2 border-b border-rule px-4 ui-transition last:border-b-0 md:h-[60px] md:px-6";
 </script>
 
 <script lang="ts">
@@ -23,11 +24,25 @@
     columns: Column[];
     /** 卡片标题行（标题 + 计数 + 「查看全部」），渲染在列标签之上。 */
     header?: Snippet;
+    /** 工具带（页签、筛选、批量动作），渲染在卡头与列标签之间。 */
+    toolbar?: Snippet;
+    /** 页脚带（计数、分页），渲染在最后一行之下。 */
+    footer?: Snippet;
+    /** 自定义某个列标签格（如勾选列的表头是「全选」勾选框）；不给就渲染列名。 */
+    headerCell?: Snippet<[Column]>;
     children: Snippet;
     class?: string;
   }
 
-  let { columns, header, children, class: className = "" }: Props = $props();
+  let {
+    columns,
+    header,
+    toolbar,
+    footer,
+    headerCell,
+    children,
+    class: className = "",
+  }: Props = $props();
 </script>
 
 <div class="card overflow-hidden {className}">
@@ -36,14 +51,28 @@
       {@render header()}
     </div>
   {/if}
+  {#if toolbar}
+    <div class="border-b border-border bg-card px-4 py-2 md:px-6">
+      {@render toolbar()}
+    </div>
+  {/if}
   <div
-    class="flex h-10 items-center gap-3 border-b border-border bg-surface-subtle px-4 text-caption text-muted-foreground md:px-6"
+    class="flex h-10 items-center gap-2 border-b border-border bg-surface-subtle px-4 text-caption text-muted-foreground md:px-6"
   >
     {#each columns as column (column.key)}
-      <span class={column.class}>{column.label}</span>
+      {#if headerCell}
+        {@render headerCell(column)}
+      {:else}
+        <span class={column.class}>{column.label}</span>
+      {/if}
     {/each}
   </div>
   <ul>
     {@render children()}
   </ul>
+  {#if footer}
+    <div class="flex h-12 items-center gap-3 px-4 md:px-6">
+      {@render footer()}
+    </div>
+  {/if}
 </div>

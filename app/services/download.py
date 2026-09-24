@@ -263,9 +263,10 @@ class DownloadService:
 
     async def pause_task(self, task_id: int) -> None:
         """用户暂停：取消当前协程，保留 temp 分片（SDD §2.3）。"""
-        self._require_task(task_id)
+        task = self._require_task(task_id)
         self._paused_tasks.add(task_id)
         self.store.update_task(task_id, status="paused")
+        self._mirror_history_status(task.history_id, "paused")
         running = self._running_tasks.get(task_id)
         if running is not None and running is not asyncio.current_task():
             running.cancel()
@@ -275,19 +276,21 @@ class DownloadService:
 
     async def resume_task(self, task_id: int) -> None:
         """恢复：重新入队 queued。"""
-        self._require_task(task_id)
+        task = self._require_task(task_id)
         self._paused_tasks.discard(task_id)
         self._cancelled_tasks.discard(task_id)
         self.store.update_task(task_id, status="queued")
+        self._mirror_history_status(task.history_id, "queued")
         await self.events.publish(
             Event("task.status", {"task_id": task_id, "status": "queued", "error": None})
         )
 
     async def cancel_task(self, task_id: int) -> None:
-        self._require_task(task_id)
+        task = self._require_task(task_id)
         self._paused_tasks.discard(task_id)
         self._cancelled_tasks.add(task_id)
         self.store.update_task(task_id, status="cancelled")
+        self._mirror_history_status(task.history_id, "cancelled")
         running = self._running_tasks.get(task_id)
         if running is not None and running is not asyncio.current_task():
             running.cancel()
@@ -300,6 +303,14 @@ class DownloadService:
         if task is None:
             raise TaskNotFoundError("任务不存在")
         return task
+
+    def _mirror_history_status(self, history_id: int | None, status: str) -> None:
+        """把状态写回这条下载的历史行（下载页与状态筛选只认它，任务台账只补读数）。
+
+        用户视角里「这条下载在干什么」只有一个答案，两处数据不能各写各的。
+        """
+        if history_id is not None:
+            self.store.mark_history_status(history_id, status)
 
     async def retry_task(self, task_id: int) -> None:
         """把一条失败、取消或跳过的任务重新放回队列。"""
@@ -319,7 +330,11 @@ class DownloadService:
         )
 
     async def delete_task(self, task_id: int) -> None:
-        """删除任务记录和临时分片，保留 history 及已落盘文件。"""
+        """删除任务台账记录和临时分片，保留 history 及已落盘文件。
+
+        台账没了，这条下载就没有执行者：还把历史行留在非终态，列表里就会挂着一个
+        永远不会动的「等待」，所以顺手把它结算成 `cancelled`。
+        """
         task = self._require_task(task_id)
         if task.status == "downloading":
             await self.cancel_task(task_id)
@@ -328,15 +343,32 @@ class DownloadService:
             await asyncio.to_thread(self._discard_temp, temp_path)
         if not self.store.delete_task(task_id):
             raise TaskNotFoundError("任务不存在")
+        if task.status in {"queued", "downloading", "paused"}:
+            self._mirror_history_status(task.history_id, "cancelled")
 
     async def retry_failed(self) -> int:
-        """手动重试失败项（FR-DL-04）。"""
-        failed = self.store.list_tasks(status="failed", limit=500)
+        """手动重试失败项（FR-DL-04）：以失败的历史行逐条重排。
+
+        下载页的「失败项」就是这些行（统计卡、状态筛选与这个动作说的是同一件事），
+        所以按行遍历：台账还在且可重试就复位它，台账没了就按消息重新入队。
+        """
+        rows = self.store.list_history(status="failed", limit=500)
+        ids = [int(row.id) for row in rows if row.id is not None]
+        task_ids = self.store.latest_task_ids(ids)
         count = 0
-        for t in failed:
-            if t.id is not None:
-                await self.retry_task(t.id)
-                count += 1
+        for row in rows:
+            task_id = task_ids.get(int(row.id or 0))
+            task = self.store.get_task(task_id) if task_id is not None else None
+            if task is not None and task.status in {"failed", "cancelled", "skipped"}:
+                await self.retry_task(int(task.id or 0))
+            else:
+                await self.enqueue(
+                    DownloadRequest(
+                        meta=TrackMeta(chat_id=row.chat_id, message_id=row.message_id),
+                        source_id=row.source_id,
+                    )
+                )
+            count += 1
         return count
 
     # ---- worker ----
@@ -381,6 +413,7 @@ class DownloadService:
             return None
         task = {k: row[k] for k in row.keys()}  # noqa: SIM118  sqlite3.Row
         self.store.update_task(task["id"], status="downloading")
+        self._mirror_history_status(task.get("history_id"), "downloading")
         return task
 
     async def _run_task(self, task: dict[str, Any]) -> None:

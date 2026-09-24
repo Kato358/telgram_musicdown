@@ -49,7 +49,9 @@
       class="flex min-w-0 items-baseline text-code text-muted-foreground {className}"
       title={path ?? ""}
     >
-      <span class="truncate">{parts.dir}</span>
+      <!-- 目录段 min-w-0：没有它，flex 子项的 min-content 是整段目录文本，
+           窄列里目录根本不会截断，会把整行撑出卡片（v3.7 修）。 -->
+      <span class="min-w-0 truncate">{parts.dir}</span>
       <span class="shrink-0">{parts.file}</span>
     </p>
   {/if}

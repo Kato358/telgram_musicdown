@@ -11,7 +11,6 @@
   import ActivityIcon from "@lucide/svelte/icons/activity";
   import DownloadIcon from "@lucide/svelte/icons/download";
   import HardDriveIcon from "@lucide/svelte/icons/hard-drive";
-  import HistoryIcon from "@lucide/svelte/icons/history";
   import MusicIcon from "@lucide/svelte/icons/music";
   import PauseIcon from "@lucide/svelte/icons/pause";
   import PlayIcon from "@lucide/svelte/icons/play";
@@ -42,8 +41,8 @@
   import NowPlayingCard from "$lib/components/app/NowPlayingCard.svelte";
   import SectionCard from "$lib/components/app/SectionCard.svelte";
   import StatCard from "$lib/components/app/StatCard.svelte";
+  import HeroBanner from "$lib/components/app/HeroBanner.svelte";
   import TaskRow, { type TaskAction } from "$lib/components/app/TaskRow.svelte";
-  import WelcomeBanner from "$lib/components/app/WelcomeBanner.svelte";
 
   /** 推荐搜索词：取自曲库里真实出现过的歌手——点一下就是搜这个人。
    *  没有可推荐的（空库）就不摆这一行，不为凑版面编词（§8 文案规则）。 */
@@ -154,11 +153,11 @@
     };
   });
 
+  /** 入口块：下载页合并了队列与曲库，入口少一块（2 列栅格排三块）。 */
   const quickItems = $derived([
     { label: t("dashboard.quickSearch"), icon: SearchIcon, href: pathOf("search") },
     { label: t("dashboard.quickAddSource"), icon: RadioTowerIcon, href: pathOf("sources") },
-    { label: t("dashboard.quickTasks"), icon: DownloadIcon, href: pathOf("tasks") },
-    { label: t("dashboard.quickHistory"), icon: HistoryIcon, href: pathOf("history") },
+    { label: t("dashboard.quickDownloads"), icon: DownloadIcon, href: pathOf("downloads") },
   ]);
 
   async function load() {
@@ -216,14 +215,16 @@
 
 <div class="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.45fr)] lg:gap-6">
   <div class="flex min-w-0 flex-col gap-4">
-    <WelcomeBanner
+    <HeroBanner
       title={t("dashboard.welcomeTitle")}
       body={t("dashboard.welcomeBody")}
-      placeholder={t("dashboard.heroPlaceholder")}
-      submitLabel={t("dashboard.heroSubmit")}
-      tagsLabel={t("dashboard.recommended")}
-      tags={suggestions}
-      onsearch={search}
+      search={{
+        placeholder: t("dashboard.heroPlaceholder"),
+        submitLabel: t("dashboard.heroSubmit"),
+        tagsLabel: t("dashboard.recommended"),
+        tags: suggestions,
+        onsearch: search,
+      }}
     />
 
     <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-5">
@@ -233,7 +234,7 @@
         hint={t("dashboard.statTasksHint")}
         tone="primary"
         icon={DownloadIcon}
-        href={pathOf("tasks")}
+        href={pathOf("downloads")}
       />
       <StatCard
         label={t("dashboard.statLibrary")}
@@ -241,7 +242,7 @@
         hint={t("dashboard.statLibraryHint")}
         tone="blue"
         icon={MusicIcon}
-        href={pathOf("history")}
+        href={`${pathOf("downloads")}?status=success`}
       />
       <StatCard
         label={t("dashboard.statBytes")}
@@ -249,7 +250,7 @@
         hint={t("dashboard.statBytesHint")}
         tone="violet"
         icon={HardDriveIcon}
-        href={pathOf("history")}
+        href={`${pathOf("downloads")}?status=success`}
       />
       <StatCard
         label={t("dashboard.statSources")}
@@ -268,7 +269,7 @@
           {t("dashboard.tasksCount", { n: queue.tasks.length })}
         </span>
         <Link
-          href={pathOf("tasks")}
+          href={pathOf("downloads")}
           class="ml-auto text-body text-primary hover:text-primary-hover"
         >
           {t("dashboard.viewAll")} →
@@ -293,7 +294,10 @@
 
     <SectionCard title={t("dashboard.recent")} icon={MusicIcon}>
       {#snippet actions()}
-        <Link href={pathOf("history")} class="text-caption text-primary hover:text-primary-hover">
+        <Link
+          href={`${pathOf("downloads")}?status=success`}
+          class="text-caption text-primary hover:text-primary-hover"
+        >
           {t("dashboard.viewAll")} →
         </Link>
       {/snippet}
@@ -319,13 +323,13 @@
                     ? 'text-muted-foreground'
                     : 'text-destructive-text'}"
                 >
-                  {#if path}{row.artist ?? t("common.unknown")}{:else}{t("history.noPath")}{/if}
+                  {#if path}{row.artist ?? t("common.unknown")}{:else}{t("downloads.noPath")}{/if}
                 </p>
               </div>
               <button
                 type="button"
                 class="ui-transition grid size-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground hover:bg-primary-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label={playing ? t("history.playing") : t("history.play")}
+                aria-label={playing ? t("downloads.playing") : t("downloads.play")}
                 aria-disabled={path === null}
                 disabled={path === null}
                 onclick={() => playFrom(row)}

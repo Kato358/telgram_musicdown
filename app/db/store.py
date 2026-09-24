@@ -249,11 +249,21 @@ class Store:
         limit: int = 50,
         offset: int = 0,
     ) -> list[History]:
+        """按状态（可多值）/ 源 / 关键词分页取历史行，新的在前。
+
+        `status` 允许逗号分隔的一组状态（下载页的「进行中」页签 = 等待/下载中/已暂停）：
+        值仍全部走 ``?`` 参数，SQL 文本里只有问号，拼接的只是占位符个数。
+        """
         clauses: list[str] = []
         params: list[Any] = []
         if status:
-            clauses.append("status=?")
-            params.append(status)
+            values = [value for value in status.split(",") if value]
+            if len(values) == 1:
+                clauses.append("status=?")
+                params += values
+            elif values:
+                clauses.append("status IN (" + ",".join(["?"] * len(values)) + ")")
+                params += values
         if source_id is not None:
             clauses.append("source_id=?")
             params.append(source_id)
@@ -267,6 +277,23 @@ class Store:
         sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
         params += [limit, offset]
         return [row_to(History, r) for r in self._conn.execute(sql, params)]
+
+    def latest_task_ids(self, history_ids: list[int]) -> dict[int, int]:
+        """每行历史记录当前挂着的任务 id（同一行取 id 最大者）。
+
+        历史行是持久记录、任务是它的执行态：重试复用同一条任务、重新下载新开一条，
+        所以「最新」就是「这条记录现在在跑谁」；台账被删过的行不出现在结果里。
+        """
+        if not history_ids:
+            return {}
+        marks = ",".join("?" * len(history_ids))
+        # 占位符按长度生成、值全部参数化，没有用户输入进来
+        sql = (
+            f"SELECT history_id, MAX(id) AS task_id FROM tasks WHERE history_id IN ({marks})"  # noqa: S608
+            " GROUP BY history_id"
+        )
+        rows = self._conn.execute(sql, history_ids)
+        return {int(r["history_id"]): int(r["task_id"]) for r in rows}
 
     def mark_history_status(
         self,
@@ -389,7 +416,12 @@ class Store:
             return cur.rowcount > 0
 
     def recover_interrupted(self) -> int:
-        """NFR-05 恢复：queued 保持、downloading 标 failed（retryable），其余不动。"""
+        """NFR-05 恢复：queued 保持、downloading 标 failed（retryable），其余不动。
+
+        下载页只认 history 的状态，所以这里一并把历史行结算掉：任务被标 failed 的那些，
+        以及**没有任何在跑任务**却仍停在非终态的行（任务台账被删过的旧数据）——
+        否则它们会在列表里永远显示「等待」，而队列里根本没有它们。
+        """
         n = 0
         with self._conn:
             cur = self._conn.execute(
@@ -399,7 +431,10 @@ class Store:
             n += cur.rowcount
             self._conn.execute(
                 "UPDATE history SET status='failed', error='interrupted, retryable',"
-                " finished_at=? WHERE status='downloading'",
+                " finished_at=?"
+                " WHERE status IN ('queued','downloading','paused')"
+                " AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.history_id=history.id"
+                " AND t.status IN ('queued','downloading','paused'))",
                 (utcnow(),),
             )
         return n

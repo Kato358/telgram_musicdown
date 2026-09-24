@@ -92,6 +92,9 @@ export interface TaskRow {
   status: TaskStatus;
   title: string | null;
   artist: string | null;
+  /** 关联 history 行（或入队 meta）带来的专辑与时长：队列行的元信息用。 */
+  album: string | null;
+  duration_sec: number | null;
   progress_bytes: number;
   speed: number | null;
   total_bytes: number | null;
@@ -116,6 +119,8 @@ export interface HistoryRow {
   status: string;
   error: string | null;
   created_at: string;
+  /** 这条记录当前挂着的任务 id（台账被删过则为 null）：实时读数与暂停/继续/取消用它。 */
+  task_id: number | null;
 }
 
 /** `GET /api/stats`：统计卡与系统状态的数据源（后端一次算全，前端不自己数列表）。 */

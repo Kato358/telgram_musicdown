@@ -449,10 +449,14 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
         page: int = 0,
         _: None = Depends(check_session),
     ) -> list[dict[str, Any]]:
+        # `status` 可给逗号分隔的一组状态（下载页「进行中」页签 = queued,downloading,paused）
         rows = store.list_history(
             status=status, source_id=source_id, q=q, limit=50, offset=page * 50
         )
-        return [_history_dict(h) for h in rows]
+        # 每行带上它当前挂着的任务：下载页按 task_id 取实时读数、执行暂停/继续/取消
+        ids = [int(h.id) for h in rows if h.id is not None]
+        task_ids = store.latest_task_ids(ids)
+        return [_history_dict(h, task_ids.get(int(h.id or 0))) for h in rows]
 
     @app.get("/api/history/{history_id}/stream")
     async def history_stream(
@@ -599,7 +603,9 @@ def _candidate_dict(c: Any) -> dict[str, Any]:
 def _task_dict(t: Any, history: Any | None = None) -> dict[str, Any]:
     title = history.title if history is not None else None
     artist = history.artist if history is not None else None
-    if not title or not artist:
+    album = history.album if history is not None else None
+    duration_sec = history.duration_sec if history is not None else None
+    if not title or not artist or not album:
         try:
             payload = json.loads(t.payload_json)
         except (TypeError, json.JSONDecodeError):
@@ -608,12 +614,16 @@ def _task_dict(t: Any, history: Any | None = None) -> dict[str, Any]:
         if isinstance(meta, dict):
             title = title or meta.get("title")
             artist = artist or meta.get("artist")
+            album = album or meta.get("album")
+            duration_sec = duration_sec or meta.get("duration_sec")
     return {
         "id": t.id,
         "type": t.type,
         "status": t.status,
         "title": title,
         "artist": artist,
+        "album": album,
+        "duration_sec": duration_sec,
         "progress_bytes": t.progress_bytes,
         "total_bytes": t.total_bytes,
         "speed": t.speed,
@@ -622,7 +632,7 @@ def _task_dict(t: Any, history: Any | None = None) -> dict[str, Any]:
     }
 
 
-def _history_dict(h: Any) -> dict[str, Any]:
+def _history_dict(h: Any, task_id: int | None = None) -> dict[str, Any]:
     return {
         "id": h.id,
         "source_id": h.source_id,
@@ -637,4 +647,6 @@ def _history_dict(h: Any) -> dict[str, Any]:
         "status": h.status,
         "error": h.error,
         "created_at": h.created_at,
+        # 这条记录当前挂着的任务（台账被删过则为 null）：实时读数与暂停/继续/取消都用它
+        "task_id": task_id,
     }

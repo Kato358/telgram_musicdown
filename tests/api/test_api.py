@@ -73,6 +73,54 @@ def test_history_empty(client: TestClient) -> None:
     assert client.get("/api/history").json() == []
 
 
+def test_history_rows_point_at_their_current_task(client: TestClient, tmp_path: Path) -> None:
+    # 下载页一行 = 一条历史记录 + 它当前挂着的任务：实时读数与暂停/继续/取消都靠这个 id
+    store = Store(tmp_path / "app.db")
+    history_id = store.upsert_history(History(id=None, chat_id=-1009, message_id=1, title="Song"))
+    store.create_task(Task(id=None, type="link", payload_json="{}", history_id=history_id))
+    latest = store.create_task(Task(id=None, type="link", payload_json="{}", history_id=history_id))
+    store.create_task(Task(id=None, type="sync", payload_json="{}"))  # 无历史行的同步任务不该被串上
+
+    rows = client.get("/api/history").json()
+    assert [(row["id"], row["task_id"]) for row in rows] == [(history_id, latest)]
+
+
+def test_cancel_settles_history_row(client: TestClient, tmp_path: Path) -> None:
+    # 取消后这一行不能再显示「等待」：状态筛选按 history.status 过滤，两边必须一致
+    store = Store(tmp_path / "app.db")
+    history_id = store.upsert_history(History(id=None, chat_id=-1009, message_id=2, title="Song"))
+    task_id = store.create_task(
+        Task(id=None, type="link", payload_json="{}", history_id=history_id)
+    )
+
+    assert client.post(f"/api/downloads/{task_id}/cancel").status_code == 200
+
+    row = store.get_history(history_id)
+    assert row is not None and row.status == "cancelled"
+    assert [r["id"] for r in client.get("/api/history?status=cancelled").json()] == [history_id]
+    assert client.get("/api/history?status=queued").json() == []
+
+
+def test_history_filter_accepts_several_statuses(client: TestClient, tmp_path: Path) -> None:
+    # 下载页「进行中」页签一次要拿三类在跑的行（等待/下载中/已暂停）：多值筛选仍然在服务端做
+    # （前端过滤会把分页算错）；空的分段（如 "nonsense,,queued"）被忽略，不整条筛选失效。
+    store = Store(tmp_path / "app.db")
+    for index, status in enumerate(["queued", "downloading", "paused", "success"], start=1):
+        store.upsert_history(
+            History(id=None, chat_id=-1010, message_id=index, title=f"S{index}", status=status)
+        )
+
+    rows = client.get("/api/history?status=queued,downloading,paused").json()
+    assert [row["status"] for row in rows] == ["paused", "downloading", "queued"]
+    assert [row["status"] for row in client.get("/api/history?status=success,queued").json()] == [
+        "success",
+        "queued",
+    ]
+    assert [row["status"] for row in client.get("/api/history?status=nonsense,,queued").json()] == [
+        "queued"
+    ]
+
+
 def test_zero_zero_host_without_secret_rejected(tmp_path: Path) -> None:
     # FR-WEB-02：0.0.0.0 无密码启动报错退出
     with pytest.raises(WebAuthConfigError):

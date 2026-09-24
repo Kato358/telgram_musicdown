@@ -217,17 +217,79 @@ async def test_pause_task_marks_paused(svc: tuple[DownloadService, Store, FakeUs
     assert store.get_task(task_id).status == "queued"  # type: ignore[union-attr]
 
 
+async def test_history_follows_task_lifecycle(
+    svc: tuple[DownloadService, Store, FakeUserClient],
+) -> None:
+    # 下载页只认 history 的状态（列表、筛选、统计卡同一份事实）：任务一动它就得跟着动
+    service, store, _ = svc
+    task_id = await service.enqueue(req(1))
+    assert task_id is not None
+    task = store.get_task(task_id)
+    assert task is not None and task.history_id is not None
+    history_id = task.history_id
+    assert store.get_history(history_id).status == "queued"  # type: ignore[union-attr]
+
+    row = service._next_queued()
+    assert row is not None and row["id"] == task_id
+    assert store.get_history(history_id).status == "downloading"  # type: ignore[union-attr]
+
+    await service.pause_task(task_id)
+    assert store.get_history(history_id).status == "paused"  # type: ignore[union-attr]
+    await service.resume_task(task_id)
+    assert store.get_history(history_id).status == "queued"  # type: ignore[union-attr]
+    await service.cancel_task(task_id)
+    assert store.get_history(history_id).status == "cancelled"  # type: ignore[union-attr]
+
+
+async def test_retry_failed_reaches_rows_without_task_ledger(
+    svc: tuple[DownloadService, Store, FakeUserClient],
+) -> None:
+    # 「重试失败项」对着下载页的失败行：台账还在就复位它，台账被删过就按消息重新入队
+    service, store, _ = svc
+    task_id = await service.enqueue(req(1))
+    assert task_id is not None
+    task = store.get_task(task_id)
+    assert task is not None and task.history_id is not None
+    store.update_task(task_id, status="failed", error="network down")
+    store.mark_history_status(task.history_id, "failed", error="network down", finished=True)
+    orphan_id = store.upsert_history(
+        History(id=None, chat_id=CHAT_ID, message_id=2, title="Orphan", status="failed")
+    )
+
+    retried = await service.retry_failed()
+
+    assert retried == 2
+    assert store.get_task(task_id).status == "queued"  # type: ignore[union-attr]
+    orphan = store.get_history(orphan_id)
+    assert orphan is not None and orphan.status == "queued"
+    latest = store.latest_task_ids([orphan_id])
+    assert latest[orphan_id] != task_id  # 重新入队开的是新任务
+
+
 async def test_recover_interrupted(tmp_path: Path) -> None:
-    # NFR-05：downloading → failed（retryable），queued 保持
+    # NFR-05：downloading → failed（retryable），queued 保持；
+    # 非终态却没有在跑任务的历史行一并结算，不留「永远等待」的行
 
     store = Store(tmp_path / "app.db")
-    queued = store.create_task(TaskModel(id=None, type="link", payload_json=json.dumps({})))
+    orphan_id = store.upsert_history(
+        History(id=None, chat_id=CHAT_ID, message_id=9, title="Orphan")
+    )
+    live_id = store.upsert_history(History(id=None, chat_id=CHAT_ID, message_id=10, title="Live"))
+    queued = store.create_task(
+        TaskModel(id=None, type="link", payload_json=json.dumps({}), history_id=live_id)
+    )
     downloading = store.create_task(TaskModel(id=None, type="link", payload_json=json.dumps({})))
     store.update_task(downloading, status="downloading")
     n = store.recover_interrupted()
     assert n == 1
     assert store.get_task(queued).status == "queued"  # type: ignore[union-attr]
     assert store.get_task(downloading).status == "failed"  # type: ignore[union-attr]
+    live = store.get_history(live_id)
+    assert live is not None and live.status == "queued"  # 有在跑的任务：不动
+    orphan = store.get_history(orphan_id)
+    assert orphan is not None
+    assert orphan.status == "failed"
+    assert orphan.error == "interrupted, retryable"
 
 
 async def test_download_reports_progress_and_persists_snapshot(

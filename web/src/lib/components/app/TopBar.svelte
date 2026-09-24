@@ -161,7 +161,7 @@
         <button
           type="button"
           class="ui-transition mr-1 hidden items-center gap-2 rounded-control px-2 py-1.5 hover:bg-rule sm:flex"
-          onclick={() => navigate(pathOf("tasks"))}
+          onclick={() => navigate(pathOf("downloads"))}
         >
           <span class="tabular text-caption text-foreground">
             {t("app.activeTransfers")}

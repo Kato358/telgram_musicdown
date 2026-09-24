@@ -1,14 +1,14 @@
-/** 路由：history API + runes，量级只有 8 条静态路由，不引第三方路由库。
+/** 路由：history API + runes，量级只有 7 条静态路由，不引第三方路由库。
  *
- * 路径与查询串分开存：`path` 决定渲染哪个视图，`query` 承载跨页参数（顶栏搜索 → `/search?q=…`）。
+ * 路径与查询串分开存：`path` 决定渲染哪个视图，`query` 承载跨页参数（顶栏搜索 → `/search?q=…`，
+ * 仪表盘的「最近入库」→ `/downloads?status=success`）。
  * 后端对所有非 /api 路径回退 index.html（SDD §4.3），故 history 模式可用。
  */
 
 export type RouteKey =
   | "dashboard"
   | "search"
-  | "tasks"
-  | "history"
+  | "downloads"
   | "sources"
   | "settings"
   | "logs"
@@ -17,8 +17,7 @@ export type RouteKey =
 export const ROUTES: { key: RouteKey; path: string }[] = [
   { key: "dashboard", path: "/dashboard" },
   { key: "search", path: "/search" },
-  { key: "tasks", path: "/tasks" },
-  { key: "history", path: "/history" },
+  { key: "downloads", path: "/downloads" },
   { key: "sources", path: "/sources" },
   { key: "settings", path: "/settings" },
   { key: "logs", path: "/logs" },

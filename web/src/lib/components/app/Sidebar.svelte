@@ -5,7 +5,6 @@
    */
   import type { Component } from "svelte";
   import DownloadIcon from "@lucide/svelte/icons/download";
-  import HistoryIcon from "@lucide/svelte/icons/history";
   import LayoutDashboardIcon from "@lucide/svelte/icons/layout-dashboard";
   import MusicIcon from "@lucide/svelte/icons/music";
   import RadioTowerIcon from "@lucide/svelte/icons/radio-tower";
@@ -24,17 +23,16 @@
   const ICONS: Record<RouteKey, Component> = {
     dashboard: LayoutDashboardIcon,
     search: SearchIcon,
-    tasks: DownloadIcon,
-    history: HistoryIcon,
+    downloads: DownloadIcon,
     sources: RadioTowerIcon,
     settings: SettingsIcon,
     logs: ScrollTextIcon,
     setup: SettingsIcon,
   };
 
-  /** 徽章：任务项 = 进行中数，日志项 = 连接期错误数。 */
+  /** 徽章：下载项 = 进行中数，日志项 = 连接期错误数。 */
   function countFor(key: RouteKey): number {
-    if (key === "tasks") return queue.activeCount;
+    if (key === "downloads") return queue.activeCount;
     if (key === "logs") return events.errors.length;
     return 0;
   }
@@ -78,11 +76,11 @@
     {/each}
   </nav>
 
-  <!-- 底部的曲库卡（参考图的侧栏底部位）：只回答「曲库现在多大」，整块点进历史页。
+  <!-- 底部的曲库卡（参考图的侧栏底部位）：只回答「曲库现在多大」，整块点进下载页的已入库筛选。
       64px 图标模式下不渲染（那里放不下两行字）。 -->
   <div class="hidden px-3 pb-4 lg:block">
     <Link
-      href={pathOf("history")}
+      href={`${pathOf("downloads")}?status=success`}
       class="surface-promo ui-transition block rounded-nav p-3 hover:opacity-90"
       title={t("sidebar.library")}
     >
