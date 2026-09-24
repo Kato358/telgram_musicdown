@@ -17,6 +17,7 @@
   import EmptyState from "$lib/components/app/EmptyState.svelte";
   import Note from "$lib/components/app/Note.svelte";
   import PageHeader from "$lib/components/app/PageHeader.svelte";
+  import SectionCard from "$lib/components/app/SectionCard.svelte";
   import TrackRow, { trackColumns, type RowMenuItem } from "$lib/components/app/TrackRow.svelte";
 
   interface UnreachableSource {
@@ -188,57 +189,59 @@
   </EmptyState>
 {/if}
 
-<div class="card flex flex-col gap-4 p-4 md:p-5">
-  <form
-    class="flex flex-wrap items-center gap-3"
-    onsubmit={(event) => {
-      event.preventDefault();
-      void runSearch();
-    }}
-  >
-    <div
-      class="flex h-10 min-w-52 flex-1 items-center gap-2 rounded-full border border-border bg-surface-subtle px-3.5"
+<SectionCard title={t("search.formTitle")} hint={t("search.formHint")} icon={SearchIcon}>
+  <div class="flex flex-col gap-4">
+    <form
+      class="flex flex-wrap items-center gap-3"
+      onsubmit={(event) => {
+        event.preventDefault();
+        void runSearch();
+      }}
     >
-      <SearchIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <input
-        bind:value={query}
-        type="search"
-        class="min-w-0 flex-1 bg-transparent text-body outline-none placeholder:text-muted-foreground"
-        placeholder={t("search.placeholder")}
-        aria-label={t("search.title")}
-      />
-    </div>
-    <Button class="h-10 px-4" type="submit" disabled={searching || query.trim().length === 0}>
-      {searching ? t("search.running") : t("search.run")}
-    </Button>
-  </form>
-
-  {#if enabledSources.length > 0}
-    <div class="flex flex-wrap items-center gap-2">
-      <span class="text-caption text-muted-foreground">{t("search.filterSources")}</span>
-      <button
-        type="button"
-        class="ui-transition rounded-full px-3 py-1 text-caption {selected.length === 0
-          ? 'bg-primary-soft text-primary'
-          : 'border border-border text-muted-foreground hover:bg-rule hover:text-foreground'}"
-        onclick={() => (selected = [])}
+      <div
+        class="flex h-10 min-w-52 flex-1 items-center gap-2 rounded-full border border-border bg-surface-subtle px-3.5"
       >
-        {t("search.allSources")}
-      </button>
-      {#each enabledSources as source (source.id)}
+        <SearchIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <input
+          bind:value={query}
+          type="search"
+          class="min-w-0 flex-1 bg-transparent text-body outline-none placeholder:text-muted-foreground"
+          placeholder={t("search.placeholder")}
+          aria-label={t("search.title")}
+        />
+      </div>
+      <Button class="h-10 px-4" type="submit" disabled={searching || query.trim().length === 0}>
+        {searching ? t("search.running") : t("search.run")}
+      </Button>
+    </form>
+
+    {#if enabledSources.length > 0}
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-caption text-muted-foreground">{t("search.filterSources")}</span>
         <button
           type="button"
-          class="ui-transition rounded-full px-3 py-1 text-caption {selected.includes(source.id)
+          class="ui-transition rounded-full px-3 py-1 text-caption {selected.length === 0
             ? 'bg-primary-soft text-primary'
             : 'border border-border text-muted-foreground hover:bg-rule hover:text-foreground'}"
-          onclick={() => toggleSource(source.id)}
+          onclick={() => (selected = [])}
         >
-          {source.title}
+          {t("search.allSources")}
         </button>
-      {/each}
-    </div>
-  {/if}
-</div>
+        {#each enabledSources as source (source.id)}
+          <button
+            type="button"
+            class="ui-transition rounded-full px-3 py-1 text-caption {selected.includes(source.id)
+              ? 'bg-primary-soft text-primary'
+              : 'border border-border text-muted-foreground hover:bg-rule hover:text-foreground'}"
+            onclick={() => toggleSource(source.id)}
+          >
+            {source.title}
+          </button>
+        {/each}
+      </div>
+    {/if}
+  </div>
+</SectionCard>
 
 {#if error}
   <Note tone="fail">{error}</Note>
@@ -274,7 +277,7 @@
         subtitle={item.channel_title}
         duration={item.duration_sec}
         size={item.file_size}
-        playing={playing}
+        {playing}
         playLabel={playLabelOf(key)}
         onplay={() => void preview(item)}
         menu={menuFor(item)}

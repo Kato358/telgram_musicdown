@@ -46,6 +46,19 @@ export function formatCount(n: number | null | undefined): string {
   }).format(n);
 }
 
+/** 运行时长：最多给两档（天+时 / 时+分 / 分），仪表盘的「运行时间」用。 */
+export function formatUptime(sec: number | null | undefined): string {
+  if (sec == null || sec < 0 || !Number.isFinite(sec)) return "--";
+  const total = Math.floor(sec);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days > 0) return `${days} 天 ${hours} 小时`;
+  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
+  if (minutes > 0) return `${minutes} 分`;
+  return `${total} 秒`;
+}
+
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "--";
   const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);

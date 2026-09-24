@@ -9,8 +9,13 @@
   import type { DownloadItemResult, HistoryRow } from "$lib/api/types";
   import ChevronLeftIcon from "@lucide/svelte/icons/chevron-left";
   import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+  import HardDriveIcon from "@lucide/svelte/icons/hard-drive";
+  import MusicIcon from "@lucide/svelte/icons/music";
+  import TriangleAlertIcon from "@lucide/svelte/icons/triangle-alert";
+  import { formatCount, formatSize } from "$lib/format";
   import { t } from "$lib/i18n/index.svelte";
   import { player, type Track } from "$lib/stores/player.svelte";
+  import { stats } from "$lib/stores/stats.svelte";
   import { statusText, taskTone, type Tone } from "$lib/tone";
   import { Input } from "$lib/components/ui/input";
   import {
@@ -24,6 +29,7 @@
   import EmptyState from "$lib/components/app/EmptyState.svelte";
   import Note from "$lib/components/app/Note.svelte";
   import PageHeader from "$lib/components/app/PageHeader.svelte";
+  import StatCard from "$lib/components/app/StatCard.svelte";
   import TrackRow, { trackColumns, type RowMenuItem } from "$lib/components/app/TrackRow.svelte";
 
   /** 与后端 `list_history(limit=50)` 对齐：满页即说明可能还有下一页。 */
@@ -52,14 +58,12 @@
   /** 可播放行 = 有落盘路径的行；播放队列的索引必须在这份列表里算。 */
   const playable = $derived(rows.filter((row) => row.save_path !== null));
   const tracks = $derived(
-    playable.map(
-      (row): Track => ({
-        id: String(row.id),
-        title: row.title ?? "",
-        artist: row.artist,
-        streamUrl: `/api/history/${row.id}/stream`,
-      }),
-    ),
+    playable.map((row): Track => ({
+      id: String(row.id),
+      title: row.title ?? "",
+      artist: row.artist,
+      streamUrl: `/api/history/${row.id}/stream`,
+    })),
   );
 
   async function load(q: string, st: string, pg: number) {
@@ -142,6 +146,8 @@
       feedback = { id: row.id, tone: "fail", text: errorText(err, t("common.error")) };
     }
   }
+
+  // 首次取数与筛选变化共用同一个 $effect（上面那个），这里不再另发一次请求。
 </script>
 
 <PageHeader title={t("history.title")} lede={t("history.lede")}>
@@ -151,6 +157,30 @@
     </span>
   {/snippet}
 </PageHeader>
+
+<div class="grid grid-cols-2 gap-4 lg:grid-cols-3">
+  <StatCard
+    label={t("history.statTracks")}
+    value={formatCount(stats.data?.library.tracks ?? null)}
+    hint={t("history.statTracksHint")}
+    tone="blue"
+    icon={MusicIcon}
+  />
+  <StatCard
+    label={t("history.statBytes")}
+    value={formatSize(stats.data?.library.bytes ?? null)}
+    hint={t("history.statBytesHint")}
+    tone="violet"
+    icon={HardDriveIcon}
+  />
+  <StatCard
+    label={t("history.statFailed")}
+    value={formatCount(stats.data?.library.failed ?? null)}
+    hint={t("history.statFailedHint")}
+    tone="amber"
+    icon={TriangleAlertIcon}
+  />
+</div>
 
 <div class="card flex flex-wrap items-center gap-3 p-4 md:p-5">
   <Input
@@ -226,7 +256,7 @@
         size={row.file_size}
         date={row.created_at}
         status={{ tone: taskTone(row.status), label: statusText(row.status) }}
-        playing={playing}
+        {playing}
         playable={path !== null}
         playLabel={playing ? t("history.playing") : t("history.play")}
         onplay={() => playFrom(row)}

@@ -100,13 +100,7 @@ export interface TaskRow {
 }
 
 export type TaskStatus =
-  | "queued"
-  | "downloading"
-  | "paused"
-  | "success"
-  | "failed"
-  | "skipped"
-  | "cancelled";
+  "queued" | "downloading" | "paused" | "success" | "failed" | "skipped" | "cancelled";
 
 export interface HistoryRow {
   id: number;
@@ -122,6 +116,28 @@ export interface HistoryRow {
   status: string;
   error: string | null;
   created_at: string;
+}
+
+/** `GET /api/stats`：统计卡与系统状态的数据源（后端一次算全，前端不自己数列表）。 */
+export interface StatsResponse {
+  tasks: {
+    queued: number;
+    downloading: number;
+    paused: number;
+    failed: number;
+    success: number;
+  };
+  /** `tracks` 只算已写盘的行（save_path 非空）。 */
+  library: {
+    tracks: number;
+    bytes: number;
+    failed: number;
+  };
+  sources: {
+    total: number;
+    enabled: number;
+  };
+  uptime_sec: number;
 }
 
 export interface SearchResult {

@@ -10,6 +10,13 @@
    * 「退出登录」与「重新执行初始化」都会清掉登录态，故做完立刻跳回向导（放行判据含登录）。
    */
   import { onMount } from "svelte";
+  import BotIcon from "@lucide/svelte/icons/bot";
+  import CircleUserIcon from "@lucide/svelte/icons/circle-user";
+  import DownloadIcon from "@lucide/svelte/icons/download";
+  import FolderTreeIcon from "@lucide/svelte/icons/folder-tree";
+  import NetworkIcon from "@lucide/svelte/icons/network";
+  import PaletteIcon from "@lucide/svelte/icons/palette";
+  import RotateCcwIcon from "@lucide/svelte/icons/rotate-ccw";
   import { api, errorText } from "$lib/api/client";
   import type { SetupProxyInput } from "$lib/api/types";
   import { i18n, LOCALES, t } from "$lib/i18n/index.svelte";
@@ -40,6 +47,7 @@
   import Lamp from "$lib/components/app/Lamp.svelte";
   import Note from "$lib/components/app/Note.svelte";
   import PageHeader from "$lib/components/app/PageHeader.svelte";
+  import SectionCard from "$lib/components/app/SectionCard.svelte";
 
   type Feedback = { tone: Tone; text: string };
 
@@ -199,7 +207,10 @@
     if (savingProxy) return;
     const problems = proxyProblems();
     if (problems.length > 0) {
-      proxyNote = { tone: "fail", text: t("settings.proxyInvalid", { items: problems.join("、") }) };
+      proxyNote = {
+        tone: "fail",
+        text: t("settings.proxyInvalid", { items: problems.join("、") }),
+      };
       return;
     }
     savingProxy = true;
@@ -359,279 +370,285 @@
   <Note tone="fail">{loadError}</Note>
 {/if}
 
-<section class="card flex flex-col gap-4 p-5 md:p-6">
-  <h2 class="text-h2 font-semibold">{t("settings.pathSection")}</h2>
-  <p class="text-body text-muted-foreground">{t("settings.pathHint")}</p>
+<SectionCard title={t("settings.pathSection")} hint={t("settings.pathHint")} icon={FolderTreeIcon}>
+  <div class="flex flex-col gap-4">
+    <Field label={t("settings.dirTemplate")} for="setting-dir-template">
+      <Input id="setting-dir-template" class="tabular" bind:value={dirTemplate} />
+    </Field>
 
-  <Field label={t("settings.dirTemplate")} for="setting-dir-template">
-    <Input id="setting-dir-template" class="tabular" bind:value={dirTemplate} />
-  </Field>
+    <Field label={t("settings.fileTemplate")} for="setting-file-template">
+      <Input id="setting-file-template" class="tabular" bind:value={fileTemplate} />
+    </Field>
 
-  <Field label={t("settings.fileTemplate")} for="setting-file-template">
-    <Input id="setting-file-template" class="tabular" bind:value={fileTemplate} />
-  </Field>
+    <Field label={t("settings.dateFormat")} for="setting-date-format">
+      <Input id="setting-date-format" class="tabular w-40" bind:value={dateFormat} />
+    </Field>
 
-  <Field label={t("settings.dateFormat")} for="setting-date-format">
-    <Input id="setting-date-format" class="tabular w-40" bind:value={dateFormat} />
-  </Field>
-
-  <div class="flex flex-col gap-1.5">
-    <span class="text-caption text-muted-foreground">{t("settings.preview")}</span>
-    {#if preview}
-      <code class="rounded-control border border-border bg-surface-subtle p-3 text-code break-all"
-        >{preview}</code
-      >
-    {:else if !loadError}
-      <p
-        class="rounded-control border border-border bg-surface-subtle p-3 text-code break-all text-faint-foreground"
-      >
-        {t("common.loading")}
-      </p>
-    {/if}
-  </div>
-
-  {#if previewError}
-    <Note tone="fail">{previewError}</Note>
-  {/if}
-
-  <div class="flex items-center gap-3">
-    <Button size="lg" disabled={saving || !loaded} onclick={() => void save()}>
-      {saving ? t("settings.saving") : t("settings.save")}
-    </Button>
-    {#if savedKey !== null && !dirty}
-      <Note tone="done">{t("settings.saved")}</Note>
-    {/if}
-  </div>
-
-  {#if saveError}
-    <Note tone="fail">{saveError}</Note>
-  {/if}
-</section>
-
-<section class="card flex flex-col gap-4 p-5 md:p-6">
-  <h2 class="text-h2 font-semibold">{t("settings.downloadSection")}</h2>
-
-  <Field label={t("settings.maxTasks")} for="setting-max-tasks" hint={t("settings.maxTasksHint")}>
-    <Input
-      id="setting-max-tasks"
-      type="number"
-      min="1"
-      class="tabular w-32"
-      bind:value={maxTasks}
-    />
-  </Field>
-
-  <Field
-    label={t("settings.previewCache")}
-    for="setting-preview-cache"
-    hint={t("settings.previewCacheHint")}
-  >
-    <Input
-      id="setting-preview-cache"
-      type="number"
-      min="64"
-      class="tabular w-32"
-      bind:value={cacheMb}
-    />
-  </Field>
-
-  <p class="text-caption text-muted-foreground">{t("settings.restartHint")}</p>
-</section>
-
-<section class="card flex flex-col gap-4 p-5 md:p-6">
-  <h2 class="text-h2 font-semibold">{t("settings.accountSection")}</h2>
-  <p class="text-body text-muted-foreground">{t("settings.accountHint")}</p>
-
-  <div class="flex flex-wrap items-center gap-3 rounded-control border border-border px-3 py-2.5">
-    <Lamp
-      tone={me?.connected ? "done" : "fail"}
-      label={me?.connected ? t("app.connected") : t("app.disconnected")}
-    />
-    {#if me?.connected}
-      <span class="text-body font-semibold">{accountName}</span>
-      {#if me.username}
-        <span class="tabular text-caption text-muted-foreground">@{me.username}</span>
+    <div class="flex flex-col gap-1.5">
+      <span class="text-caption text-muted-foreground">{t("settings.preview")}</span>
+      {#if preview}
+        <code class="rounded-control border border-border bg-surface-subtle p-3 text-code break-all"
+          >{preview}</code
+        >
+      {:else if !loadError}
+        <p
+          class="rounded-control border border-border bg-surface-subtle p-3 text-code break-all text-faint-foreground"
+        >
+          {t("common.loading")}
+        </p>
       {/if}
-      {#if me.premium}
-        <span class="rounded-full bg-primary-soft px-1.5 text-caption font-medium text-primary">
-          {t("settings.accountPremium")}
-        </span>
+    </div>
+
+    {#if previewError}
+      <Note tone="fail">{previewError}</Note>
+    {/if}
+
+    <div class="flex items-center gap-3">
+      <Button size="lg" disabled={saving || !loaded} onclick={() => void save()}>
+        {saving ? t("settings.saving") : t("settings.save")}
+      </Button>
+      {#if savedKey !== null && !dirty}
+        <Note tone="done">{t("settings.saved")}</Note>
       {/if}
-    {:else}
-      <span class="text-caption text-muted-foreground">{t("settings.accountNotConnected")}</span>
+    </div>
+
+    {#if saveError}
+      <Note tone="fail">{saveError}</Note>
     {/if}
   </div>
+</SectionCard>
 
-  {#if me?.connected}
-    <div class="flex items-center gap-3">
-      <Button variant="destructive" size="lg" onclick={() => (logoutOpen = true)}>
-        {t("settings.logout")}
-      </Button>
-      <p class="text-caption text-muted-foreground">{t("settings.logoutHint")}</p>
-    </div>
-  {:else}
-    <div class="flex items-center gap-3">
-      <Button size="lg" onclick={() => navigate(pathOf("setup"))}>
-        {t("settings.accountGoSetup")}
-      </Button>
-    </div>
-  {/if}
-
-  {#if accountNote}
-    <Note tone={accountNote.tone}>{accountNote.text}</Note>
-  {/if}
-</section>
-
-<section class="card flex flex-col gap-4 p-5 md:p-6">
-  <h2 class="text-h2 font-semibold">{t("settings.botSection")}</h2>
-  <p class="text-body text-muted-foreground">{t("settings.botHint")}</p>
-
-  <div class="flex flex-wrap items-center gap-3 rounded-control border border-border px-3 py-2.5">
-    <Lamp
-      tone={status?.has_bot_token ? "done" : "idle"}
-      label={status?.has_bot_token ? t("settings.botSet") : t("settings.botUnset")}
-    />
-    <span class="text-caption text-muted-foreground">{t("settings.botReadOnly")}</span>
-  </div>
-
-  <Field label={t("settings.botToken")} for="setting-bot-token" hint={t("settings.botTokenHint")}>
-    <div class="flex items-center gap-2">
+<SectionCard title={t("settings.downloadSection")} icon={DownloadIcon}>
+  <div class="flex flex-col gap-4">
+    <Field label={t("settings.maxTasks")} for="setting-max-tasks" hint={t("settings.maxTasksHint")}>
       <Input
-        id="setting-bot-token"
-        class="min-w-0 flex-1"
-        autocomplete="off"
-        placeholder={t("settings.botTokenPlaceholder")}
-        bind:value={botToken}
+        id="setting-max-tasks"
+        type="number"
+        min="1"
+        class="tabular w-32"
+        bind:value={maxTasks}
       />
-      <Button
-        size="lg"
-        disabled={savingBot || botToken.trim() === ""}
-        onclick={() => void saveBot()}
-      >
-        {savingBot ? t("settings.botSaving") : t("settings.botSave")}
+    </Field>
+
+    <Field
+      label={t("settings.previewCache")}
+      for="setting-preview-cache"
+      hint={t("settings.previewCacheHint")}
+    >
+      <Input
+        id="setting-preview-cache"
+        type="number"
+        min="64"
+        class="tabular w-32"
+        bind:value={cacheMb}
+      />
+    </Field>
+
+    <p class="text-caption text-muted-foreground">{t("settings.restartHint")}</p>
+  </div>
+</SectionCard>
+
+<SectionCard
+  title={t("settings.accountSection")}
+  hint={t("settings.accountHint")}
+  icon={CircleUserIcon}
+>
+  <div class="flex flex-col gap-4">
+    <div class="flex flex-wrap items-center gap-3 rounded-control border border-border px-3 py-2.5">
+      <Lamp
+        tone={me?.connected ? "done" : "fail"}
+        label={me?.connected ? t("app.connected") : t("app.disconnected")}
+      />
+      {#if me?.connected}
+        <span class="text-body font-semibold">{accountName}</span>
+        {#if me.username}
+          <span class="tabular text-caption text-muted-foreground">@{me.username}</span>
+        {/if}
+        {#if me.premium}
+          <span class="rounded-full bg-primary-soft px-1.5 text-caption font-medium text-primary">
+            {t("settings.accountPremium")}
+          </span>
+        {/if}
+      {:else}
+        <span class="text-caption text-muted-foreground">{t("settings.accountNotConnected")}</span>
+      {/if}
+    </div>
+
+    {#if me?.connected}
+      <div class="flex items-center gap-3">
+        <Button variant="destructive" size="lg" onclick={() => (logoutOpen = true)}>
+          {t("settings.logout")}
+        </Button>
+        <p class="text-caption text-muted-foreground">{t("settings.logoutHint")}</p>
+      </div>
+    {:else}
+      <div class="flex items-center gap-3">
+        <Button size="lg" onclick={() => navigate(pathOf("setup"))}>
+          {t("settings.accountGoSetup")}
+        </Button>
+      </div>
+    {/if}
+
+    {#if accountNote}
+      <Note tone={accountNote.tone}>{accountNote.text}</Note>
+    {/if}
+  </div>
+</SectionCard>
+
+<SectionCard title={t("settings.botSection")} hint={t("settings.botHint")} icon={BotIcon}>
+  <div class="flex flex-col gap-4">
+    <div class="flex flex-wrap items-center gap-3 rounded-control border border-border px-3 py-2.5">
+      <Lamp
+        tone={status?.has_bot_token ? "done" : "idle"}
+        label={status?.has_bot_token ? t("settings.botSet") : t("settings.botUnset")}
+      />
+      <span class="text-caption text-muted-foreground">{t("settings.botReadOnly")}</span>
+    </div>
+
+    <Field label={t("settings.botToken")} for="setting-bot-token" hint={t("settings.botTokenHint")}>
+      <div class="flex items-center gap-2">
+        <Input
+          id="setting-bot-token"
+          class="min-w-0 flex-1"
+          autocomplete="off"
+          placeholder={t("settings.botTokenPlaceholder")}
+          bind:value={botToken}
+        />
+        <Button
+          size="lg"
+          disabled={savingBot || botToken.trim() === ""}
+          onclick={() => void saveBot()}
+        >
+          {savingBot ? t("settings.botSaving") : t("settings.botSave")}
+        </Button>
+      </div>
+    </Field>
+
+    {#if botNote}
+      <Note tone={botNote.tone}>{botNote.text}</Note>
+    {/if}
+  </div>
+</SectionCard>
+
+<SectionCard title={t("settings.proxySection")} hint={t("settings.proxyHint")} icon={NetworkIcon}>
+  <div class="flex flex-col gap-4">
+    <div class="flex flex-wrap items-center gap-3 rounded-control border border-border px-3 py-2.5">
+      <Lamp tone={status?.proxy?.hostname ? "done" : "idle"} label={proxySummary} />
+    </div>
+
+    <label class="flex items-center gap-2 text-body">
+      <Checkbox bind:checked={useProxy} />
+      {t("settings.proxyUse")}
+    </label>
+
+    {#if useProxy}
+      <div class="flex flex-col gap-3">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <Field label={t("settings.proxyScheme")}>
+            <Select type="single" bind:value={proxyScheme}>
+              <SelectTrigger class="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="socks5">SOCKS5</SelectItem>
+                <SelectItem value="http">HTTP</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label={t("settings.proxyHost")} for="setting-proxy-host">
+            <Input
+              id="setting-proxy-host"
+              placeholder={t("settings.proxyHostPlaceholder")}
+              bind:value={proxyHost}
+            />
+          </Field>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <Field label={t("settings.proxyPort")} for="setting-proxy-port">
+            <Input
+              id="setting-proxy-port"
+              class="tabular"
+              inputmode="numeric"
+              bind:value={proxyPort}
+            />
+          </Field>
+          <Field
+            label={t("settings.proxyUser")}
+            for="setting-proxy-user"
+            hint={t("settings.proxyKeep")}
+          >
+            <Input id="setting-proxy-user" autocomplete="off" bind:value={proxyUser} />
+          </Field>
+        </div>
+        <Field label={t("settings.proxyPass")} for="setting-proxy-pass">
+          <Input
+            id="setting-proxy-pass"
+            type="password"
+            autocomplete="off"
+            bind:value={proxyPass}
+          />
+        </Field>
+      </div>
+    {/if}
+
+    <div class="flex items-center gap-3">
+      <Button size="lg" disabled={savingProxy} onclick={() => void saveProxy()}>
+        {savingProxy ? t("settings.proxySaving") : t("settings.proxySave")}
       </Button>
     </div>
-  </Field>
 
-  {#if botNote}
-    <Note tone={botNote.tone}>{botNote.text}</Note>
-  {/if}
-</section>
-
-<section class="card flex flex-col gap-4 p-5 md:p-6">
-  <h2 class="text-h2 font-semibold">{t("settings.proxySection")}</h2>
-  <p class="text-body text-muted-foreground">{t("settings.proxyHint")}</p>
-
-  <div class="flex flex-wrap items-center gap-3 rounded-control border border-border px-3 py-2.5">
-    <Lamp
-      tone={status?.proxy?.hostname ? "done" : "idle"}
-      label={proxySummary}
-    />
+    {#if proxyNote}
+      <Note tone={proxyNote.tone}>{proxyNote.text}</Note>
+    {/if}
   </div>
+</SectionCard>
 
-  <label class="flex items-center gap-2 text-body">
-    <Checkbox bind:checked={useProxy} />
-    {t("settings.proxyUse")}
-  </label>
+<SectionCard
+  title={t("settings.interfaceSection")}
+  hint={t("settings.interfaceHint")}
+  icon={PaletteIcon}
+>
+  <div class="flex flex-col gap-4">
+    <Field label={t("settings.language")} for="setting-language">
+      <Select type="single" value={i18n.locale} items={LOCALES} onValueChange={changeLocale}>
+        <SelectTrigger id="setting-language" class="w-48">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {#each LOCALES as locale (locale.value)}
+            <SelectItem value={locale.value}>{locale.label}</SelectItem>
+          {/each}
+        </SelectContent>
+      </Select>
+    </Field>
 
-  {#if useProxy}
-    <div class="flex flex-col gap-3">
-      <div class="grid gap-3 sm:grid-cols-2">
-        <Field label={t("settings.proxyScheme")}>
-          <Select type="single" bind:value={proxyScheme}>
-            <SelectTrigger class="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="socks5">SOCKS5</SelectItem>
-              <SelectItem value="http">HTTP</SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label={t("settings.proxyHost")} for="setting-proxy-host">
-          <Input
-            id="setting-proxy-host"
-            placeholder={t("settings.proxyHostPlaceholder")}
-            bind:value={proxyHost}
-          />
-        </Field>
-      </div>
-      <div class="grid gap-3 sm:grid-cols-2">
-        <Field label={t("settings.proxyPort")} for="setting-proxy-port">
-          <Input
-            id="setting-proxy-port"
-            class="tabular"
-            inputmode="numeric"
-            bind:value={proxyPort}
-          />
-        </Field>
-        <Field label={t("settings.proxyUser")} for="setting-proxy-user" hint={t("settings.proxyKeep")}>
-          <Input id="setting-proxy-user" autocomplete="off" bind:value={proxyUser} />
-        </Field>
-      </div>
-      <Field label={t("settings.proxyPass")} for="setting-proxy-pass">
-        <Input id="setting-proxy-pass" type="password" autocomplete="off" bind:value={proxyPass} />
-      </Field>
-    </div>
-  {/if}
-
-  <div class="flex items-center gap-3">
-    <Button size="lg" disabled={savingProxy} onclick={() => void saveProxy()}>
-      {savingProxy ? t("settings.proxySaving") : t("settings.proxySave")}
-    </Button>
+    <Field label={t("settings.theme")} for="setting-appearance">
+      <Select
+        type="single"
+        value={theme.preference}
+        items={appearanceItems}
+        onValueChange={changeAppearance}
+      >
+        <SelectTrigger id="setting-appearance" class="w-48">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {#each THEME_OPTIONS as option (option.value)}
+            <SelectItem value={option.value}>{t(option.label)}</SelectItem>
+          {/each}
+        </SelectContent>
+      </Select>
+    </Field>
   </div>
+</SectionCard>
 
-  {#if proxyNote}
-    <Note tone={proxyNote.tone}>{proxyNote.text}</Note>
-  {/if}
-</section>
-
-<section class="card flex flex-col gap-4 p-5 md:p-6">
-  <h2 class="text-h2 font-semibold">{t("settings.interfaceSection")}</h2>
-  <p class="text-body text-muted-foreground">{t("settings.interfaceHint")}</p>
-
-  <Field label={t("settings.language")} for="setting-language">
-    <Select type="single" value={i18n.locale} items={LOCALES} onValueChange={changeLocale}>
-      <SelectTrigger id="setting-language" class="w-48">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {#each LOCALES as locale (locale.value)}
-          <SelectItem value={locale.value}>{locale.label}</SelectItem>
-        {/each}
-      </SelectContent>
-    </Select>
-  </Field>
-
-  <Field label={t("settings.theme")} for="setting-appearance">
-    <Select
-      type="single"
-      value={theme.preference}
-      items={appearanceItems}
-      onValueChange={changeAppearance}
-    >
-      <SelectTrigger id="setting-appearance" class="w-48">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {#each THEME_OPTIONS as option (option.value)}
-          <SelectItem value={option.value}>{t(option.label)}</SelectItem>
-        {/each}
-      </SelectContent>
-    </Select>
-  </Field>
-</section>
-
-<section class="card flex flex-col gap-4 p-5 md:p-6">
-  <h2 class="text-h2 font-semibold">{t("settings.resetSection")}</h2>
-  <p class="text-body text-muted-foreground">{t("settings.resetHint")}</p>
-
+<SectionCard title={t("settings.resetSection")} hint={t("settings.resetHint")} icon={RotateCcwIcon}>
   <div class="flex items-center gap-3">
     <Button variant="destructive" size="lg" onclick={() => (resetOpen = true)}>
       {t("settings.reset")}
     </Button>
   </div>
-</section>
+</SectionCard>
 
 <Dialog bind:open={logoutOpen}>
   <DialogContent>
@@ -669,7 +686,12 @@
     {/if}
     <DialogFooter>
       <Button variant="outline" onclick={() => (resetOpen = false)}>{t("common.cancel")}</Button>
-      <Button variant="destructive" size="lg" disabled={resetting} onclick={() => void confirmReset()}>
+      <Button
+        variant="destructive"
+        size="lg"
+        disabled={resetting}
+        onclick={() => void confirmReset()}
+      >
         {resetting ? t("settings.resetting") : t("settings.resetConfirm")}
       </Button>
     </DialogFooter>

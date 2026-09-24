@@ -3,15 +3,19 @@
    *
    * 列表事实源是 `queue`（DB 快照，SSE 状态事件触发重取）；进度/速率取 SSE 帧，
    * 所以行上的进度条是活的，而行的存在与否由数据库决定。
+   * 行规格与仪表盘的「最近下载任务」共用 `TaskRow`，两处不会各自长歪。
    */
+  import DownloadIcon from "@lucide/svelte/icons/download";
+  import HourglassIcon from "@lucide/svelte/icons/hourglass";
+  import LinkIcon from "@lucide/svelte/icons/link";
+  import PauseIcon from "@lucide/svelte/icons/pause";
+  import TriangleAlertIcon from "@lucide/svelte/icons/triangle-alert";
   import { api, errorText } from "$lib/api/client";
   import type { Column } from "$lib/components/app/DataTable.svelte";
-  import type { DownloadItemResult, TaskRow } from "$lib/api/types";
-  import { formatEta, formatRate, formatSize, progressRatio } from "$lib/format";
-  import { taskTypeText, t } from "$lib/i18n/index.svelte";
+  import type { DownloadItemResult, TaskRow as Task } from "$lib/api/types";
+  import { t } from "$lib/i18n/index.svelte";
   import { queue } from "$lib/stores/queue.svelte";
-  import { events } from "$lib/stores/events.svelte";
-  import { statusText, taskTone } from "$lib/tone";
+  import { statusText } from "$lib/tone";
   import { Button } from "$lib/components/ui/button";
   import {
     Dialog,
@@ -22,13 +26,13 @@
     DialogTitle,
   } from "$lib/components/ui/dialog";
   import { Textarea } from "$lib/components/ui/textarea";
-  import DataTable, { ROW_CLASS } from "$lib/components/app/DataTable.svelte";
+  import DataTable from "$lib/components/app/DataTable.svelte";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
-  import Field from "$lib/components/app/Field.svelte";
-  import Lamp from "$lib/components/app/Lamp.svelte";
   import Note from "$lib/components/app/Note.svelte";
   import PageHeader from "$lib/components/app/PageHeader.svelte";
-  import ProgressBar from "$lib/components/app/ProgressBar.svelte";
+  import SectionCard from "$lib/components/app/SectionCard.svelte";
+  import StatCard from "$lib/components/app/StatCard.svelte";
+  import TaskRow, { type TaskAction } from "$lib/components/app/TaskRow.svelte";
 
   let links = $state("");
   let busy = $state(false);
@@ -36,7 +40,7 @@
   let failures = $state<DownloadItemResult[]>([]);
   let error = $state("");
   let removeOpen = $state(false);
-  let removeTarget = $state<TaskRow | null>(null);
+  let removeTarget = $state<Task | null>(null);
   let removing = $state(false);
   let removeError = $state("");
 
@@ -44,21 +48,47 @@
   const columns = $derived<Column[]>([
     { key: "status", label: t("table.status"), class: "hidden w-20 shrink-0 sm:block" },
     { key: "task", label: t("table.task"), class: "min-w-0 flex-1" },
-    { key: "progress", label: t("table.progress"), class: "hidden w-40 shrink-0 lg:block" },
-    { key: "actions", label: "", class: "flex w-[184px] shrink-0 items-center justify-end gap-2" },
+    { key: "progress", label: t("table.progress"), class: "hidden w-40 shrink-0 lg:flex" },
+    {
+      key: "actions",
+      label: t("table.actions"),
+      class: "flex w-[184px] shrink-0 items-center justify-end gap-2",
+    },
   ]);
 
-  function liveProgress(task: TaskRow) {
-    const frame = events.progress[task.id];
-    return {
-      received: frame?.progress_bytes ?? task.progress_bytes,
-      total: frame?.total_bytes ?? task.total_bytes,
-      speed: frame?.speed ?? task.speed,
-      eta: frame?.eta ?? null,
-    };
-  }
+  /** 队列四态：与仪表盘的统计卡同一套分类色，同义同色。 */
+  const cards = $derived([
+    {
+      key: "queued",
+      label: statusText("queued"),
+      value: queue.queued.length,
+      tone: "blue" as const,
+      icon: HourglassIcon,
+    },
+    {
+      key: "downloading",
+      label: statusText("downloading"),
+      value: queue.downloading.length,
+      tone: "primary" as const,
+      icon: DownloadIcon,
+    },
+    {
+      key: "paused",
+      label: statusText("paused"),
+      value: queue.paused.length,
+      tone: "violet" as const,
+      icon: PauseIcon,
+    },
+    {
+      key: "failed",
+      label: statusText("failed"),
+      value: queue.failedCount,
+      tone: "amber" as const,
+      icon: TriangleAlertIcon,
+    },
+  ]);
 
-  async function act(id: number, action: "pause" | "resume" | "cancel" | "retry") {
+  async function act(id: number, action: TaskAction) {
     error = "";
     try {
       await api.post(`/api/downloads/${id}/${action}`);
@@ -68,25 +98,11 @@
     }
   }
 
-  function taskTitle(task: TaskRow): string {
+  function taskTitle(task: Task): string {
     return task.title?.trim() || `#${task.id}`;
   }
 
-  function taskArtist(task: TaskRow): string | null {
-    return task.artist?.trim() || null;
-  }
-
-  function taskProgressText(received: number, total: number | null): string {
-    const ratio = progressRatio(received, total);
-    if (ratio === null) return "--";
-    return t("tasks.percent", { percent: Math.round(ratio * 100) });
-  }
-
-  function canRetry(task: TaskRow): boolean {
-    return ["failed", "cancelled", "skipped"].includes(task.status);
-  }
-
-  function openRemove(task: TaskRow) {
+  function openRemove(task: Task) {
     removeTarget = task;
     removeError = "";
     removeOpen = true;
@@ -166,27 +182,32 @@
   {/snippet}
 </PageHeader>
 
-<div class="card p-4 md:p-5">
-  <Field label={t("tasks.pasteLabel")} for="task-links">
-    <div class="flex flex-col gap-3">
-      <Textarea
-        id="task-links"
-        bind:value={links}
-        rows={2}
-        class="text-code"
-        placeholder={t("tasks.pastePlaceholder")}
-      />
-      <div class="flex flex-wrap items-center gap-3">
-        <Button size="lg" disabled={busy || links.trim().length === 0} onclick={() => void enqueue()}>
-          {busy ? t("tasks.enqueuing") : t("tasks.enqueue")}
-        </Button>
-        {#if notice}
-          <Note tone={failures.length > 0 ? "wait" : "done"}>{notice}</Note>
-        {/if}
-      </div>
-    </div>
-  </Field>
+<div class="grid grid-cols-2 gap-4 xl:grid-cols-4">
+  {#each cards as card (card.key)}
+    <StatCard label={card.label} value={String(card.value)} tone={card.tone} icon={card.icon} />
+  {/each}
 </div>
+
+<SectionCard title={t("tasks.pasteLabel")} hint={t("tasks.pasteHint")} icon={LinkIcon}>
+  <div class="flex flex-col gap-3">
+    <Textarea
+      id="task-links"
+      bind:value={links}
+      rows={2}
+      class="text-code"
+      placeholder={t("tasks.pastePlaceholder")}
+      aria-label={t("tasks.pasteLabel")}
+    />
+    <div class="flex flex-wrap items-center gap-3">
+      <Button size="lg" disabled={busy || links.trim().length === 0} onclick={() => void enqueue()}>
+        {busy ? t("tasks.enqueuing") : t("tasks.enqueue")}
+      </Button>
+      {#if notice}
+        <Note tone={failures.length > 0 ? "wait" : "done"}>{notice}</Note>
+      {/if}
+    </div>
+  </div>
+</SectionCard>
 
 {#if error}
   <Note tone="fail">{error}</Note>
@@ -201,73 +222,13 @@
 {:else}
   <DataTable {columns}>
     {#each queue.tasks as task (task.id)}
-      {@const progress = liveProgress(task)}
-      {@const tone = taskTone(task.status)}
-      {@const artist = taskArtist(task)}
-      {@const finished = ["success", "failed", "skipped", "cancelled"].includes(task.status)}
-      <li class="{ROW_CLASS} hover:bg-rule">
-        <span class="hidden w-20 shrink-0 sm:block">
-          <Lamp {tone} label={statusText(task.status)} />
-        </span>
-
-        <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-          <p class="truncate text-body font-medium">{taskTitle(task)}</p>
-          <p class="truncate text-caption text-muted-foreground">
-            {artist ?? taskTypeText(task.type)}
-          </p>
-          {#if task.error}
-            <p class="truncate text-caption text-destructive-text" title={task.error}>{task.error}</p>
-          {:else if !finished}
-            <p class="tabular truncate text-caption text-muted-foreground">
-              {t("tasks.received", { size: formatSize(progress.received) })} ·
-              {t("tasks.total", { size: formatSize(progress.total) })}
-              {#if progress.speed}· {t("tasks.speed")} {formatRate(progress.speed)}{/if}
-              {#if progress.eta}· {t("tasks.eta")} {formatEta(progress.eta)}{/if}
-            </p>
-          {:else if task.retry_count > 0}
-            <p class="text-caption text-muted-foreground">
-              {t("tasks.retryCount", { n: task.retry_count })}
-            </p>
-          {/if}
-        </div>
-
-        <div class="hidden w-40 shrink-0 flex-col gap-1 lg:flex">
-          {#if !finished}
-            <ProgressBar
-              ratio={progressRatio(progress.received, progress.total)}
-              label={taskTitle(task)}
-            />
-            <span class="tabular text-right text-caption text-muted-foreground">
-              {taskProgressText(progress.received, progress.total)}
-            </span>
-          {/if}
-        </div>
-
-        <div class="flex w-[184px] shrink-0 items-center justify-end gap-2">
-          {#if task.status === "downloading"}
-            <Button variant="outline" size="xs" onclick={() => void act(task.id, "pause")}>
-              {t("tasks.pause")}
-            </Button>
-          {:else if task.status === "paused"}
-            <Button variant="outline" size="xs" onclick={() => void act(task.id, "resume")}>
-              {t("tasks.resume")}
-            </Button>
-          {/if}
-          {#if canRetry(task)}
-            <Button variant="outline" size="xs" onclick={() => void act(task.id, "retry")}>
-              {t("tasks.retry")}
-            </Button>
-          {/if}
-          {#if ["queued", "downloading", "paused"].includes(task.status)}
-            <Button variant="destructive" size="xs" onclick={() => void act(task.id, "cancel")}>
-              {t("tasks.cancel")}
-            </Button>
-          {/if}
-          <Button variant="destructive" size="xs" onclick={() => openRemove(task)}>
-            {t("tasks.delete")}
-          </Button>
-        </div>
-      </li>
+      <TaskRow
+        {columns}
+        {task}
+        progress={queue.readings(task)}
+        onact={(action) => void act(task.id, action)}
+        ondelete={() => openRemove(task)}
+      />
     {/each}
   </DataTable>
 {/if}

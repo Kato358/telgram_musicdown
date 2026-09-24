@@ -10,12 +10,31 @@ import { events } from "$lib/stores/events.svelte";
 
 const POLL_MS = 10_000;
 
+/** 任务行读数：字节/速率/剩余。SSE 帧优先，缺帧时回落到 DB 快照。 */
+export interface TaskReadings {
+  received: number;
+  total: number | null;
+  speed: number | null;
+  eta: number | null;
+}
+
 class Queue {
   tasks = $state<TaskRow[]>([]);
   loaded = $state(false);
 
   #timer: number | undefined = undefined;
   #unsubscribe: (() => void) | null = null;
+
+  /** 某一行当下的读数（下载任务页与仪表盘共用，避免各自拼一遍帧与快照）。 */
+  readings(task: TaskRow): TaskReadings {
+    const frame = events.progress[task.id];
+    return {
+      received: frame?.progress_bytes ?? task.progress_bytes,
+      total: frame?.total_bytes ?? task.total_bytes,
+      speed: frame?.speed ?? task.speed,
+      eta: frame?.eta ?? null,
+    };
+  }
 
   get queued(): TaskRow[] {
     return this.tasks.filter((t) => t.status === "queued");

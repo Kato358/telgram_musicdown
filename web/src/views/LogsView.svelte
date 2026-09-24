@@ -5,9 +5,11 @@
    */
   import { t } from "$lib/i18n/index.svelte";
   import { events } from "$lib/stores/events.svelte";
+  import CircleAlertIcon from "@lucide/svelte/icons/circle-alert";
   import { Button } from "$lib/components/ui/button";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
   import PageHeader from "$lib/components/app/PageHeader.svelte";
+  import SectionCard from "$lib/components/app/SectionCard.svelte";
 
   function timeOf(ts: number): string {
     return new Date(ts * 1000).toLocaleTimeString("zh-CN", { hour12: false });
@@ -32,18 +34,17 @@
 {#if events.errors.length === 0}
   <EmptyState title={t("logs.empty")} />
 {:else}
-  <div class="card overflow-hidden">
-    <ul>
+  <SectionCard title={t("logs.errorSection")} icon={CircleAlertIcon}>
+    <ul class="flex flex-col">
       {#each events.errors as entry (entry.id)}
-        <li
-          class="flex gap-3 border-b border-rule px-4 py-3 ui-transition last:border-b-0 md:px-6 hover:bg-rule"
-        >
-          <span class="tabular shrink-0 text-caption text-faint-foreground">{timeOf(entry.ts)}</span>
+        <li class="flex items-start gap-3 rounded-chip px-2 py-2 ui-transition hover:bg-rule">
+          <span class="tabular shrink-0 text-caption text-faint-foreground">{timeOf(entry.ts)}</span
+          >
           <span class="min-w-0 flex-1 text-code text-destructive-text break-all">
             {entry.message}
           </span>
         </li>
       {/each}
     </ul>
-  </div>
+  </SectionCard>
 {/if}

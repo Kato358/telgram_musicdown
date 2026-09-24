@@ -1,77 +1,185 @@
 <script lang="ts">
-  /** 仪表盘（设计规范 §10）：当前传输 + 队列事实 + 最近入库。
+  /** 仪表盘（设计规范 §10）：一屏之内回答四件事——在传什么、库有多大、最近下了什么、现在在听什么。
    *
-   * 首屏主角是「正在写入」那块淡绿状态卡：真实字节 / 速率 / 剩余 + 落盘路径框——
-   * 这个产品对用户的唯一承诺就是文件落在哪儿。
+   * 版面照参考图：欢迎横幅 + 四张统计卡 + 下载任务表（主栏）/ 快速操作 + 当前播放 + 系统状态（右栏）。
+   * 但「正在写入」那块淡绿状态卡留着，而且仍然紧跟统计卡——真实字节、速率、剩余与**落盘路径**
+   * 是这个产品对用户的唯一承诺，它不能因为改版掉到看不见的地方。
+   * 页头（H1）不重复：顶栏已经写着当前页名，横幅就是这一屏的开场。
    */
   import { onMount } from "svelte";
-  import CircleCheckIcon from "@lucide/svelte/icons/circle-check";
-  import UploadIcon from "@lucide/svelte/icons/upload";
+  import type { Component } from "svelte";
+  import ActivityIcon from "@lucide/svelte/icons/activity";
+  import DownloadIcon from "@lucide/svelte/icons/download";
+  import HardDriveIcon from "@lucide/svelte/icons/hard-drive";
+  import HistoryIcon from "@lucide/svelte/icons/history";
+  import MusicIcon from "@lucide/svelte/icons/music";
+  import PauseIcon from "@lucide/svelte/icons/pause";
+  import PlayIcon from "@lucide/svelte/icons/play";
+  import RadioIcon from "@lucide/svelte/icons/radio";
+  import RadioTowerIcon from "@lucide/svelte/icons/radio-tower";
+  import SearchIcon from "@lucide/svelte/icons/search";
+  import SendIcon from "@lucide/svelte/icons/send";
+  import TimerIcon from "@lucide/svelte/icons/timer";
+  import ZapIcon from "@lucide/svelte/icons/zap";
   import { api, errorText } from "$lib/api/client";
-  import type { HistoryRow, SourceRow } from "$lib/api/types";
-  import { formatEta, formatRate, formatSize } from "$lib/format";
-  import { taskTypeText, t } from "$lib/i18n/index.svelte";
+  import type { HistoryRow } from "$lib/api/types";
+  import { formatCount, formatSize, formatUptime } from "$lib/format";
+  import { t } from "$lib/i18n/index.svelte";
   import { navigate, pathOf } from "$lib/router.svelte";
   import { events } from "$lib/stores/events.svelte";
   import { player, type Track } from "$lib/stores/player.svelte";
   import { queue } from "$lib/stores/queue.svelte";
-  import { taskTone, statusText, type Tone } from "$lib/tone";
+  import { session } from "$lib/stores/session.svelte";
+  import { stats } from "$lib/stores/stats.svelte";
+  import { TONE_TEXT } from "$lib/tone";
   import { Button } from "$lib/components/ui/button";
-  import DataTable from "$lib/components/app/DataTable.svelte";
+  import ActionTileGrid from "$lib/components/app/ActionTileGrid.svelte";
+  import DataTable, { type Column } from "$lib/components/app/DataTable.svelte";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
   import Lamp from "$lib/components/app/Lamp.svelte";
   import Link from "$lib/components/app/Link.svelte";
   import Note from "$lib/components/app/Note.svelte";
-  import PageHeader from "$lib/components/app/PageHeader.svelte";
-  import StatusCard from "$lib/components/app/StatusCard.svelte";
-  import TrackRow, { trackColumns, type RowMenuItem } from "$lib/components/app/TrackRow.svelte";
+  import NowPlayingCard from "$lib/components/app/NowPlayingCard.svelte";
+  import SectionCard from "$lib/components/app/SectionCard.svelte";
+  import StatCard from "$lib/components/app/StatCard.svelte";
+  import TaskRow, { type TaskAction } from "$lib/components/app/TaskRow.svelte";
+  import WelcomeBanner from "$lib/components/app/WelcomeBanner.svelte";
 
-  /** 推荐搜索词：状态卡的快捷标签组（§5.3）。 */
-  const SUGGESTIONS = ["data", "download"];
+  /** 推荐搜索词：取自曲库里真实出现过的歌手——点一下就是搜这个人。
+   *  没有可推荐的（空库）就不摆这一行，不为凑版面编词（§8 文案规则）。 */
+  const SUGGESTION_LIMIT = 6;
 
-  let recent = $state<HistoryRow[]>([]);
-  let sources = $state<SourceRow[]>([]);
+  /** 仪表盘只放得下几行：先按「活着的排前面」排，同一档里新的在前。 */
+  const STATUS_ORDER: Record<string, number> = {
+    downloading: 0,
+    paused: 1,
+    queued: 2,
+    failed: 3,
+    success: 4,
+    skipped: 5,
+    cancelled: 6,
+  };
+  const ROWS = 5;
+
+  let historyRows = $state<HistoryRow[]>([]);
+  let sourceCount = $state(0);
   let error = $state("");
-  let feedback = $state<{ id: number; tone: Tone; text: string } | null>(null);
 
-  const columns = $derived(trackColumns());
-
-  /** 主角任务：优先正在下载，其次暂停，最后排队。 */
-  const lead = $derived(queue.downloading[0] ?? queue.paused[0] ?? queue.queued[0] ?? null);
-  const live = $derived(lead ? events.progress[lead.id] : undefined);
-  const received = $derived(live?.progress_bytes ?? lead?.progress_bytes ?? 0);
-  const total = $derived(live?.total_bytes ?? lead?.total_bytes ?? null);
-  const latestPath = $derived(recent.find((row) => row.save_path)?.save_path ?? null);
-  const playable = $derived(recent.filter((row) => row.save_path !== null));
-  const tracks = $derived(
-    playable.map(
-      (row): Track => ({
-        id: String(row.id),
-        title: row.title ?? "",
-        artist: row.artist,
-        streamUrl: `/api/history/${row.id}/stream`,
-      }),
-    ),
+  /** 最近入库只显示前几行；推荐词用整页（50 条）里的歌手，选择面更宽。 */
+  const recent = $derived(historyRows.slice(0, ROWS));
+  const suggestions = $derived(
+    [
+      ...new Set(
+        historyRows.map((row) => row.artist?.trim()).filter((name): name is string => !!name),
+      ),
+    ]
+      .slice(0, SUGGESTION_LIMIT)
+      .map((name) => ({ label: name, query: name })),
   );
 
-  /** 队列事实：等待 / 下载中 / 已暂停 / 失败 / 源。 */
-  const facts = $derived([
-    { label: statusText("queued"), value: queue.queued.length },
-    { label: statusText("downloading"), value: queue.downloading.length },
-    { label: statusText("paused"), value: queue.paused.length },
-    { label: t("dashboard.failed"), value: queue.failedCount },
-    { label: t("dashboard.sources"), value: sources.length },
+  const columns = $derived<Column[]>([
+    { key: "status", label: t("table.status"), class: "hidden w-14 shrink-0 sm:block xl:w-20" },
+    { key: "task", label: t("table.task"), class: "min-w-0 flex-1" },
+    { key: "progress", label: t("table.progress"), class: "hidden w-20 shrink-0 lg:flex xl:w-28" },
+    {
+      key: "actions",
+      label: t("table.actions"),
+      class: "flex w-[120px] shrink-0 items-center justify-end gap-2 xl:w-[136px]",
+    },
+  ]);
+  const rows = $derived(
+    [...queue.tasks]
+      .sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || b.id - a.id)
+      .slice(0, ROWS),
+  );
+
+  const playable = $derived(recent.filter((row) => row.save_path !== null));
+  const tracks = $derived(
+    playable.map((row): Track => ({
+      id: String(row.id),
+      title: row.title ?? "",
+      artist: row.artist,
+      streamUrl: `/api/history/${row.id}/stream`,
+    })),
+  );
+
+  /** 系统状态：四条都是真读数，不做「看起来正常」的占位。 */
+  interface SystemRow {
+    key: string;
+    label: string;
+    value: string;
+    icon: Component;
+    /** 文字色类；不给就用主文本色。 */
+    tone?: string;
+  }
+
+  const system = $derived.by((): { ok: boolean; rows: SystemRow[] } => {
+    const data = stats.data;
+    const ok = session.connected && events.connected && queue.failedCount === 0;
+    return {
+      ok,
+      rows: [
+        {
+          key: "uptime",
+          label: t("dashboard.systemUptime"),
+          value: formatUptime(data?.uptime_sec ?? null),
+          icon: TimerIcon,
+        },
+        {
+          key: "engine",
+          label: t("dashboard.systemEngine"),
+          value:
+            data && data.tasks.downloading > 0
+              ? t("dashboard.systemEngineBusy", { n: data.tasks.downloading })
+              : t("dashboard.systemEngineIdle"),
+          icon: DownloadIcon,
+        },
+        {
+          key: "stream",
+          label: t("dashboard.systemStream"),
+          value: events.connected ? t("dashboard.systemStreamOn") : t("dashboard.systemStreamOff"),
+          icon: RadioIcon,
+          tone: events.connected ? TONE_TEXT.done : TONE_TEXT.idle,
+        },
+        {
+          key: "telegram",
+          label: t("dashboard.systemTelegram"),
+          value: session.connected
+            ? t("dashboard.systemTelegramOn")
+            : t("dashboard.systemTelegramOff"),
+          icon: SendIcon,
+          tone: session.connected ? TONE_TEXT.done : TONE_TEXT.idle,
+        },
+      ],
+    };
+  });
+
+  const quickItems = $derived([
+    { label: t("dashboard.quickSearch"), icon: SearchIcon, href: pathOf("search") },
+    { label: t("dashboard.quickAddSource"), icon: RadioTowerIcon, href: pathOf("sources") },
+    { label: t("dashboard.quickTasks"), icon: DownloadIcon, href: pathOf("tasks") },
+    { label: t("dashboard.quickHistory"), icon: HistoryIcon, href: pathOf("history") },
   ]);
 
   async function load() {
     try {
       const [history, sourceRows] = await Promise.all([
         api.get<HistoryRow[]>("/api/history?page=0"),
-        api.get<SourceRow[]>("/api/sources"),
+        api.get<{ id: number }[]>("/api/sources"),
       ]);
-      recent = history.slice(0, 5);
-      sources = sourceRows;
+      historyRows = history;
+      sourceCount = sourceRows.length;
       error = "";
+    } catch (err) {
+      error = errorText(err, t("common.error"));
+    }
+  }
+
+  async function act(id: number, action: TaskAction) {
+    error = "";
+    try {
+      await api.post(`/api/downloads/${id}/${action}`);
+      await queue.refresh();
     } catch (err) {
       error = errorText(err, t("common.error"));
     }
@@ -83,35 +191,8 @@
     player.play(tracks, index);
   }
 
-  function menuFor(row: HistoryRow): RowMenuItem[] {
-    const items: RowMenuItem[] = [];
-    if (row.save_path) {
-      items.push({ label: t("history.copyPath"), onselect: () => void copyPath(row) });
-    }
-    items.push({ label: t("history.redownload"), onselect: () => void redownload(row) });
-    return items;
-  }
-
-  async function copyPath(row: HistoryRow) {
-    const path = row.save_path;
-    if (!path) return;
-    try {
-      await navigator.clipboard.writeText(path);
-      feedback = { id: row.id, tone: "done", text: t("history.copied") };
-    } catch (err) {
-      feedback = { id: row.id, tone: "fail", text: errorText(err, t("common.error")) };
-    }
-  }
-
-  async function redownload(row: HistoryRow) {
-    try {
-      await api.post("/api/downloads", {
-        message_refs: [{ chat_id: row.chat_id, message_id: row.message_id }],
-      });
-      feedback = { id: row.id, tone: "done", text: t("history.redownloaded") };
-    } catch (err) {
-      feedback = { id: row.id, tone: "fail", text: errorText(err, t("common.error")) };
-    }
+  function search(keyword: string) {
+    navigate(`${pathOf("search")}?q=${encodeURIComponent(keyword)}`);
   }
 
   onMount(() => {
@@ -119,13 +200,11 @@
   });
 </script>
 
-<PageHeader title={t("dashboard.title")} lede={t("dashboard.lede")} />
-
 {#if error}
   <Note tone="fail">{error}</Note>
 {/if}
 
-{#if sources.length === 0 && queue.tasks.length === 0}
+{#if sourceCount === 0 && queue.tasks.length === 0}
   <EmptyState title={t("dashboard.needSourcesTitle")} hint={t("dashboard.needSourcesHint")}>
     {#snippet actions()}
       <Button size="lg" onclick={() => navigate(pathOf("sources"))}>
@@ -135,113 +214,167 @@
   </EmptyState>
 {/if}
 
-<StatusCard
-  title={lead ? t("dashboard.transferTitle") : t("dashboard.idleTitle")}
-  hint={lead ? `#${lead.id} | ${taskTypeText(lead.type)}` : t("dashboard.idleHint")}
-  path={latestPath}
->
-  {#snippet icon()}
-    {#if lead}
-      <UploadIcon class="size-5" />
-    {:else}
-      <CircleCheckIcon class="size-5" />
-    {/if}
-  {/snippet}
+<div class="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.45fr)] lg:gap-6">
+  <div class="flex min-w-0 flex-col gap-4">
+    <WelcomeBanner
+      title={t("dashboard.welcomeTitle")}
+      body={t("dashboard.welcomeBody")}
+      placeholder={t("dashboard.heroPlaceholder")}
+      submitLabel={t("dashboard.heroSubmit")}
+      tagsLabel={t("dashboard.recommended")}
+      tags={suggestions}
+      onsearch={search}
+    />
 
-  {#if lead}
-    <Lamp tone={taskTone(lead.status)} label={statusText(lead.status)} class="self-start" />
-
-    <dl class="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-      <div class="flex items-baseline gap-2">
-        <dt class="text-caption text-muted-foreground">{t("dashboard.received")}</dt>
-        <dd class="tabular text-body">{formatSize(received)}</dd>
-      </div>
-      <div class="flex items-baseline gap-2">
-        <dt class="text-caption text-muted-foreground">{t("dashboard.of")}</dt>
-        <dd class="tabular text-body">{formatSize(total)}</dd>
-      </div>
-      <div class="flex items-baseline gap-2">
-        <dt class="text-caption text-muted-foreground">{t("dashboard.speed")}</dt>
-        <dd class="tabular text-body">{formatRate(live?.speed ?? null)}</dd>
-      </div>
-      <div class="flex items-baseline gap-2">
-        <dt class="text-caption text-muted-foreground">{t("dashboard.remaining")}</dt>
-        <dd class="tabular text-body">{formatEta(live?.eta ?? null)}</dd>
-      </div>
-    </dl>
-  {:else}
-    <div class="flex flex-wrap items-center gap-2">
-      <Button size="lg" onclick={() => navigate(pathOf("search"))}>
-        {t("dashboard.goSearch")}
-      </Button>
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-5">
+      <StatCard
+        label={t("dashboard.statTasks")}
+        value={formatCount(queue.activeCount)}
+        hint={t("dashboard.statTasksHint")}
+        tone="primary"
+        icon={DownloadIcon}
+        href={pathOf("tasks")}
+      />
+      <StatCard
+        label={t("dashboard.statLibrary")}
+        value={formatCount(stats.data?.library.tracks ?? null)}
+        hint={t("dashboard.statLibraryHint")}
+        tone="blue"
+        icon={MusicIcon}
+        href={pathOf("history")}
+      />
+      <StatCard
+        label={t("dashboard.statBytes")}
+        value={formatSize(stats.data?.library.bytes ?? null)}
+        hint={t("dashboard.statBytesHint")}
+        tone="violet"
+        icon={HardDriveIcon}
+        href={pathOf("history")}
+      />
+      <StatCard
+        label={t("dashboard.statSources")}
+        value={formatCount(stats.data?.sources.enabled ?? null)}
+        hint={t("dashboard.statSourcesHint", { n: stats.data?.sources.total ?? 0 })}
+        tone="amber"
+        icon={RadioTowerIcon}
+        href={pathOf("sources")}
+      />
     </div>
 
-    <div class="flex flex-wrap items-center gap-2">
-      <span class="text-caption text-muted-foreground">{t("dashboard.recommended")}</span>
-      {#each SUGGESTIONS as word (word)}
-        <button
-          type="button"
-          class="ui-transition rounded-full bg-primary-soft px-2.5 py-1 text-caption text-primary hover:bg-primary/15"
-          onclick={() => navigate(`${pathOf("search")}?q=${encodeURIComponent(word)}`)}
+    <DataTable {columns}>
+      {#snippet header()}
+        <h2 class="text-h2 font-semibold">{t("dashboard.tasks")}</h2>
+        <span class="tabular text-caption text-muted-foreground">
+          {t("dashboard.tasksCount", { n: queue.tasks.length })}
+        </span>
+        <Link
+          href={pathOf("tasks")}
+          class="ml-auto text-body text-primary hover:text-primary-hover"
         >
-          #{word}
-        </button>
-      {/each}
-    </div>
-  {/if}
+          {t("dashboard.viewAll")} →
+        </Link>
+      {/snippet}
 
-  <dl class="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-    {#each facts as fact (fact.label)}
-      <div class="flex items-baseline gap-2">
-        <dt class="text-caption text-muted-foreground">{fact.label}</dt>
-        <dd class="tabular text-body">{fact.value}</dd>
-      </div>
-    {/each}
-  </dl>
-</StatusCard>
+      {#if rows.length === 0}
+        <li class="px-4 py-8 text-body text-muted-foreground md:px-6">
+          {t("dashboard.tasksEmpty")}
+        </li>
+      {:else}
+        {#each rows as task (task.id)}
+          <TaskRow
+            {columns}
+            {task}
+            progress={queue.readings(task)}
+            onact={(action) => void act(task.id, action)}
+          />
+        {/each}
+      {/if}
+    </DataTable>
 
-<DataTable {columns}>
-  {#snippet header()}
-    <h2 class="text-h2 font-semibold">{t("dashboard.library")}</h2>
-    <span class="tabular text-caption text-muted-foreground">
-      {t("dashboard.libraryCount", { n: recent.length })}
-    </span>
-    <Link
-      href={pathOf("history")}
-      class="ml-auto text-body text-primary hover:text-primary-hover"
+    <SectionCard title={t("dashboard.recent")} icon={MusicIcon}>
+      {#snippet actions()}
+        <Link href={pathOf("history")} class="text-caption text-primary hover:text-primary-hover">
+          {t("dashboard.viewAll")} →
+        </Link>
+      {/snippet}
+
+      {#if recent.length === 0}
+        <p class="text-caption text-muted-foreground">{t("dashboard.recentEmpty")}</p>
+      {:else}
+        <ul class="flex flex-col gap-1">
+          {#each recent as row (row.id)}
+            {@const path = row.save_path}
+            {@const playing = player.current?.id === String(row.id)}
+            <li class="flex items-center gap-3 rounded-nav px-1 py-1.5 hover:bg-rule">
+              <span
+                class="grid size-9 shrink-0 place-items-center rounded-chip bg-primary-soft text-primary"
+                aria-hidden="true"
+              >
+                <MusicIcon class="size-4" />
+              </span>
+              <div class="flex min-w-0 flex-1 flex-col">
+                <p class="truncate text-body font-medium">{row.title ?? t("common.unknown")}</p>
+                <p
+                  class="truncate text-caption {path
+                    ? 'text-muted-foreground'
+                    : 'text-destructive-text'}"
+                >
+                  {#if path}{row.artist ?? t("common.unknown")}{:else}{t("history.noPath")}{/if}
+                </p>
+              </div>
+              <button
+                type="button"
+                class="ui-transition grid size-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground hover:bg-primary-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={playing ? t("history.playing") : t("history.play")}
+                aria-disabled={path === null}
+                disabled={path === null}
+                onclick={() => playFrom(row)}
+              >
+                {#if playing}
+                  <PauseIcon class="size-4" aria-hidden="true" />
+                {:else}
+                  <PlayIcon class="size-4" aria-hidden="true" />
+                {/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </SectionCard>
+  </div>
+
+  <div class="flex min-w-0 flex-col gap-4">
+    <SectionCard
+      title={t("dashboard.quickTitle")}
+      hint={t("dashboard.quickHint")}
+      icon={ZapIcon}
+      tone="brand"
     >
-      {t("dashboard.viewAll")} →
-    </Link>
-  {/snippet}
+      <ActionTileGrid items={quickItems} />
+    </SectionCard>
 
-  {#if recent.length === 0}
-    <li class="px-6 py-8 text-body text-muted-foreground">{t("dashboard.recentEmpty")}</li>
-  {:else}
-    {#each recent as row, index (row.id)}
-      {@const path = row.save_path}
-      {@const playing = player.current?.id === String(row.id)}
-      {@const rowFeedback = feedback && feedback.id === row.id ? feedback : null}
-      <TrackRow
-        {columns}
-        {index}
-        title={row.title ?? t("common.unknown")}
-        artist={row.artist}
-        {path}
-        missing={path ? null : t("history.noPath")}
-        duration={row.duration_sec}
-        size={row.file_size}
-        playing={playing}
-        playable={path !== null}
-        playLabel={playing ? t("history.playing") : t("history.play")}
-        onplay={() => playFrom(row)}
-        menu={menuFor(row)}
-      >
-        {#snippet feedback()}
-          {#if rowFeedback}
-            <Note tone={rowFeedback.tone}>{rowFeedback.text}</Note>
-          {/if}
-        {/snippet}
-      </TrackRow>
-    {/each}
-  {/if}
-</DataTable>
+    <NowPlayingCard />
+
+    <SectionCard title={t("dashboard.systemTitle")} icon={ActivityIcon}>
+      {#snippet actions()}
+        <Lamp
+          tone={system.ok ? "done" : "wait"}
+          label={system.ok ? t("dashboard.systemOk") : t("dashboard.systemAttention")}
+        />
+      {/snippet}
+
+      <dl class="flex flex-col">
+        {#each system.rows as row (row.key)}
+          {@const Icon = row.icon}
+          <div class="flex items-center gap-2 border-b border-rule py-2 last:border-b-0">
+            <Icon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <dt class="text-caption text-muted-foreground">{row.label}</dt>
+            <dd class="tabular ml-auto text-caption {row.tone ?? 'text-foreground'}">
+              {row.value}
+            </dd>
+          </div>
+        {/each}
+      </dl>
+    </SectionCard>
+  </div>
+</div>

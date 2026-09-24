@@ -20,7 +20,7 @@
   } from "$lib/components/ui/dropdown-menu";
   import { t } from "$lib/i18n/index.svelte";
   import { formatRate } from "$lib/format";
-  import { navigate, pathOf, router } from "$lib/router.svelte";
+  import { navigate, pathOf } from "$lib/router.svelte";
   import { events } from "$lib/stores/events.svelte";
   import { queue } from "$lib/stores/queue.svelte";
   import { session } from "$lib/stores/session.svelte";
@@ -133,9 +133,6 @@
     </div>
   {:else}
     <MobileNav />
-    <span class="hidden min-w-0 truncate text-body font-medium md:block">
-      {t(`nav.${router.key}`)}
-    </span>
 
     <div class="hidden min-w-0 flex-1 md:flex md:max-w-[320px] lg:max-w-[480px]">
       <div
@@ -167,7 +164,8 @@
           onclick={() => navigate(pathOf("tasks"))}
         >
           <span class="tabular text-caption text-foreground">
-            {t("app.activeTransfers")} {queue.activeCount}
+            {t("app.activeTransfers")}
+            {queue.activeCount}
           </span>
           <span class="tabular text-caption text-faint-foreground">{formatRate(rate)}</span>
         </button>
@@ -220,11 +218,7 @@
         {/if}
       </Button>
 
-      <Lamp
-        tone={connection.tone}
-        label={connection.label}
-        class="ml-1 hidden md:inline-flex"
-      />
+      <Lamp tone={connection.tone} label={connection.label} class="ml-1 hidden md:inline-flex" />
 
       <span
         class="ml-1 grid size-8 shrink-0 place-items-center rounded-full bg-primary-soft text-caption font-medium text-primary"

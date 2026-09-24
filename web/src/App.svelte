@@ -12,6 +12,7 @@
   import { theme } from "$lib/stores/theme.svelte";
   import { queue } from "$lib/stores/queue.svelte";
   import { session } from "$lib/stores/session.svelte";
+  import { stats } from "$lib/stores/stats.svelte";
   import Sidebar from "$lib/components/app/Sidebar.svelte";
   import TopBar from "$lib/components/app/TopBar.svelte";
   import TransportBar from "$lib/components/app/TransportBar.svelte";
@@ -56,6 +57,13 @@
     }
   });
 
+  /** 统计快照的生命周期归外壳管：开屏取一次，之后任务状态一变就重取。
+   *  这样侧栏与各页读的是同一份数字，页面不再各自发一次 `/api/stats`。 */
+  $effect(() => {
+    if (events.revision === 0) return; // 首次挂载由 onMount 负责，避免开屏打两次
+    void stats.refresh();
+  });
+
   /** 主题落到 <html>：浅/深唯一出口（首帧由 index.html 内联脚本先铺一次）。 */
   $effect(() => {
     const dark = theme.resolved === "dark";
@@ -70,6 +78,7 @@
     }
     events.connect();
     queue.start();
+    void stats.refresh();
     void (async () => {
       try {
         await session.loadSetup(); // 失败也会置 checked：闸门据此停在向导并写明原因

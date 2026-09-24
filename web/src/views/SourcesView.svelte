@@ -7,6 +7,10 @@
   import { onMount } from "svelte";
   import { api, errorText } from "$lib/api/client";
   import type { SourceRow } from "$lib/api/types";
+  import CircleCheckIcon from "@lucide/svelte/icons/circle-check";
+  import RadioTowerIcon from "@lucide/svelte/icons/radio-tower";
+  import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
+  import { formatCount } from "$lib/format";
   import { t } from "$lib/i18n/index.svelte";
   import type { Tone } from "$lib/tone";
   import { Button } from "$lib/components/ui/button";
@@ -35,6 +39,7 @@
   import Lamp from "$lib/components/app/Lamp.svelte";
   import Note from "$lib/components/app/Note.svelte";
   import PageHeader from "$lib/components/app/PageHeader.svelte";
+  import StatCard from "$lib/components/app/StatCard.svelte";
 
   type Direction = "backward" | "forward";
 
@@ -65,7 +70,9 @@
   let removing = $state(false);
   let removeError = $state("");
 
+  /** 统计卡的数字就地从已拉到的源列表里算：同一份事实不为统计再打一次接口。 */
   const enabledCount = $derived(rows.filter((row) => row.enabled).length);
+  const autoSyncCount = $derived(rows.filter((row) => row.auto_sync).length);
 
   /** 表头与数据行引用同一份列定义，列宽因此天然对齐（设计规范 §5.4）。 */
   const columns = $derived<Column[]>([
@@ -219,6 +226,30 @@
     </span>
   {/snippet}
 </PageHeader>
+
+<div class="grid grid-cols-2 gap-4 lg:grid-cols-3">
+  <StatCard
+    label={t("sources.statTotal")}
+    value={formatCount(rows.length)}
+    hint={t("sources.statTotalHint")}
+    tone="amber"
+    icon={RadioTowerIcon}
+  />
+  <StatCard
+    label={t("sources.statEnabled")}
+    value={formatCount(enabledCount)}
+    hint={t("sources.statEnabledHint")}
+    tone="primary"
+    icon={CircleCheckIcon}
+  />
+  <StatCard
+    label={t("sources.statAutoSync")}
+    value={formatCount(autoSyncCount)}
+    hint={t("sources.statAutoSyncHint")}
+    tone="blue"
+    icon={RefreshCwIcon}
+  />
+</div>
 
 <div class="card p-4 md:p-5">
   <form
