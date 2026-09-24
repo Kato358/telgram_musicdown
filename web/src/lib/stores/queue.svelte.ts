@@ -47,7 +47,7 @@ class Queue {
     if (this.#timer !== undefined) return;
     void this.refresh();
     this.#unsubscribe = events.onStatus((event) => {
-      if (event.status !== "downloading" && event.status !== "queued") {
+      if (event.status !== "downloading") {
         events.forget(event.task_id);
       }
       void this.refresh();

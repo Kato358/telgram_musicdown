@@ -7,6 +7,7 @@ download_media。可脚本化注入：正常返回、FloodWait、大小不符、
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -76,12 +77,22 @@ class FakeUserClient:
                 ordered = [m for m in ordered if int(m["message_id"]) < offset_id]
         return ordered[:limit]
 
-    async def download_media(self, message_ref: dict[str, Any], file_name: str) -> str | None:
+    async def download_media(
+        self,
+        message_ref: dict[str, Any],
+        file_name: str,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> str | None:
         self.download_calls += 1
         if self.flood_queue:
             raise FakeFloodWait(self.flood_queue.pop(0))
         target = Path(file_name)
         size = self.size_override if self.size_override is not None else len(self.content)
+        if progress is not None:
+            progress(0, size)
+            if size:
+                progress(size // 2, size)
+            progress(size, size)
         # ASYNC240 豁免：Fake 客户端允许直接写文件（测试环境无网络 IO）
         target.write_bytes(self.content[:size])  # noqa: ASYNC240
         return str(target)

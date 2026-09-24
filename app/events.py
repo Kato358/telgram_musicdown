@@ -43,11 +43,14 @@ class EventBus:
         self._subscribers: set[asyncio.Queue[Event]] = set()
         self._maxsize = maxsize
         self._lock = asyncio.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+
 
     async def subscribe(self) -> asyncio.Queue[Event]:
         q: asyncio.Queue[Event] = asyncio.Queue(maxsize=self._maxsize)
         async with self._lock:
             self._subscribers.add(q)
+        self._loop = asyncio.get_running_loop()
         return q
 
     async def unsubscribe(self, q: asyncio.Queue[Event]) -> None:
@@ -56,19 +59,41 @@ class EventBus:
 
     async def publish(self, event: Event) -> None:
         """投递事件到全部订阅者；满队列丢弃最旧（Web 至少 1s 刷新可降级轮询）。"""
+        self._loop = asyncio.get_running_loop()
         async with self._lock:
             targets = list(self._subscribers)
+        self._publish_to_targets(event, targets)
+
+    def publish_nowait(self, event: Event) -> None:
+        """从同步回调线程投递事件；同一事件循环内则立即入队。"""
+        loop: asyncio.AbstractEventLoop | None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = self._loop
+        else:
+            self._loop = loop
+            self._publish_to_targets(event, list(self._subscribers))
+            return
+        if loop is None or loop.is_closed():
+            logger.debug("event %s dropped: no running loop", event.type)
+            return
+        try:
+            loop.call_soon_threadsafe(self._publish_on_loop, event)
+        except RuntimeError:
+            logger.debug("event %s dropped: loop closed", event.type)
+
+    def _publish_on_loop(self, event: Event) -> None:
+        """把跨线程事件转成事件循环内的同步入队。"""
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        self._publish_to_targets(event, list(self._subscribers))
+
+    @staticmethod
+    def _publish_to_targets(event: Event, targets: list[asyncio.Queue[Event]]) -> None:
         for q in targets:
             if q.full():
                 with contextlib.suppress(asyncio.QueueEmpty):
                     q.get_nowait()
             q.put_nowait(event)
-
-    def publish_nowait(self, event: Event) -> None:
-        """同步上下文便捷发布（worker 线程经 to_thread 回调不可用）。"""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            logger.debug("event %s dropped: no running loop", event.type)
-            return
-        loop.create_task(self.publish(event))

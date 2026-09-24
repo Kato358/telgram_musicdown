@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import SecretConfig, load_secrets
+from app.db.models import History, Task
 from app.db.store import Store
 from app.domain import TemplateConfig
 from app.errors import WebAuthConfigError
@@ -401,3 +402,82 @@ def test_sse_event_bus_delivers_event() -> None:
         return ev.type
 
     assert asyncio.run(scenario()) == "task.status"
+
+
+def test_event_bus_publish_nowait_from_worker_thread() -> None:
+    async def scenario() -> str:
+        events = EventBus()
+        q = await events.subscribe()
+        await asyncio.to_thread(
+            events.publish_nowait, Event("task.progress", {"task_id": 7, "progress_bytes": 3})
+        )
+        event = await asyncio.wait_for(q.get(), timeout=1)
+        return str(event.payload["progress_bytes"])
+    assert asyncio.run(scenario()) == "3"
+
+
+
+def test_download_list_and_lifecycle_routes(client: TestClient, tmp_path: Path) -> None:
+    store = Store(tmp_path / "app.db")
+    history_id = store.upsert_history(
+        History(
+            id=None,
+            chat_id=-100123,
+            message_id=1,
+            title="History Song",
+            artist="History Artist",
+            status="failed",
+            save_path="library/kept.mp3",
+        )
+    )
+    task_id = store.create_task(
+        Task(
+            id=None,
+            type="link",
+            payload_json=json.dumps(
+                {
+                    "meta": {
+                        "chat_id": -100123,
+                        "message_id": 1,
+                        "title": "Payload Song",
+                        "artist": "Payload Artist",
+                    }
+                }
+            ),
+            status="failed",
+            total_bytes=100,
+            history_id=history_id,
+        )
+    )
+    store.update_task(task_id, speed=7.5, error="temporary failure")
+    fallback_id = store.create_task(
+        Task(
+            id=None,
+            type="link",
+            payload_json=json.dumps(
+                {
+                    "meta": {
+                        "chat_id": -100123,
+                        "message_id": 2,
+                        "title": "Payload Fallback",
+                        "artist": "Fallback Artist",
+                    }
+                }
+            ),
+        )
+    )
+
+    rows = {row["id"]: row for row in client.get("/api/downloads").json()}
+    assert rows[task_id]["title"] == "History Song"
+    assert rows[task_id]["artist"] == "History Artist"
+    assert rows[task_id]["speed"] == 7.5
+    assert rows[fallback_id]["title"] == "Payload Fallback"
+    assert rows[fallback_id]["artist"] == "Fallback Artist"
+
+    assert client.post(f"/api/downloads/{task_id}/retry").status_code == 200
+    assert store.get_task(task_id).status == "queued"  # type: ignore[union-attr]
+    assert client.delete(f"/api/downloads/{task_id}").status_code == 200
+    assert store.get_task(task_id) is None
+    assert store.get_history(history_id) is not None
+    assert client.post("/api/downloads/999/retry").status_code == 404
+    assert client.delete("/api/downloads/999").status_code == 404

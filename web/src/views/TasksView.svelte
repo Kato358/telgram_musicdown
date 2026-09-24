@@ -13,6 +13,14 @@
   import { events } from "$lib/stores/events.svelte";
   import { statusText, taskTone } from "$lib/tone";
   import { Button } from "$lib/components/ui/button";
+  import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+  } from "$lib/components/ui/dialog";
   import { Textarea } from "$lib/components/ui/textarea";
   import DataTable, { ROW_CLASS } from "$lib/components/app/DataTable.svelte";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
@@ -27,13 +35,17 @@
   let notice = $state("");
   let failures = $state<DownloadItemResult[]>([]);
   let error = $state("");
+  let removeOpen = $state(false);
+  let removeTarget = $state<TaskRow | null>(null);
+  let removing = $state(false);
+  let removeError = $state("");
 
   const failedCount = $derived(queue.failedCount);
   const columns = $derived<Column[]>([
     { key: "status", label: t("table.status"), class: "hidden w-20 shrink-0 sm:block" },
     { key: "task", label: t("table.task"), class: "min-w-0 flex-1" },
     { key: "progress", label: t("table.progress"), class: "hidden w-40 shrink-0 lg:block" },
-    { key: "actions", label: "", class: "flex w-[136px] shrink-0 items-center justify-end gap-2" },
+    { key: "actions", label: "", class: "flex w-[184px] shrink-0 items-center justify-end gap-2" },
   ]);
 
   function liveProgress(task: TaskRow) {
@@ -41,18 +53,65 @@
     return {
       received: frame?.progress_bytes ?? task.progress_bytes,
       total: frame?.total_bytes ?? task.total_bytes,
-      speed: frame?.speed ?? null,
+      speed: frame?.speed ?? task.speed,
       eta: frame?.eta ?? null,
     };
   }
 
-  async function act(id: number, action: "pause" | "resume" | "cancel") {
+  async function act(id: number, action: "pause" | "resume" | "cancel" | "retry") {
     error = "";
     try {
       await api.post(`/api/downloads/${id}/${action}`);
       await queue.refresh();
     } catch (err) {
       error = errorText(err, t("common.error"));
+    }
+  }
+
+  function taskTitle(task: TaskRow): string {
+    return task.title?.trim() || `#${task.id}`;
+  }
+
+  function taskArtist(task: TaskRow): string | null {
+    return task.artist?.trim() || null;
+  }
+
+  function taskProgressText(received: number, total: number | null): string {
+    const ratio = progressRatio(received, total);
+    if (ratio === null) return "--";
+    return t("tasks.percent", { percent: Math.round(ratio * 100) });
+  }
+
+  function canRetry(task: TaskRow): boolean {
+    return ["failed", "cancelled", "skipped"].includes(task.status);
+  }
+
+  function openRemove(task: TaskRow) {
+    removeTarget = task;
+    removeError = "";
+    removeOpen = true;
+  }
+
+  function closeRemove() {
+    if (removing) return;
+    removeOpen = false;
+    removeTarget = null;
+  }
+
+  async function confirmRemove() {
+    const target = removeTarget;
+    if (target === null || removing) return;
+    removing = true;
+    removeError = "";
+    try {
+      await api.delete<{ ok: boolean }>(`/api/downloads/${target.id}`);
+      removeOpen = false;
+      removeTarget = null;
+      await queue.refresh();
+    } catch (err) {
+      removeError = errorText(err, t("common.error"));
+    } finally {
+      removing = false;
     }
   }
 
@@ -144,6 +203,7 @@
     {#each queue.tasks as task (task.id)}
       {@const progress = liveProgress(task)}
       {@const tone = taskTone(task.status)}
+      {@const artist = taskArtist(task)}
       {@const finished = ["success", "failed", "skipped", "cancelled"].includes(task.status)}
       <li class="{ROW_CLASS} hover:bg-rule">
         <span class="hidden w-20 shrink-0 sm:block">
@@ -151,8 +211,9 @@
         </span>
 
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-          <p class="truncate text-body font-medium">
-            #{task.id} | {taskTypeText(task.type)}
+          <p class="truncate text-body font-medium">{taskTitle(task)}</p>
+          <p class="truncate text-caption text-muted-foreground">
+            {artist ?? taskTypeText(task.type)}
           </p>
           {#if task.error}
             <p class="truncate text-caption text-destructive-text" title={task.error}>{task.error}</p>
@@ -170,16 +231,19 @@
           {/if}
         </div>
 
-        <div class="hidden w-40 shrink-0 lg:block">
+        <div class="hidden w-40 shrink-0 flex-col gap-1 lg:flex">
           {#if !finished}
             <ProgressBar
               ratio={progressRatio(progress.received, progress.total)}
-              label={`#${task.id}`}
+              label={taskTitle(task)}
             />
+            <span class="tabular text-right text-caption text-muted-foreground">
+              {taskProgressText(progress.received, progress.total)}
+            </span>
           {/if}
         </div>
 
-        <div class="flex w-[136px] shrink-0 items-center justify-end gap-2">
+        <div class="flex w-[184px] shrink-0 items-center justify-end gap-2">
           {#if task.status === "downloading"}
             <Button variant="outline" size="xs" onclick={() => void act(task.id, "pause")}>
               {t("tasks.pause")}
@@ -189,13 +253,59 @@
               {t("tasks.resume")}
             </Button>
           {/if}
+          {#if canRetry(task)}
+            <Button variant="outline" size="xs" onclick={() => void act(task.id, "retry")}>
+              {t("tasks.retry")}
+            </Button>
+          {/if}
           {#if ["queued", "downloading", "paused"].includes(task.status)}
             <Button variant="destructive" size="xs" onclick={() => void act(task.id, "cancel")}>
               {t("tasks.cancel")}
             </Button>
           {/if}
+          <Button variant="destructive" size="xs" onclick={() => openRemove(task)}>
+            {t("tasks.delete")}
+          </Button>
         </div>
       </li>
     {/each}
   </DataTable>
 {/if}
+
+<Dialog
+  bind:open={removeOpen}
+  onOpenChange={(open) => {
+    if (!open && !removing) removeTarget = null;
+  }}
+>
+  <DialogContent>
+    {#if removeTarget}
+      <DialogHeader>
+        <DialogTitle class="text-h2 font-semibold">
+          {t("tasks.deleteTitle")}
+        </DialogTitle>
+        <DialogDescription class="text-caption">
+          {t("tasks.deleteBody", { title: taskTitle(removeTarget) })}
+        </DialogDescription>
+      </DialogHeader>
+
+      {#if removeError}
+        <Note tone="fail">{removeError}</Note>
+      {/if}
+
+      <DialogFooter>
+        <Button variant="outline" disabled={removing} onclick={closeRemove}>
+          {t("common.cancel")}
+        </Button>
+        <Button
+          variant="destructive"
+          size="lg"
+          disabled={removing}
+          onclick={() => void confirmRemove()}
+        >
+          {t("tasks.deleteConfirm")}
+        </Button>
+      </DialogFooter>
+    {/if}
+  </DialogContent>
+</Dialog>

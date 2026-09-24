@@ -90,7 +90,10 @@ export interface TaskRow {
   id: number;
   type: string;
   status: TaskStatus;
+  title: string | null;
+  artist: string | null;
   progress_bytes: number;
+  speed: number | null;
   total_bytes: number | null;
   retry_count: number;
   error: string | null;

@@ -284,6 +284,14 @@ class Store:
                 (status, error, save_path, utcnow() if finished else None, history_id),
             )
 
+    def reset_history_for_retry(self, history_id: int) -> None:
+        """重试前清除 history 的终态字段，保留已有文件索引。"""
+        with self._conn:
+            self._conn.execute(
+                "UPDATE history SET status='queued', error=NULL, finished_at=NULL WHERE id=?",
+                (history_id,),
+            )
+
     def set_history_display_tags(
         self, history_id: int, title: str | None, artist: str | None, album: str | None
     ) -> None:
@@ -364,6 +372,21 @@ class Store:
             # sets 只含固定列名片段（"status=?" 等），无用户输入；params 全参数化
             sql = "UPDATE tasks SET " + ", ".join(sets) + " WHERE id=?"  # noqa: S608
             self._conn.execute(sql, params)
+
+    def reset_task_for_retry(self, task_id: int) -> None:
+        """把可重试任务复位，清掉旧错误、进度和退避时间。"""
+        with self._conn:
+            self._conn.execute(
+                "UPDATE tasks SET status='queued', progress_bytes=0, total_bytes=NULL,"
+                " speed=NULL, next_retry_at=NULL, error=NULL WHERE id=?",
+                (task_id,),
+            )
+
+    def delete_task(self, task_id: int) -> bool:
+        """删除任务记录；history 与已落盘文件由服务层决定是否保留。"""
+        with self._conn:
+            cur = self._conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+            return cur.rowcount > 0
 
     def recover_interrupted(self) -> int:
         """NFR-05 恢复：queued 保持、downloading 标 failed（retryable），其余不动。"""

@@ -356,7 +356,11 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
         status: str | None = None, page: int = 0, _: None = Depends(check_session)
     ) -> list[dict[str, Any]]:
         tasks = store.list_tasks(status=status, limit=50)
-        return [_task_dict(t) for t in tasks]
+        out: list[dict[str, Any]] = []
+        for task in tasks:
+            history = store.get_history(task.history_id) if task.history_id else None
+            out.append(_task_dict(task, history))
+        return out
 
     @app.post("/api/downloads/{task_id}/cancel")
     async def cancel_download(task_id: int, _: None = Depends(check_session)) -> dict[str, bool]:
@@ -372,6 +376,21 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
     async def resume_download(task_id: int, _: None = Depends(check_session)) -> dict[str, bool]:
         await downloads.resume_task(task_id)
         return {"ok": True}
+
+    @app.post("/api/downloads/{task_id}/retry")
+    async def retry_download(task_id: int, _: None = Depends(check_session)) -> dict[str, bool]:
+        if store.get_task(task_id) is None:
+            raise HTTPException(status_code=404, detail="task not found")
+        await downloads.retry_task(task_id)
+        return {"ok": True}
+
+    @app.delete("/api/downloads/{task_id}")
+    async def delete_download(task_id: int, _: None = Depends(check_session)) -> dict[str, bool]:
+        if store.get_task(task_id) is None:
+            raise HTTPException(status_code=404, detail="task not found")
+        await downloads.delete_task(task_id)
+        return {"ok": True}
+
 
     @app.post("/api/downloads/retry-failed")
     async def retry_failed(_: None = Depends(check_session)) -> dict[str, int]:
@@ -534,13 +553,27 @@ def _candidate_dict(c: Any) -> dict[str, Any]:
     }
 
 
-def _task_dict(t: Any) -> dict[str, Any]:
+def _task_dict(t: Any, history: Any | None = None) -> dict[str, Any]:
+    title = history.title if history is not None else None
+    artist = history.artist if history is not None else None
+    if not title or not artist:
+        try:
+            payload = json.loads(t.payload_json)
+        except (TypeError, json.JSONDecodeError):
+            payload = {}
+        meta = payload.get("meta") if isinstance(payload, dict) else None
+        if isinstance(meta, dict):
+            title = title or meta.get("title")
+            artist = artist or meta.get("artist")
     return {
         "id": t.id,
         "type": t.type,
         "status": t.status,
+        "title": title,
+        "artist": artist,
         "progress_bytes": t.progress_bytes,
         "total_bytes": t.total_bytes,
+        "speed": t.speed,
         "retry_count": t.retry_count,
         "error": t.error,
     }

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -57,11 +58,16 @@ class _DownloadProxy:
     def __init__(self, mgr: TelegramManager) -> None:
         self._mgr = mgr
 
-    def download_media(self, message_ref: dict[str, Any], file_name: str) -> Any:
+    def download_media(
+        self,
+        message_ref: dict[str, Any],
+        file_name: str,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> Any:
         c = self._mgr.authorized_client()
         if c is None:
             raise AppError("not_connected", "telegram 未登录：请先在 Web 完成初始化登录")
-        return c.download_media(message_ref, file_name)
+        return c.download_media(message_ref, file_name, progress=progress)
 
     def get_messages(self, chat_id: int, message_ids: list[int]) -> Any:
         c = self._mgr.authorized_client()

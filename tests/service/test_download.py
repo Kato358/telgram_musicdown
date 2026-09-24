@@ -5,7 +5,9 @@ FakeUserClient 注入依赖，不 mock 被测对象（编码规范 §6 反模式
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -226,3 +228,160 @@ async def test_recover_interrupted(tmp_path: Path) -> None:
     assert n == 1
     assert store.get_task(queued).status == "queued"  # type: ignore[union-attr]
     assert store.get_task(downloading).status == "failed"  # type: ignore[union-attr]
+
+
+async def test_download_reports_progress_and_persists_snapshot(
+    svc: tuple[DownloadService, Store, FakeUserClient],
+) -> None:
+    service, store, _ = svc
+    task_id = await service.enqueue(req(1, file_size=100))
+    assert task_id is not None
+    events = await service.events.subscribe()
+
+    await service._run_task(worker_row(store, task_id))
+
+    received = []
+    while not events.empty():
+        received.append(events.get_nowait())
+    progress_events = [event for event in received if event.type == "task.progress"]
+    assert progress_events
+    assert progress_events[-1].payload["progress_bytes"] == 100
+    assert progress_events[-1].payload["total_bytes"] == 100
+    assert progress_events[-1].payload["speed"] is not None
+    assert received[-1].type == "task.status"
+    assert received[-1].payload["status"] == "success"
+
+    row = store.get_task(task_id)
+    assert row is not None
+    assert row.progress_bytes == 100
+    assert row.total_bytes == 100
+    assert row.speed is not None
+
+
+async def test_retry_resets_task_history_and_temp_fragment(
+    svc: tuple[DownloadService, Store, FakeUserClient], tmp_path: Path
+) -> None:
+    service, store, _ = svc
+    task_id = await service.enqueue(req(1))
+    assert task_id is not None
+    task = store.get_task(task_id)
+    assert task is not None and task.history_id is not None
+    history_id = task.history_id
+    store.update_task(
+        task_id,
+        status="failed",
+        progress_bytes=80,
+        total_bytes=100,
+        speed=12.5,
+        retry_count=2,
+        next_retry_at="2099-01-01T00:00:00+00:00",
+        error="network down",
+    )
+    final_path = tmp_path / "library" / "kept.mp3"
+    final_path.parent.mkdir(parents=True)
+    final_path.write_bytes(b"done")
+    store.mark_history_status(
+        history_id, "failed", error="network down", save_path=str(final_path), finished=True
+    )
+    temp_path = service.temp_dir / f"task_{task_id}_1"
+    temp_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path.write_bytes(b"partial")
+
+    await service.retry_task(task_id)
+
+    row = store.get_task(task_id)
+    assert row is not None
+    assert row.status == "queued"
+    assert row.progress_bytes == 0
+    assert row.total_bytes is None
+    assert row.speed is None
+    assert row.retry_count == 2
+    assert row.next_retry_at is None
+    assert row.error is None
+    history = store.get_history(history_id)
+    assert history is not None
+    assert history.status == "queued"
+    assert history.error is None
+    assert history.finished_at is None
+    assert history.save_path == str(final_path)
+    assert not temp_path.exists()
+    assert final_path.exists()
+
+
+async def test_retry_rejects_invalid_or_missing_task(
+    svc: tuple[DownloadService, Store, FakeUserClient],
+) -> None:
+    service, store, _ = svc
+    task_id = await service.enqueue(req(1))
+    assert task_id is not None
+    with pytest.raises(Exception, match="不可重试"):
+        await service.retry_task(task_id)
+    with pytest.raises(Exception, match="任务不存在"):
+        await service.retry_task(999)
+
+
+async def test_delete_task_keeps_history_and_saved_file(
+    svc: tuple[DownloadService, Store, FakeUserClient], tmp_path: Path
+) -> None:
+    service, store, _ = svc
+    task_id = await service.enqueue(req(1))
+    assert task_id is not None
+    task = store.get_task(task_id)
+    assert task is not None and task.history_id is not None
+    history_id = task.history_id
+    final_path = tmp_path / "library" / "kept.mp3"
+    final_path.parent.mkdir(parents=True)
+    final_path.write_bytes(b"done")
+    store.mark_history_status(history_id, "success", save_path=str(final_path), finished=True)
+    temp_path = service.temp_dir / f"task_{task_id}_1"
+    temp_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path.write_bytes(b"partial")
+
+    await service.delete_task(task_id)
+
+    assert store.get_task(task_id) is None
+    history = store.get_history(history_id)
+    assert history is not None
+    assert history.save_path == str(final_path)
+    assert final_path.exists()
+    assert not temp_path.exists()
+
+
+async def test_delete_downloading_task_cancels_active_worker(
+    svc: tuple[DownloadService, Store, FakeUserClient],
+) -> None:
+    service, store, client = svc
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def blocked_download(
+        self: FakeUserClient,
+        message_ref: dict[str, Any],
+        file_name: str,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> str:
+        del self, message_ref, file_name, progress
+        started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    client.download_media = blocked_download.__get__(client, FakeUserClient)  # type: ignore[method-assign]
+    task_id = await service.enqueue(req(1))
+    assert task_id is not None
+    task = store.get_task(task_id)
+    assert task is not None and task.history_id is not None
+    history_id = task.history_id
+    worker = asyncio.create_task(service._worker("delete-test"))
+    await asyncio.wait_for(started.wait(), timeout=1)
+    assert store.get_task(task_id).status == "downloading"  # type: ignore[union-attr]
+
+    await service.delete_task(task_id)
+    await asyncio.wait_for(cancelled.wait(), timeout=1)
+    worker.cancel()
+    await asyncio.gather(worker, return_exceptions=True)
+
+    assert store.get_task(task_id) is None
+    assert store.get_history(history_id) is not None

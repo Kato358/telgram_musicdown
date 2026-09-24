@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from pyrogram.client import Client
@@ -258,7 +259,12 @@ class UserClient:
         msgs = result if isinstance(result, list) else [result]
         return [_message_dict(m) for m in msgs if m is not None]
 
-    async def download_media(self, message_ref: dict[str, Any], file_name: str) -> str | None:
+    async def download_media(
+        self,
+        message_ref: dict[str, Any],
+        file_name: str,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> str | None:
         """下载（FR-DL-01）：msg → temp 路径；经 with_flood_retry（NFR-09）。"""
         chat_id = message_ref["chat_id"]
         message_id = message_ref["message_id"]
@@ -268,7 +274,9 @@ class UserClient:
             msgs = result if isinstance(result, list) else [result]
             if not msgs or msgs[0] is None:
                 return None
-            out = await self.client.download_media(msgs[0], file_name=file_name)
+            out = await self.client.download_media(
+                msgs[0], file_name=file_name, progress=progress
+            )
             return out if isinstance(out, str) else None
 
         try:
