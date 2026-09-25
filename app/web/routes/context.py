@@ -54,6 +54,7 @@ def register_all(app: FastAPI, ctx: RouteContext) -> None:  # noqa: PLC0415  模
         downloads,
         history,
         logs,
+        lyrics,
         preview,
         search,
         settings,
@@ -72,4 +73,5 @@ def register_all(app: FastAPI, ctx: RouteContext) -> None:  # noqa: PLC0415  模
     settings.register(app, ctx)
     search.register(app, ctx)
     logs.register(app, ctx)
+    lyrics.register(app, ctx)
     cover.register(app, ctx)

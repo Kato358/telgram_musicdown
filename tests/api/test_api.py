@@ -846,3 +846,49 @@ def test_preview_path_empty_dir_template_is_flat(tmp_path: Path) -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body["relative"] == "03 晴天.mp3"
+
+# ---- 歌词路由（/api/lyrics）：播放器歌词面板的数据源 ----
+
+
+def test_lyrics_without_params_returns_empty_200(client: TestClient) -> None:
+    """title/artist 全缺省：无可查依据，直接 200 空体（APlayer 解析为空列表）。"""
+    r = client.get("/api/lyrics")
+    assert r.status_code == 200
+    assert r.text == ""
+
+
+def test_lyrics_title_only_no_artist_ok(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """只给 title（artist 缺省）也不 500：查询参数为 None 要安全回退空串。"""
+    from app.web.routes import lyrics as lyrics_route
+
+    lrc = "[00:01.00]line\n"
+    monkeypatch.setattr(lyrics_route, "_fetch_lyrics", lambda title, artist: lrc)
+    r = client.get("/api/lyrics", params={"title": "晴天"})
+    assert r.status_code == 200
+    assert r.text == lrc
+
+
+def test_lyrics_found_returns_lrc_text(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """命中：原样回 LRC 文本（text/plain），恒 200 是给 APlayer 的约定。"""
+    from app.web.routes import lyrics as lyrics_route
+
+    lrc = "[00:01.00]test line\n[00:03.00]another\n"
+    monkeypatch.setattr(lyrics_route, "_fetch_lyrics", lambda title, artist: lrc)
+    r = client.get("/api/lyrics", params={"title": "晴天", "artist": "周杰伦"})
+    assert r.status_code == 200
+    assert "text/plain" in r.headers["content-type"]
+    assert r.text == lrc
+
+
+def test_lyrics_not_found_returns_empty_200(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """查不到（含超时/出错）：空体而不是 404——APlayer 对非 2xx 会弹英文 notice。"""
+    from app.web.routes import lyrics as lyrics_route
+
+    monkeypatch.setattr(lyrics_route, "_fetch_lyrics", lambda title, artist: None)
+    r = client.get("/api/lyrics", params={"title": "不存在", "artist": "没有人"})
+    assert r.status_code == 200
+    assert r.text == ""
