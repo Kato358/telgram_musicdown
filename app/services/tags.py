@@ -7,12 +7,14 @@ mutagen 是同步库，标签读写必须 to_thread（编码规范 §2.3）。
 
 from __future__ import annotations
 
+import base64
 import logging
 import math
 from pathlib import Path
+from typing import Any
 
 from mutagen import File as MutagenFile
-from mutagen.flac import FLAC
+from mutagen.flac import FLAC, Picture
 from mutagen.id3 import ID3, ID3NoHeaderError
 from mutagen.mp4 import MP4
 from mutagen.oggvorbis import OggVorbis
@@ -23,6 +25,38 @@ from app.errors import TagWriteError, UnsupportedContainerError
 logger = logging.getLogger(__name__)
 
 READONLY_EXTS = {".cue", ".ape", ".wma"}
+
+
+def image_media_type(data: bytes) -> str | None:
+    """内嵌封面字节 → MIME（魔数嗅探）；认不出返回 None，由调用方兜底。"""
+    if data.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"GIF8"):
+        return "image/gif"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _read_cover_from_tags(tags: Any) -> bytes | None:
+    """按标签容器取封面字节：ID3 APIC 帧 / MP4 covr 原子 / Ogg base64 picture 块。"""
+    if hasattr(tags, "getall"):  # ID3（mp3，ID3v2）：APIC 帧
+        frames = tags.getall("APIC")
+        return bytes(frames[0].data) or None
+    if not hasattr(tags, "get"):
+        return None
+    covr = tags.get("covr")  # MP4（m4a）：covr 原子
+    if covr:
+        return bytes(covr[0]) or None
+    block = tags.get("metadata_block_picture")  # Ogg：VorbisComment 里的 base64 块
+    if not block:
+        return None
+    try:
+        return bytes(Picture(base64.b64decode(block[0])).data) or None
+    except Exception:  # noqa: BLE001  坏的 picture 块按「无封面」处理
+        return None
 
 
 def _container(path: Path) -> str:
@@ -78,6 +112,27 @@ class TagService:
         if isinstance(bitrate, (int, float)) and math.isfinite(bitrate) and bitrate > 0:
             facts["bitrate"] = round(bitrate / 1000)  # bps → kbps
         return facts
+
+    def read_cover(self, path: Path) -> bytes | None:
+        """读内嵌封面（下载页封面展示，从音频标签获取）：APIC（mp3）/ pictures（flac）/
+        covr（m4a）/ METADATA_BLOCK_PICTURE（ogg）。无封面与损坏文件一律返回 None，
+        不抛错——封面是装饰，调用方拿 None 自己回退（Telegram 缩略图 / 占位图）。
+
+        与 media_facts 同用 ``mutagen.File`` 全容器探测：read_tags 不认的只读容器
+        （ape/wma）也能把封面读出来。
+        """
+        try:
+            audio = MutagenFile(str(path))
+        except Exception:  # noqa: BLE001  损坏/未识别容器按「无封面」处理
+            return None
+        if audio is None:
+            return None
+        pictures = getattr(audio, "pictures", None)  # FLAC：专用 picture 块（在 tags 检查之前）
+        if pictures:
+            return bytes(pictures[0].data) or None
+        if audio.tags is None:
+            return None
+        return _read_cover_from_tags(audio.tags)
 
     def write_tags(self, path: Path, meta: TrackMeta) -> None:
         """写标签（FR-META-01/02）：title、artist、album、track、year。"""

@@ -23,6 +23,7 @@ from app.telegram.manager import TelegramManager
 from app.web import auth as web_auth
 from app.web.routes import create_app
 from tests.fakes import FakeUserClient
+from tests.service.test_tags_preview import JPEG, make_cover_mp3
 
 API_HASH = "0123456789abcdef0123456789abcdef"
 
@@ -717,9 +718,41 @@ def test_search_cover_streams_cached_thumb(client: TestClient, tmp_path: Path) -
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("image/jpeg")
     assert r.content == b"\xff\xd8jpeg"
-    assert client.get(
-        "/api/search/cover", params={"chat_id": -1001, "message_id": 404}
-    ).status_code == 404
+    assert (
+        client.get("/api/search/cover", params={"chat_id": -1001, "message_id": 404}).status_code
+        == 404
+    )
+
+
+def test_history_cover_serves_embedded_tag_cover(client: TestClient, tmp_path: Path) -> None:
+    # 已入库封面从音频标签取（下载页行首 <img> 的 /api/history/{id}/cover）：
+    # 200 出 APIC 字节 + ETag；带 If-None-Match 重访直接 304，不必再读一遍标签。
+    store = Store(tmp_path / "app.db")
+    audio = make_cover_mp3(tmp_path, name="song.mp3")
+    hid = store.upsert_history(
+        History(
+            id=None,
+            chat_id=-1002,
+            message_id=1,
+            title="Song",
+            status="success",
+            save_path=str(audio),
+        )
+    )
+
+    r = client.get(f"/api/history/{hid}/cover")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/jpeg")
+    assert r.content == JPEG
+    r304 = client.get(f"/api/history/{hid}/cover", headers={"If-None-Match": r.headers["etag"]})
+    assert r304.status_code == 304
+
+
+def test_history_cover_without_file_returns_404(client: TestClient, tmp_path: Path) -> None:
+    # 未入库（save_path 空）且没有缩略图缓存：404，前端退回音符占位。
+    store = Store(tmp_path / "app.db")
+    hid = store.upsert_history(History(id=None, chat_id=-1002, message_id=9, title="Song"))
+    assert client.get(f"/api/history/{hid}/cover").status_code == 404
 
 
 def test_put_settings_applies_templates_immediately(tmp_path: Path) -> None:
