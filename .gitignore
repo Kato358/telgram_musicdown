@@ -21,3 +21,7 @@ library/
 
 # 在仓库根目录直接起后端时落下的 SQLite（正常运行在 data/ 下）
 app.db
+
+# 运行日志产物
+app.log
+build-log.txt
