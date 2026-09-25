@@ -39,6 +39,13 @@ def test_render_path_artist_fallback_unknown(tmp_path: Path) -> None:
     assert p == tmp_path / "Unknown Artist" / "晴天.mp3"
 
 
+def test_render_path_empty_dir_template_is_flat(tmp_path: Path) -> None:
+    # 目录模板存过空值（FR-NAME-01）：不建子目录，文件直接落保存根
+    meta = TrackMeta(chat_id=-100, message_id=3, title="晴天", artist="周杰伦", ext="mp3")
+    p = render_path(meta, make_cfg(tmp_path, dir_template=""))
+    assert p == tmp_path / "晴天.mp3"
+
+
 def test_render_path_title_fallback_chain(tmp_path: Path) -> None:
     # title: audio.title → file_name 去扩展名 → caption 首行 → message_{id}
     meta = TrackMeta(chat_id=-100, message_id=4, file_name="song.mp3", ext="mp3")

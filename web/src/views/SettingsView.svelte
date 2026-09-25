@@ -330,7 +330,9 @@
   }
 
   function apply(values: Record<string, string>) {
-    dirTemplate = pick(values, "dir_template");
+    // 目录模板空值合法（空 = 平铺落根目录）：只有缺键（从未保存过）才回退默认
+    dirTemplate =
+      values.dir_template !== undefined ? values.dir_template : DEFAULTS.dir_template;
     fileTemplate = pick(values, "file_template");
     dateFormat = pick(values, "date_format");
     maxTasks = pick(values, "max_download_task");
@@ -459,7 +461,11 @@
 <SectionCard title={t("settings.pathSection")} hint={t("settings.pathHint")} icon={FolderTreeIcon}>
   <div class="flex flex-col gap-4">
     <div class="grid gap-4 sm:grid-cols-2">
-      <Field label={t("settings.dirTemplate")} for="setting-dir-template">
+      <Field
+        label={t("settings.dirTemplate")}
+        for="setting-dir-template"
+        hint={t("settings.dirTemplateHint")}
+      >
         <Input
           id="setting-dir-template"
           class="tabular"

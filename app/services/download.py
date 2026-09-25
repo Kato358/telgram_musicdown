@@ -215,6 +215,13 @@ class DownloadService:
         """装配源同步执行器（FR-SRC-04）：tasks.type='sync' 由本 Worker 池执行。"""
         self.sync_runner = runner
 
+    def apply_template(self, cfg: TemplateConfig) -> None:
+        """运行中替换落盘模板（FR-CFG-03：设置保存即时生效，不必重启）。
+
+        只覆盖模板与落盘根；下载并发数绑定 worker 池规模，改动仍在下次启动生效。
+        """
+        self.cfg = cfg
+
     async def enqueue(self, req: DownloadRequest) -> int | None:
         """入队：去重检查（FR-DL-05）→ 建 history + task（FR-DL-01）；命中返回 None。"""
         meta = req.meta

@@ -720,3 +720,79 @@ def test_search_cover_streams_cached_thumb(client: TestClient, tmp_path: Path) -
     assert client.get(
         "/api/search/cover", params={"chat_id": -1001, "message_id": 404}
     ).status_code == 404
+
+
+def test_put_settings_applies_templates_immediately(tmp_path: Path) -> None:
+    """设置保存即时生效（FR-CFG-03）：PUT 后下载服务的模板与试听缓存同步刷新，不等重启。"""
+    store = Store(tmp_path / "app.db")
+    events = EventBus()
+    downloads = DownloadService(
+        store,
+        None,
+        events,
+        tmp_path / "temp",
+        TemplateConfig(save_path=tmp_path / "library"),  # type: ignore[arg-type]
+    )
+    preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    app = create_app(
+        store,
+        events,
+        downloads,
+        SourceService(store, None),  # type: ignore[arg-type]
+        SearchService(store, None),  # type: ignore[arg-type]
+        preview,
+        TelegramManager(SecretConfig(), tmp_path / "sessions"),
+        base_dir=tmp_path,
+        web_host="127.0.0.1",
+        web_login_secret="",
+    )
+    client = TestClient(app)
+    resp = client.put(
+        "/api/settings",
+        json={
+            "values": {
+                "dir_template": "",
+                "file_template": "{title}",
+                "preview_cache_max_bytes": "64",
+            }
+        },
+    )
+    assert resp.status_code == 200
+    # 目录模板空值 = 平铺：写库的空值原样进服务，不再被默认顶掉
+    assert downloads.cfg.dir_template == ""
+    assert downloads.cfg.file_template == "{title}"
+    assert preview.max_bytes == 64
+
+
+def test_preview_path_empty_dir_template_is_flat(tmp_path: Path) -> None:
+    """空目录模板的预览：路径 = 落盘根 + 文件名，没有中间子目录。"""
+    store = Store(tmp_path / "app.db")
+    events = EventBus()
+    downloads = DownloadService(
+        store,
+        None,
+        events,
+        tmp_path / "temp",
+        TemplateConfig(save_path=tmp_path / "library"),  # type: ignore[arg-type]
+    )
+    preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    app = create_app(
+        store,
+        events,
+        downloads,
+        SourceService(store, None),  # type: ignore[arg-type]
+        SearchService(store, None),  # type: ignore[arg-type]
+        preview,
+        TelegramManager(SecretConfig(), tmp_path / "sessions"),
+        base_dir=tmp_path,
+        web_host="127.0.0.1",
+        web_login_secret="",
+    )
+    client = TestClient(app)
+    resp = client.post(
+        "/api/settings/preview-path",
+        json={"dir_template": "", "file_template": "{track:02d} {title}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["relative"] == "03 晴天.mp3"

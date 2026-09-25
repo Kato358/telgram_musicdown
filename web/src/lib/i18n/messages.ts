@@ -267,6 +267,7 @@ export const zhCN: Dict = {
     pathSection: "落盘命名",
     pathHint: "目录模板与文件名模板决定下载完成后文件的位置。",
     dirTemplate: "目录模板",
+    dirTemplateHint: "留空 = 不建子目录，文件直接保存到根目录。",
     fileTemplate: "文件名模板",
     dateFormat: "日期格式",
     preview: "预览",
@@ -300,7 +301,7 @@ export const zhCN: Dict = {
     maxTasksHint: "超出即排队；越大越容易触发 Telegram 限流。",
     previewCache: "试听缓存上限（MB）",
     previewCacheHint: "超出后按最近最少使用淘汰。",
-    restartHint: "并发与缓存上限在下次启动生效。",
+    restartHint: "模板与保存路径保存后即时生效；下载并发数在下次启动生效。",
 
     accountSection: "Telegram 账号",
     accountHint: "搜索、下载与源同步都用这个账号；会话存在本地 sessions/，重启免登录。",
@@ -818,6 +819,7 @@ export const en: Dict = {
     pathSection: "Naming on disk",
     pathHint: "Directory and file templates decide where a finished download lands.",
     dirTemplate: "Directory template",
+    dirTemplateHint: "Leave empty to save files directly in the root folder, no subdirectories.",
     fileTemplate: "File template",
     dateFormat: "Date format",
     preview: "Preview",
@@ -853,7 +855,7 @@ export const en: Dict = {
     maxTasksHint: "Extras queue up. Higher values hit Telegram rate limits sooner.",
     previewCache: "Preview cache limit (MB)",
     previewCacheHint: "Least recently used entries are evicted first.",
-    restartHint: "Concurrency and cache limits apply on next start.",
+    restartHint: "Templates and the save path apply immediately; download concurrency applies on next start.",
 
     accountSection: "Telegram account",
     accountHint:

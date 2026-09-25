@@ -78,7 +78,7 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
         download_client,
         events,
         dirs["temp"],
-        settings.template,  # type: ignore[arg-type]  # TemplateSettings duck-type TemplateConfig
+        settings.template,
         max_concurrent=settings.download.max_concurrent,
     )
     sources = SourceService(store, source_client)

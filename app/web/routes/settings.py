@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI
 
+from app.appsettings import load_template_config, preview_max_bytes
 from app.domain import TemplateConfig, TrackMeta, meta_from_dict
 from app.services.path_builder import render_path, resolve_field
 from app.web.routes import schemas
@@ -84,6 +85,10 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
     ) -> dict[str, str]:
         for k, v in req.values.items():
             store.set_setting(k, json.dumps(v, ensure_ascii=False) if not isinstance(v, str) else v)
+        # 保存即生效（FR-CFG-03）：模板/落盘根与试听缓存现读现刷，不等重启；
+        # 下载并发数绑定 worker 池规模，仍在下次启动生效。
+        ctx.downloads.apply_template(load_template_config(store, ctx.base_dir))
+        ctx.preview.max_bytes = preview_max_bytes(store)
         return store.all_settings()
 
     @app.get("/api/settings/template-fields")

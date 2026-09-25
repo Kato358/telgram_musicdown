@@ -11,10 +11,12 @@ from app.appsettings import (
     DEFAULT_FILE_TEMPLATE,
     AppSettings,
     load_app_settings,
+    load_template_config,
 )
 from app.container import Overrides, build_container
 from app.db.models import Task
 from app.db.store import Store
+from app.domain import TemplateConfig
 from app.ports import IStore
 from tests.fakes import FakeUserClient, make_audio_message
 
@@ -68,6 +70,29 @@ def test_load_app_settings_reads_db(tmp_path: Path) -> None:
     assert settings.template.dir_template == "{title}"
 
 
+def test_load_template_config_empty_dir_template_means_flat(tmp_path: Path) -> None:
+    """目录模板空值合法（空 = 平铺落根目录）：存过空键不再回退默认。
+
+    文件名模板没有「空」语义，空值仍回退默认（文件总得有名字）。
+    """
+    store = Store(tmp_path / "app.db")
+    store.set_setting("dir_template", "")
+    store.set_setting("file_template", "")
+    cfg = load_template_config(store, tmp_path)
+    assert cfg.dir_template == ""
+    assert cfg.file_template == DEFAULT_FILE_TEMPLATE
+
+
+def test_load_template_config_missing_key_defaults(tmp_path: Path) -> None:
+    """settings 表只存写过的键：缺键（从未保存）才用默认模板。"""
+    cfg = load_template_config(Store(tmp_path / "app.db"), tmp_path)
+    assert cfg.dir_template == DEFAULT_DIR_TEMPLATE
+    assert cfg.file_template == DEFAULT_FILE_TEMPLATE
+    # download 服务直接持有它：必须是真 TemplateConfig（含 caption 正则，而非鸭子类型）
+    assert isinstance(cfg, TemplateConfig)
+    assert cfg.caption_artist_re
+
+
 def test_build_container_wires_services(tmp_path: Path) -> None:
     """DI 容器：按依赖顺序装配，服务互相引用接口而非具体类（DIP）。"""
     container = build_container(
@@ -78,6 +103,8 @@ def test_build_container_wires_services(tmp_path: Path) -> None:
         assert container.downloads.store is container.store
         assert container.sources.store is container.store
         assert container.settings.download.max_concurrent == 3
+        # 下载服务持有的模板就是装配配置那份（真 TemplateConfig，即时刷新同源）
+        assert container.downloads.cfg is container.settings.template
         assert isinstance(container.store, IStore)
     finally:
         container.close()
