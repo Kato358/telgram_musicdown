@@ -1,6 +1,6 @@
 <script lang="ts">
-  /** 线型进度条（设计规范 §5.5）：轨道 4px、已播放段 = `--progress-fill`、
-   *  拖拽圆点 12px（hover 14px，2px `--card` 描边）。
+  /** 线型进度条（设计规范 §5.5，v3.9 悬浮加粗）：轨道 4px、hover 6px、
+   *  已播放段 = `--progress-fill`、拖拽圆点 12px（hover 14px，2px `--card` 描边）。
    *
    * 比例未知（总量还没报出来）时左端 15% 游标呼吸，而不是假装 0%；
    * 它是真 `<input type="range">`（透明覆盖条 + 键盘可达 + `aria-label`），不是自绘 div。
@@ -32,7 +32,10 @@
 <div
   class="group relative flex h-4 w-full items-center has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring {className}"
 >
-  <div class="h-1 w-full overflow-hidden rounded-full bg-progress-track">
+  <!-- 轨道高度在 hover 时 4→6px（外层 h-4 固定，加粗不挤动周围布局） -->
+  <div
+    class="h-1 w-full overflow-hidden rounded-full bg-progress-track transition-[height] duration-150 ease-out group-hover:h-1.5 group-focus-within:h-1.5"
+  >
     {#if ratio === null}
       <div class="dot-pulse h-full w-[15%] rounded-full bg-progress-fill"></div>
     {:else}

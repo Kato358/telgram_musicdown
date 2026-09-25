@@ -1,21 +1,19 @@
 <script lang="ts">
-  /** 下载页（设计规范 §10，v3.8 改单栏）：绿色横幅（统计卡坐在里面）+ 下载队列 + 记录表卡。
+  /** 下载页（设计规范 §10，v3.9 瘦身）：轻量页头 + 下载队列（内联入队）+ 记录表卡。
    *
+   * 统计数字只说一遍（v3.9）：页签计数（已入库 / 全部 / 下载失败 / 进行中）就是这一页的统计，
+   * v3.8 的绿色横幅与四张统计卡随之撤掉；曲库占用的全局读数留在侧栏底部的曲库卡里。
    * 事实只有两份、都在后端：`GET /api/history`（记录，分页/搜索/状态筛选都在服务端做）与
-   * `GET /api/stats`（数字）；SSE 只当失效信号，实时字节走 `queue` 的进度帧。
+   * `GET /api/stats`（页签计数）；SSE 只当失效信号，实时字节走 `queue` 的进度帧。
    * 「正在跑的那些项」由队列卡负责（有控制、有读数），记录表因此不再重复状态与进度两列——
-   * 记录的第二行说最该被看见的那件事：落盘路径 → 失败原因 → 灯 + 状态词。
+   * 记录的第二行说最该被看见的那件事：文件名（悬浮见全路径）→ 失败原因 → 灯 + 状态词。
    * 默认页签是「已入库」：这一页的主表就是曲库，进行中的项在队列卡里照看。
    */
   import ChevronLeftIcon from "@lucide/svelte/icons/chevron-left";
   import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
-  import DownloadIcon from "@lucide/svelte/icons/download";
-  import HardDriveIcon from "@lucide/svelte/icons/hard-drive";
-  import MusicIcon from "@lucide/svelte/icons/music";
-  import TriangleAlertIcon from "@lucide/svelte/icons/triangle-alert";
   import { api, errorText } from "$lib/api/client";
   import type { DownloadItemResult, HistoryRow } from "$lib/api/types";
-  import { formatCount, formatSize } from "$lib/format";
+  import { formatSize } from "$lib/format";
   import { t } from "$lib/i18n/index.svelte";
   import { router } from "$lib/router.svelte";
   import { events } from "$lib/stores/events.svelte";
@@ -41,9 +39,8 @@
   import DownloadRow, { downloadColumns } from "$lib/components/app/DownloadRow.svelte";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
   import FilterTabs, { type TabItem } from "$lib/components/app/FilterTabs.svelte";
-  import HeroBanner from "$lib/components/app/HeroBanner.svelte";
   import Note from "$lib/components/app/Note.svelte";
-  import StatCard from "$lib/components/app/StatCard.svelte";
+  import PageHeader from "$lib/components/app/PageHeader.svelte";
   import type { TaskAction } from "$lib/components/app/TaskRow.svelte";
 
   /** 与后端 `list_history(limit=50)` 对齐：满页即说明可能还有下一页。 */
@@ -115,57 +112,7 @@
     { key: "active", label: t("downloads.statActive"), count: activeCount },
   ]);
 
-  /** 四张卡回答这一页的四件事：在做多少、失败多少、库里多少、占多大。
-   *  提示行跟着状态说当下（参考图的画法）：在传说「正在下载」，只有等待说「在等待」，
-   *  失败说有几项待重试——不是一张永远不变的说明牌。 */
-  const cards = $derived.by(() => {
-    const queued = stats.data?.tasks.queued ?? 0;
-    const paused = stats.data?.tasks.paused ?? 0;
-    const downloading = stats.data?.tasks.downloading ?? 0;
-    const failed = stats.data?.library.failed ?? 0;
-    return [
-      {
-        key: "active",
-        label: t("downloads.statActive"),
-        hint:
-          downloading > 0
-            ? t("downloads.statActiveLive")
-            : activeCount > 0
-              ? t("downloads.statActiveWaiting", { n: queued + paused })
-              : t("downloads.statActiveHint"),
-        value: formatCount(activeCount),
-        tone: "primary" as const,
-        icon: DownloadIcon,
-      },
-      {
-        key: "failed",
-        label: t("downloads.statFailed"),
-        hint:
-          failed > 0 ? t("downloads.statFailedSome", { n: failed }) : t("downloads.statFailedHint"),
-        value: formatCount(failed),
-        tone: "amber" as const,
-        icon: TriangleAlertIcon,
-      },
-      {
-        key: "tracks",
-        label: t("downloads.statTracks"),
-        hint: t("downloads.statTracksHint"),
-        value: formatCount(stats.data?.library.tracks ?? null),
-        tone: "blue" as const,
-        icon: MusicIcon,
-      },
-      {
-        key: "bytes",
-        label: t("downloads.statBytes"),
-        hint: t("downloads.statBytesHint"),
-        value: formatSize(stats.data?.library.bytes ?? null),
-        tone: "violet" as const,
-        icon: HardDriveIcon,
-      },
-    ];
-  });
-
-  /** 队列卡与右栏进度卡说的是同一批任务，顺序也一样。 */
+  /** 队列卡与（v3.8 前的）右栏进度卡说的是同一批任务，顺序也一样。 */
   const activeTasks = $derived(
     queue.tasks
       .filter((task) => task.status in QUEUE_ORDER)
@@ -211,7 +158,7 @@
     }
   }
 
-  /** 动作之后列表、队列快照与统计卡一起重取：三者说的是同一批下载。 */
+  /** 动作之后列表、队列快照与页签计数一起重取：三者说的是同一批下载。 */
   async function refresh() {
     await Promise.all([
       load(stableKeyword.trim(), statusQuery, page),
@@ -251,6 +198,32 @@
     tab = tabOf(next) || "success";
     page = 0;
     selected = new Set();
+  });
+
+  /** 页面级 Ctrl+V：焦点不在任何输入框时贴进来的 t.me 链接 → 预填批量弹窗，
+   *  「加入队列」就是那一下确认（v3.9 的剪贴板快捷入队）。 */
+  $effect(() => {
+    function onPaste(event: ClipboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+      ) {
+        return;
+      }
+      const text = event.clipboardData?.getData("text") ?? "";
+      const urls = text
+        .split(/[\s,]+/)
+        .map((value) => value.trim())
+        .filter((value) => /(?:https?:\/\/)?(?:t|telegram)\.me\//i.test(value));
+      if (urls.length === 0) return;
+      event.preventDefault();
+      links = urls.join("\n");
+      notice = t("downloads.detected", { n: urls.length });
+      pasteOpen = true;
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
   });
 
   function setTab(next: string) {
@@ -345,6 +318,16 @@
     }
   }
 
+  /** 在系统文件管理器里打开这条记录的落盘目录。 */
+  async function reveal(row: HistoryRow) {
+    error = "";
+    try {
+      await api.post(`/api/history/${row.id}/reveal`);
+    } catch (err) {
+      error = errorText(err, t("common.error"));
+    }
+  }
+
   async function copyPath(row: HistoryRow) {
     const path = row.save_path;
     if (!path) return;
@@ -357,8 +340,9 @@
     }
   }
 
-  async function enqueue() {
-    const urls = links
+  /** 入队一段链接文本：内联输入与批量弹窗共用（按空白/逗号拆，逐条报解析失败）。 */
+  async function enqueueText(text: string) {
+    const urls = text
       .split(/[\s,]+/)
       .map((value) => value.trim())
       .filter((value) => value.length > 0);
@@ -420,34 +404,43 @@
 </script>
 
 <div class="flex min-w-0 flex-col gap-4">
-  {#snippet statGrid()}
-    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      {#each cards as card (card.key)}
-        <StatCard
-          label={card.label}
-          value={card.value}
-          hint={card.hint}
-          tone={card.tone}
-          icon={card.icon}
+  <PageHeader title={t("downloads.title")} lede={t("downloads.lede")} />
+
+  <DownloadQueueCard
+    tasks={activeTasks}
+    queued={queue.queued.length}
+    readings={(task) => queue.readings(task)}
+    onact={(taskId, action) => void act(taskId, action)}
+    onadd={() => (pasteOpen = true)}
+    onclear={() => (clearOpen = true)}
+  >
+    {#snippet composer()}
+      <!-- 常驻入队区（v3.9）：添加链接不再躲在弹窗后一步——贴进输入框回车即入队。 -->
+      <form
+        class="flex flex-col gap-2 sm:flex-row"
+        onsubmit={(event) => {
+          event.preventDefault();
+          void enqueueText(links);
+        }}
+      >
+        <Input
+          bind:value={links}
+          type="text"
+          class="h-10 min-w-0 flex-1 rounded-full"
+          placeholder={t("downloads.composerPlaceholder")}
+          aria-label={t("downloads.composerPlaceholder")}
         />
-      {/each}
-    </div>
-  {/snippet}
-
-  <HeroBanner title={t("downloads.heroTitle")} body={t("downloads.heroBody")}>
-    {@render statGrid()}
-  </HeroBanner>
-
-  <div id="queue">
-    <DownloadQueueCard
-      tasks={activeTasks}
-      queued={queue.queued.length}
-      readings={(task) => queue.readings(task)}
-      onact={(taskId, action) => void act(taskId, action)}
-      onadd={() => (pasteOpen = true)}
-      onclear={() => (clearOpen = true)}
-    />
-  </div>
+        <Button
+          type="submit"
+          size="lg"
+          class="shrink-0"
+          disabled={busy || links.trim().length === 0}
+        >
+          {busy ? t("downloads.enqueuing") : t("downloads.composerSubmit")}
+        </Button>
+      </form>
+    {/snippet}
+  </DownloadQueueCard>
 
   {#if error}
     <Note tone="fail">{error}</Note>
@@ -596,6 +589,7 @@
           onretry={() => void retry(row)}
           onredownload={() => void redownload(row)}
           oncopy={() => void copyPath(row)}
+          onreveal={() => void reveal(row)}
         >
           {#snippet feedback()}
             {#if rowFeedback}
@@ -634,7 +628,11 @@
 
     <DialogFooter>
       <Button variant="outline" onclick={() => (pasteOpen = false)}>{t("common.cancel")}</Button>
-      <Button size="lg" disabled={busy || links.trim().length === 0} onclick={() => void enqueue()}>
+      <Button
+        size="lg"
+        disabled={busy || links.trim().length === 0}
+        onclick={() => void enqueueText(links)}
+      >
         {busy ? t("downloads.enqueuing") : t("downloads.enqueue")}
       </Button>
     </DialogFooter>

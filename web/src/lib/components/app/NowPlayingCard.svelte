@@ -40,8 +40,12 @@
         </span>
         <div class="flex min-w-0 flex-col">
           <p class="truncate text-body font-semibold">{player.current.title}</p>
-          <p class="truncate text-caption text-muted-foreground">
-            {player.current.artist ?? t("common.unknown")}{player.buffering
+          <p
+            class="truncate text-caption {player.current.artist
+              ? 'text-muted-foreground'
+              : 'text-faint-foreground'}"
+          >
+            {player.current.artist ?? t("common.placeholder")}{player.buffering
               ? ` · ${t("player.buffering")}`
               : ""}
           </p>

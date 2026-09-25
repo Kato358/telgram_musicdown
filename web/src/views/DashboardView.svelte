@@ -22,7 +22,7 @@
   import ZapIcon from "@lucide/svelte/icons/zap";
   import { api, errorText } from "$lib/api/client";
   import type { HistoryRow } from "$lib/api/types";
-  import { formatCount, formatSize, formatUptime } from "$lib/format";
+  import { formatCount, formatSize, formatUptime, splitPath } from "$lib/format";
   import { t } from "$lib/i18n/index.svelte";
   import { navigate, pathOf } from "$lib/router.svelte";
   import { events } from "$lib/stores/events.svelte";
@@ -308,6 +308,7 @@
         <ul class="flex flex-col gap-1">
           {#each recent as row (row.id)}
             {@const path = row.save_path}
+            {@const stem = path ? splitPath(path).file.replace(/\.[^.]+$/, "") : null}
             {@const playing = player.current?.id === String(row.id)}
             <li class="flex items-center gap-3 rounded-nav px-1 py-1.5 hover:bg-rule">
               <span
@@ -317,13 +318,17 @@
                 <MusicIcon class="size-4" />
               </span>
               <div class="flex min-w-0 flex-1 flex-col">
-                <p class="truncate text-body font-medium">{row.title ?? t("common.unknown")}</p>
+                <p class="truncate text-body font-medium">
+                  {row.title?.trim() || stem || t("common.placeholder")}
+                </p>
                 <p
                   class="truncate text-caption {path
                     ? 'text-muted-foreground'
                     : 'text-destructive-text'}"
                 >
-                  {#if path}{row.artist ?? t("common.unknown")}{:else}{t("downloads.noPath")}{/if}
+                  {#if path}{row.artist?.trim() || t("common.placeholder")}{:else}{t(
+                      "downloads.noPath",
+                    )}{/if}
                 </p>
               </div>
               <button

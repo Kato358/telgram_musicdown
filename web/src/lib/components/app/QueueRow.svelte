@@ -38,10 +38,10 @@
 
   let { task, progress, onact, class: className = "" }: Props = $props();
 
-  /** 标题行按参考图排成「歌手 / 歌名」；两边都缺时退回任务类型，不留一个光秃秃的 #id。 */
+  /** 标题行按参考图排成「歌手 / 歌名」；缺省用浅灰 `—` 占位（v3.9），不留满屏「未知」。 */
   const heading = $derived.by(() => {
-    const artist = task.artist?.trim() || t("downloads.unknownArtist");
-    const title = task.title?.trim() || t("common.unknown");
+    const artist = task.artist?.trim() || t("common.placeholder");
+    const title = task.title?.trim() || t("common.placeholder");
     return `${artist} / ${title}`;
   });
   const artistLine = $derived(task.artist?.trim() || taskTypeText(task.type));

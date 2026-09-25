@@ -5,7 +5,7 @@
   /** 下载页的列（设计规范 §5.4）：勾选 / 歌曲 / 歌手 / 专辑 / 时长 / 大小 / 入库时间 / 操作。
    *
    * 没有「状态」「进度」两列：正在跑的那些项归上面的队列卡（那里才有实时读数与控制），
-   * 这张表是**下载记录**——记录里，状态由第二行的「灯 + 词 / 路径 / 失败原因」说清，
+   * 这张表是**下载记录**——记录里，状态由第二行的「文件名 / 失败原因 / 灯 + 词」说清，
    * 进度不是记录的一部分。
    */
   export const COL_CHECK = "flex w-4 shrink-0 items-center";
@@ -17,8 +17,8 @@
   export const COL_DURATION = "w-12 shrink-0 text-right";
   export const COL_SIZE = "hidden w-14 shrink-0 text-right sm:block";
   export const COL_DATE = "hidden w-20 shrink-0 text-right lg:block";
-  /** 操作列：播放 + 「⋯」（重试 / 复制路径 / 重新下载）。 */
-  export const COL_DOWNLOAD_ACTIONS = "flex w-[72px] shrink-0 items-center justify-end gap-2";
+  /** 操作列（v3.9 加「打开所在文件夹」）：播放（常驻）+ 文件夹 + 「⋯」（重试 / 复制路径 / 重新下载）。 */
+  export const COL_DOWNLOAD_ACTIONS = "flex w-[104px] shrink-0 items-center justify-end gap-1.5";
 
   export function downloadColumns(): Column[] {
     return [
@@ -35,19 +35,22 @@
 </script>
 
 <script lang="ts">
-  /** 下载记录行（设计规范 §5.4）：一行 = 一次下载。
+  /** 下载记录行（设计规范 §5.4，v3.9 精修）：一行 = 一次下载。
    *
-   * 第二行按「最该被看见的那件事」排：落盘路径（产品承诺的物证）→ 失败原因 → 状态灯 + 词；
-   * 再没有别的就不写第二行。动作在「⋯」里：重试（台账还在的失败/取消/跳过行）、复制路径、重新下载；
-   * 勾选框把行交给批量动作（重新下载所选），它是记录列表里唯一的多选语义。
+   * 绝对路径不再占着第二行（v3.9）：第二行只放**文件名**——目录段是噪音，Windows 全路径
+   * 把每行的视觉焦点都拽走；整条路径挪进悬浮提示（title），行尾补一颗「打开所在文件夹」。
+   * 次级动作（文件夹 / 「⋯」）悬浮行时才显形（Hover Action），静止的列表不再一排按钮。
+   * 元数据缺省显示 `—`（浅灰占位），不再满屏「未知」。
    */
   import type { Snippet } from "svelte";
+  import CircleAlertIcon from "@lucide/svelte/icons/circle-alert";
   import EllipsisVerticalIcon from "@lucide/svelte/icons/ellipsis-vertical";
+  import FolderOpenIcon from "@lucide/svelte/icons/folder-open";
   import MusicIcon from "@lucide/svelte/icons/music";
   import PauseIcon from "@lucide/svelte/icons/pause";
   import PlayIcon from "@lucide/svelte/icons/play";
   import type { HistoryRow } from "$lib/api/types";
-  import { formatDate, formatDuration, formatSize, progressRatio } from "$lib/format";
+  import { formatDate, formatDuration, formatSize, progressRatio, splitPath } from "$lib/format";
   import type { TaskReadings } from "$lib/stores/queue.svelte";
   import { statusText, taskTone } from "$lib/tone";
   import { Checkbox } from "$lib/components/ui/checkbox";
@@ -59,7 +62,6 @@
   } from "$lib/components/ui/dropdown-menu";
   import { ROW_CLASS } from "./DataTable.svelte";
   import Lamp from "./Lamp.svelte";
-  import PathText from "./PathText.svelte";
   import { taskRetryable } from "./TaskRow.svelte";
 
   interface Props {
@@ -76,6 +78,8 @@
     onretry: () => void;
     onredownload: () => void;
     oncopy: () => void;
+    /** 打开所在文件夹（行尾悬浮键；后端在文件管理器里打开落盘目录）。 */
+    onreveal: () => void;
     feedback?: Snippet;
     class?: string;
   }
@@ -92,12 +96,18 @@
     onretry,
     onredownload,
     oncopy,
+    onreveal,
     feedback,
     class: className = "",
   }: Props = $props();
 
-  const title = $derived(row.title?.trim() || t("common.unknown"));
   const playable = $derived(row.save_path !== null);
+  const fileName = $derived(row.save_path ? splitPath(row.save_path).file : null);
+  /** 标题缺失时回退到落盘文件名（去扩展名），不让「未知」顶在歌名位上。 */
+  const fileStem = $derived(fileName ? fileName.replace(/\.[^.]+$/, "") : null);
+  const title = $derived(row.title?.trim() || fileStem || t("common.unknown"));
+  /** 文件名行只给「有真标题」的行做补充（标题本身就是文件名兜底时不重复）。 */
+  const showFileLine = $derived(Boolean(fileName && row.title?.trim()));
   const missing = $derived(
     row.save_path === null && row.status === "success" ? t("downloads.noPath") : null,
   );
@@ -109,9 +119,13 @@
   const percent = $derived(
     ratio === null ? null : t("tasks.percent", { percent: Math.round(ratio * 100) }),
   );
+
+  /** 次级动作（文件夹 / ⋯）：md 起悬浮行或键盘聚焦时才显形；触屏常驻（无 hover）。 */
+  const HOVER_ACTION =
+    "ui-transition max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 data-[state=open]:opacity-100";
 </script>
 
-<li class="{ROW_CLASS} {playing ? 'bg-primary-soft' : 'hover:bg-rule'} {className}">
+<li class="{ROW_CLASS} group {playing ? 'bg-primary-soft' : 'hover:bg-rule'} {className}">
   {#each columns as column (column.key)}
     {#if column.key === "check"}
       <span class={column.class}>
@@ -132,11 +146,19 @@
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
           <p class="truncate text-body font-medium">{title}</p>
           {#if missing}
-            <PathText path={null} {missing} />
-          {:else if row.save_path}
-            <PathText path={row.save_path} />
+            <p class="flex min-w-0 items-center gap-1.5 text-caption text-destructive-text">
+              <CircleAlertIcon class="size-3.5 shrink-0 text-destructive" aria-hidden="true" />
+              <span class="truncate">{missing}</span>
+            </p>
+          {:else if showFileLine}
+            <!-- 文件名 = 落盘物证的最小形态；悬浮行/文件名可见完整路径 -->
+            <p class="truncate text-code text-faint-foreground" title={row.save_path ?? ""}>
+              {fileName}
+            </p>
           {:else if row.error}
-            <p class="truncate text-caption text-destructive-text" title={row.error}>{row.error}</p>
+            <p class="truncate text-caption text-destructive-text" title={row.error}>
+              {row.error}
+            </p>
           {:else}
             <span class="flex items-center gap-2">
               <Lamp tone={taskTone(row.status)} label={statusText(row.status)} />
@@ -151,12 +173,20 @@
         </div>
       </div>
     {:else if column.key === "artist"}
-      <span class="{column.class} text-caption text-muted-foreground">
-        {row.artist?.trim() || t("common.unknown")}
+      <span
+        class="{column.class} text-caption {row.artist?.trim()
+          ? 'text-muted-foreground'
+          : 'text-faint-foreground'}"
+      >
+        {row.artist?.trim() || t("common.placeholder")}
       </span>
     {:else if column.key === "album"}
-      <span class="{column.class} text-caption text-muted-foreground">
-        {row.album?.trim() || t("common.unknown")}
+      <span
+        class="{column.class} text-caption {row.album?.trim()
+          ? 'text-muted-foreground'
+          : 'text-faint-foreground'}"
+      >
+        {row.album?.trim() || t("common.placeholder")}
       </span>
     {:else if column.key === "duration"}
       <span class="{column.class} tabular text-caption text-faint-foreground">
@@ -187,13 +217,25 @@
           {/if}
         </button>
 
+        {#if row.save_path}
+          <button
+            type="button"
+            class="{HOVER_ACTION} ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground"
+            aria-label={t("downloads.openFolder")}
+            title={t("downloads.openFolder")}
+            onclick={onreveal}
+          >
+            <FolderOpenIcon class="size-4" aria-hidden="true" />
+          </button>
+        {/if}
+
         <DropdownMenu>
           <DropdownMenuTrigger>
             {#snippet child({ props })}
               <button
                 {...props}
                 type="button"
-                class="ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground"
+                class="{HOVER_ACTION} ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground"
                 aria-label={t("table.actions")}
               >
                 <EllipsisVerticalIcon class="size-4" aria-hidden="true" />

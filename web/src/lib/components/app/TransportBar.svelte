@@ -4,6 +4,8 @@
    * 全站唯一 `<audio>`（SDD §5.4）：切歌先 pause() 再换 src。
    * 进度有两种皮肤——线型与波形——同一份比例、同一个 range 内核，只是换皮肤；
    * 偏好在右侧的图标键切换，存本机（`tgm-player-progress`）。
+   * v3.9：播放中左侧封面放大到 56px 并亮起主色渐变 + 柔光 + 动态频谱小图标，
+   * 让「正在响」这件事在播放条上有一眼可见的存在感。
    */
   import AudioWaveformIcon from "@lucide/svelte/icons/audio-waveform";
   import ListMusicIcon from "@lucide/svelte/icons/list-music";
@@ -31,7 +33,9 @@
   let audio = $state<HTMLAudioElement | undefined>();
   let src = $state("");
 
-  const ratio = $derived(player.current === null ? null : player.duration > 0 ? player.ratio : null);
+  const ratio = $derived(
+    player.current === null ? null : player.duration > 0 ? player.ratio : null,
+  );
   const timecode = $derived(
     `${formatDuration(player.currentTime)} / ${formatDuration(player.duration)}`,
   );
@@ -89,13 +93,20 @@
     onerror={() => player.current && player.fail(t("player.unplayable"))}
   ></audio>
 
-  <!-- 左：当前播放 -->
+  <!-- 左：当前播放。播放中封面放大一档（48→56px）、主色渐变底 + 柔光，
+       静态音符徽换成三根柱的动态频谱小图标（v3.9）。 -->
   <div class="flex min-w-0 flex-1 items-center gap-3 md:w-72 md:flex-none">
     <span
-      class="grid size-12 shrink-0 place-items-center rounded-chip bg-primary-soft text-primary"
+      class="ui-transition grid {player.playing
+        ? 'size-14 surface-brand playing-glow'
+        : 'size-12 bg-primary-soft text-primary'} shrink-0 place-items-center rounded-chip"
       aria-hidden="true"
     >
-      <MusicIcon class="size-5" />
+      {#if player.playing}
+        <span class="eq"><i></i><i></i><i></i></span>
+      {:else}
+        <MusicIcon class="size-5" />
+      {/if}
     </span>
     <div class="flex min-w-0 flex-1 flex-col">
       {#if player.current}
@@ -103,8 +114,12 @@
         {#if player.error}
           <span class="truncate text-caption text-destructive-text">{player.error}</span>
         {:else}
-          <span class="truncate text-caption text-muted-foreground">
-            {player.current.artist ?? t("common.unknown")}{player.buffering
+          <span
+            class="truncate text-caption {player.current.artist
+              ? 'text-muted-foreground'
+              : 'text-faint-foreground'}"
+          >
+            {player.current.artist ?? t("common.placeholder")}{player.buffering
               ? ` · ${t("player.buffering")}`
               : ""}
           </span>
@@ -231,7 +246,7 @@
       label={t("player.volume")}
       interactive
       onseek={(value) => player.setVolume(value)}
-      class="w-20 shrink-0"
+      class="w-24 shrink-0"
     />
 
     <DropdownMenu>

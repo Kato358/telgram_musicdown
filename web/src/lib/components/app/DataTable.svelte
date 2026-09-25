@@ -7,10 +7,11 @@
     class: string;
   }
 
-  /** 数据行外壳：高 60px（窄屏 56px）、1px 分割线、整行 hover 底 --rule。
+  /** 数据行外壳：高 60px（窄屏 56px）、1px 分割线、整行 hover 底 --rule；
+   *  v3.9 行高各放宽 4px，且是 `group`——行内次级动作（Hover Action）靠它显形。
    *  列间距 12px（v3.8 由 8 放回）：下载页右栏移除后主栏全宽，不再需要收窄腾位。 */
   export const ROW_CLASS =
-    "flex h-14 items-center gap-3 border-b border-rule px-4 ui-transition last:border-b-0 md:h-[60px] md:px-6";
+    "group flex h-[60px] items-center gap-3 border-b border-rule px-4 ui-transition last:border-b-0 md:h-[68px] md:px-6";
 </script>
 
 <script lang="ts">

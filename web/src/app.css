@@ -52,8 +52,8 @@
   --rule: #f2f3f5; /* 表格行底边、分区细线、hover 行底 */
   --ring: #0b7a55;
 
-  /* 卡片浮起：薄荷底与白卡之间补一层极浅的投影（§5.1） */
-  --card-shadow: 0 1px 2px rgb(16 24 40 / 0.05), 0 14px 30px -22px rgb(16 24 40 / 0.28);
+  /* 卡片浮起：薄荷底与白卡之间补一层极浅的投影（§5.1；v3.9 再柔一档，避免卡片堆叠的拥挤感） */
+  --card-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 14px 30px -22px rgb(16 24 40 / 0.2);
 
   /* 进度与音量共用的两段色（线型与波形同一内核） */
   --progress-fill: var(--primary);
@@ -135,7 +135,7 @@
   --rule: #232b27;
   --ring: #4fb08a;
 
-  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.45), 0 14px 30px -22px rgb(0 0 0 / 0.7);
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 14px 30px -22px rgb(0 0 0 / 0.55);
 
   --progress-fill: var(--primary);
   --progress-track: var(--rule);
@@ -301,10 +301,57 @@
       border-color 130ms ease-out,
       transform 130ms ease-out;
   }
+
+  /* 播放中的封面柔光（v3.9，TransportBar）：一圈很淡的主色晕，只此一处用 */
+  .playing-glow {
+    box-shadow: 0 0 26px -6px color-mix(in oklab, var(--primary) 55%, transparent);
+  }
 }
 
-/* 动效只有三处：hover/active 过渡（.ui-transition）、路由内容淡入、进行中状态点呼吸。
-   prefers-reduced-motion: reduce 时全部关闭（§7）。 */
+/* ============================================================
+   动效（§7）：hover/active 过渡、路由淡入、进行中状态点呼吸之外，
+   v3.9 新增第四处——播放条的动态频谱小图标（.eq，三根柱按相位呼吸）。
+   prefers-reduced-motion: reduce 时全部静止（柱保持全高，仅静态示意）。
+   ============================================================ */
+.eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+}
+
+.eq i {
+  width: 3px;
+  height: 100%;
+  border-radius: 1px;
+  background: currentColor;
+  transform-origin: bottom;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .eq i {
+    animation: eq-bounce 1.1s ease-in-out infinite;
+  }
+
+  .eq i:nth-child(2) {
+    animation-delay: 0.18s;
+  }
+
+  .eq i:nth-child(3) {
+    animation-delay: 0.36s;
+  }
+}
+
+@keyframes eq-bounce {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .route-fade {
     animation: route-fade 140ms ease-out both;
