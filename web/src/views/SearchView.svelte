@@ -1,17 +1,16 @@
 <script lang="ts">
   /** 搜索（设计规范 §10）：只在已启用源内搜音频（FR-SEARCH-01）。
    *
-   * 结果行是「曲目单」而不是卡片；试听按 FR-PLAY-02 先把消息音频缓存到 temp/preview，
-   * 再用返回的 preview_id 流出——所以每行的流地址是各自的 preview_id，不是 message_id。
+   * 状态都在模块级 `search` store（lib/stores/search.svelte.ts），切页不丢：
+   * 本组件只是视图层，回到搜索页时上次的关键词和结果列表原样还在。
    * 顶栏搜索通过 `?q=` 进入本页，入参只在变化时消费一次。
    */
   import { onMount } from "svelte";
   import SearchIcon from "@lucide/svelte/icons/search";
-  import { api, errorText } from "$lib/api/client";
-  import type { SearchResponse, SearchResult, SourceRow } from "$lib/api/types";
   import { t } from "$lib/i18n/index.svelte";
   import { navigate, pathOf, router } from "$lib/router.svelte";
-  import { player, type Track } from "$lib/stores/player.svelte";
+  import { search } from "$lib/stores/search.svelte";
+  import { player } from "$lib/stores/player.svelte";
   import { Button } from "$lib/components/ui/button";
   import DataTable from "$lib/components/app/DataTable.svelte";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
@@ -20,154 +19,24 @@
   import SectionCard from "$lib/components/app/SectionCard.svelte";
   import TrackRow, { trackColumns } from "$lib/components/app/TrackRow.svelte";
 
-  interface UnreachableSource {
-    source_id: number;
-    reason: string;
-  }
-
-  let query = $state("");
-  let sources = $state<SourceRow[]>([]);
-  /** 选中源 id；空数组 = 全部启用源（与后端 source_ids 语义一致）。 */
-  let selected = $state<number[]>([]);
-  let results = $state<SearchResult[]>([]);
-  let meta = $state<Record<string, unknown>>({});
-  let searched = $state(false);
-  let searching = $state(false);
-  let error = $state("");
-  /** `${chat_id}-${message_id}` → preview_id（缓存的试听文件）。 */
-  let previews = $state<Record<string, number>>({});
-  let pending = $state<Record<string, true>>({});
-  let rowError = $state<Record<string, string>>({});
-  /** 已加入队列的行：给的是成功提示，不是错误。 */
-  let queued = $state<Record<string, true>>({});
-  /** 已经消费过的 `?q=` 入参，避免同一个关键词反复触发搜索。 */
-  let handledQuery = "";
-
   const columns = $derived(trackColumns());
-  const unreachable = $derived((meta.unreachable as UnreachableSource[] | undefined) ?? []);
-  const needSources = $derived(meta.reason === "no_enabled_sources");
-  const enabledSources = $derived(sources.filter((source) => source.enabled));
-  const resultsCount = $derived(results.length);
+  const resultsCount = $derived(search.results.length);
 
   $effect(() => {
     const keyword = router.query.get("q")?.trim() ?? "";
-    if (keyword.length === 0 || keyword === handledQuery) return;
-    handledQuery = keyword;
-    query = keyword;
-    void runSearch();
+    if (keyword.length === 0 || keyword === search.query.trim()) return;
+    search.query = keyword;
+    void search.runSearch();
   });
 
-  function setRowError(key: string, message: string) {
-    rowError = { ...rowError, [key]: message };
-  }
-
-  function clearRowError(key: string) {
-    const next = { ...rowError };
-    delete next[key];
-    rowError = next;
-  }
-
-  async function runSearch() {
-    const keyword = query.trim();
-    if (!keyword) return;
-    searching = true;
-    error = "";
-    try {
-      const resp = await api.post<SearchResponse>("/api/search", {
-        q: keyword,
-        source_ids: selected.length > 0 ? selected : undefined,
-        page: 0,
-      });
-      results = resp.results;
-      meta = resp.meta;
-      previews = {};
-      pending = {};
-      rowError = {};
-      queued = {};
-      searched = true;
-    } catch (err) {
-      error = errorText(err, t("common.error"));
-    } finally {
-      searching = false;
-    }
-  }
-
-  function toggleSource(id: number) {
-    selected = selected.includes(id) ? selected.filter((value) => value !== id) : [...selected, id];
-  }
-
-  function playFrom(activeKey: string) {
-    const playable = results.filter(
-      (item) => previews[`${item.chat_id}-${item.message_id}`] !== undefined,
-    );
-    const tracks: Track[] = playable.map((item) => ({
-      id: `${item.chat_id}-${item.message_id}`,
-      title: item.title ?? t("common.unknown"),
-      artist: item.artist,
-      streamUrl: `/api/preview/${previews[`${item.chat_id}-${item.message_id}`]}/stream`,
-    }));
-    const index = tracks.findIndex((track) => track.id === activeKey);
-    if (index >= 0) player.play(tracks, index);
-  }
-
-  async function preview(item: SearchResult) {
-    const key = `${item.chat_id}-${item.message_id}`;
-    clearRowError(key);
-    if (previews[key] === undefined) {
-      pending = { ...pending, [key]: true };
-      try {
-        const resp = await api.post<{ preview_id: number }>("/api/preview", {
-          message_refs: [
-            { chat_id: item.chat_id, message_id: item.message_id, file_size: item.file_size },
-          ],
-        });
-        previews = { ...previews, [key]: resp.preview_id };
-      } catch (err) {
-        setRowError(key, errorText(err, t("common.error")));
-        return;
-      } finally {
-        const next = { ...pending };
-        delete next[key];
-        pending = next;
-      }
-    }
-    playFrom(key);
-  }
-
-  async function download(item: SearchResult) {
-    const key = `${item.chat_id}-${item.message_id}`;
-    clearRowError(key);
-    try {
-      await api.post("/api/downloads", {
-        message_refs: [{ chat_id: item.chat_id, message_id: item.message_id }],
-      });
-      queued = { ...queued, [key]: true };
-    } catch (err) {
-      setRowError(key, errorText(err, t("common.error")));
-    }
-  }
-
-  function keyOf(item: SearchResult): string {
-    return `${item.chat_id}-${item.message_id}`;
-  }
-
-  function playLabelOf(key: string): string {
-    if (pending[key]) return t("search.buffering");
-    return t("search.preview");
-  }
-
-  onMount(async () => {
-    try {
-      sources = await api.get<SourceRow[]>("/api/sources");
-    } catch (err) {
-      error = errorText(err, t("common.error"));
-    }
+  onMount(() => {
+    void search.loadSources();
   });
 </script>
 
 <PageHeader title={t("search.title")} lede={t("search.lede")}>
   {#snippet aside()}
-    {#if searched}
+    {#if search.searched}
       <span class="tabular text-caption text-muted-foreground">
         {t("search.resultsCount", { n: resultsCount })}
       </span>
@@ -175,7 +44,7 @@
   {/snippet}
 </PageHeader>
 
-{#if enabledSources.length === 0}
+{#if search.enabledSources.length === 0}
   <EmptyState title={t("search.needSources")} hint={t("dashboard.needSourcesHint")}>
     {#snippet actions()}
       <Button size="lg" onclick={() => navigate(pathOf("sources"))}>
@@ -191,7 +60,7 @@
       class="flex flex-wrap items-center gap-3"
       onsubmit={(event) => {
         event.preventDefault();
-        void runSearch();
+        void search.runSearch();
       }}
     >
       <div
@@ -199,37 +68,43 @@
       >
         <SearchIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <input
-          bind:value={query}
+          bind:value={search.query}
           type="search"
           class="min-w-0 flex-1 bg-transparent text-body outline-none placeholder:text-muted-foreground"
           placeholder={t("search.placeholder")}
           aria-label={t("search.title")}
         />
       </div>
-      <Button class="h-10 px-4" type="submit" disabled={searching || query.trim().length === 0}>
-        {searching ? t("search.running") : t("search.run")}
+      <Button
+        class="h-10 px-4"
+        type="submit"
+        disabled={search.searching || search.query.trim().length === 0}
+      >
+        {search.searching ? t("search.running") : t("search.run")}
       </Button>
     </form>
 
-    {#if enabledSources.length > 0}
+    {#if search.enabledSources.length > 0}
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-caption text-muted-foreground">{t("search.filterSources")}</span>
         <button
           type="button"
-          class="ui-transition rounded-full px-3 py-1 text-caption {selected.length === 0
+          class="ui-transition rounded-full px-3 py-1 text-caption {search.selected.length === 0
             ? 'bg-primary-soft text-primary'
             : 'border border-border text-muted-foreground hover:bg-rule hover:text-foreground'}"
-          onclick={() => (selected = [])}
+          onclick={() => (search.selected = [])}
         >
           {t("search.allSources")}
         </button>
-        {#each enabledSources as source (source.id)}
+        {#each search.enabledSources as source (source.id)}
           <button
             type="button"
-            class="ui-transition rounded-full px-3 py-1 text-caption {selected.includes(source.id)
+            class="ui-transition rounded-full px-3 py-1 text-caption {search.selected.includes(
+              source.id,
+            )
               ? 'bg-primary-soft text-primary'
               : 'border border-border text-muted-foreground hover:bg-rule hover:text-foreground'}"
-            onclick={() => toggleSource(source.id)}
+            onclick={() => search.toggleSource(source.id)}
           >
             {source.title}
           </button>
@@ -239,14 +114,14 @@
   </div>
 </SectionCard>
 
-{#if error}
-  <Note tone="fail">{error}</Note>
+{#if search.error}
+  <Note tone="fail">{search.error}</Note>
 {/if}
 
-{#each unreachable as item (item.source_id)}
+{#each search.unreachable as item (item.source_id)}
   <Note tone="fail">
     <span class="font-medium">
-      {sources.find((source) => source.id === item.source_id)?.title ?? `#${item.source_id}`}
+      {search.sources.find((source) => source.id === item.source_id)?.title ?? `#${item.source_id}`}
     </span>
     <span class="block">
       {item.reason === "flood_wait" ? t("search.floodwait") : t("sources.unreachable")}
@@ -254,16 +129,16 @@
   </Note>
 {/each}
 
-{#if needSources}
+{#if search.needSources}
   <Note tone="wait">{t("search.needSources")}</Note>
-{:else if searched && results.length === 0}
+{:else if search.searched && search.results.length === 0}
   <EmptyState title={t("search.resultsNone")} />
-{:else if !searched}
+{:else if !search.searched}
   <p class="max-w-[40ch] text-body text-muted-foreground">{t("search.idleHint")}</p>
 {:else}
   <DataTable {columns}>
-    {#each results as item, index (keyOf(item))}
-      {@const key = keyOf(item)}
+    {#each search.results as item, index (search.keyOf(item))}
+      {@const key = search.keyOf(item)}
       {@const playing = player.current?.id === key}
       <TrackRow
         {columns}
@@ -274,17 +149,17 @@
         duration={item.duration_sec}
         size={item.file_size}
         {playing}
-        playLabel={playLabelOf(key)}
-        onplay={() => void preview(item)}
+        playLabel={search.playLabelOf(key)}
+        onplay={() => void search.preview(item)}
         downloadLabel={t("search.download")}
-        ondownload={() => void download(item)}
+        ondownload={() => void search.download(item)}
         cover={item.has_thumb ? { chatId: item.chat_id, messageId: item.message_id } : null}
       >
         {#snippet feedback()}
-          {#if queued[key]}
+          {#if search.queued[key]}
             <Note tone="done">{t("search.queued")}</Note>
-          {:else if rowError[key]}
-            <Note tone="fail">{rowError[key]}</Note>
+          {:else if search.rowError[key]}
+            <Note tone="fail">{search.rowError[key]}</Note>
           {/if}
         {/snippet}
       </TrackRow>
