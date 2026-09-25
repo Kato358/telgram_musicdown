@@ -1,15 +1,22 @@
-"""试听（FR-PLAY-01~03，SDD §2.4）。
+"""试听（FR-PLAY-01~03，SDD §2.4）与封面缓存。
 
 - 预览槽独立于下载队列（并发 1，FR-PLAY-03）。
 - 试听不入队、不写 save_path、不写 success 历史（FR-PLAY-02）。
 - LRU 淘汰：总量 > preview_cache_max_bytes（默认 512MB）或条数 > 50。
+- 封面按「歌名 + 歌手」从公共封面接口（api.lrc.cx）取，落盘缓存。
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import re
+import time
 from pathlib import Path
+from urllib.parse import urlencode
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+from uuid import uuid4
 
 from app.db.models import PreviewCache
 from app.db.store import utcnow
@@ -21,6 +28,56 @@ from app.ports.telegram import TelegramClientProto
 logger = logging.getLogger(__name__)
 
 MAX_PREVIEW_FILES = 50
+
+# ---- 封面（api.lrc.cx：按 title/artist 查 Apple Music 曲库，301 跳到 mzstatic 图）----
+COVER_API = "https://api.lrc.cx/cover"
+COVER_TIMEOUT = 8  # 秒；接口查不到歌时会挂住不回，必须设超时降级
+COVER_FAIL_TTL = 600  # 失败负缓存秒数：查不到的查询期间内直接 404，不反复外呼空等
+COVER_CONCURRENCY = 4  # 与试听槽（并发 1）分开限流：列表页几十行同时要封面
+COVER_MAX_BYTES = 5 * 1024 * 1024
+
+_AUDIO_EXT_RE = re.compile(
+    r"\.(mp3|flac|m4a|aac|ogg|opus|wav|ape|wma|aiff?|alac)$", re.IGNORECASE
+)
+
+
+def _clean_title(title: str | None) -> str:
+    """封面查询用的歌名：document 音频的 title 是文件名，去掉扩展名与首尾空白。"""
+    return _AUDIO_EXT_RE.sub("", (title or "").strip())
+
+
+def _is_image(data: bytes) -> bool:
+    """魔数嗅探（JPEG/PNG/GIF/WEBP），挡住接口偶发返回的错误页文本。"""
+    return data.startswith((b"\xff\xd8", b"\x89PNG", b"GIF8")) or (
+        data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    )
+
+
+class _SmallCoverRedirect(HTTPRedirectHandler):
+    """mzstatic 图床的 URL 以 ``/{宽}x{高}bb.jpg`` 结尾且支持任意尺寸改写。
+
+    lrc.cx 默认跳 3000×3000 原图（约 2MB/张），行首/播放器小图 300px 足够，
+    体积差 50 倍；URL 不匹配该模式时按原样跟随（接口换源也不受影响）。
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        return super().redirect_request(req, fp, code, msg, headers, _SMALL_COVER_RE.sub(
+            "/300x300bb.jpg", newurl
+        ))
+
+
+_SMALL_COVER_RE = re.compile(r"/\d+x\d+(?:bb)?\.jpg(?:\?.*)?$")
+
+_OPENER = build_opener(_SmallCoverRedirect())
+
+
+def _fetch_cover(title: str, artist: str) -> bytes | None:
+    """同步抓取封面字节（to_thread 里跑）；跟随 301（跳转时改写为 300px 小图）。"""
+    params = urlencode({"title": title, "artist": artist})
+    req = Request(f"{COVER_API}?{params}", headers={"User-Agent": "Mozilla/5.0"})  # noqa: S310
+    with _OPENER.open(req, timeout=COVER_TIMEOUT) as resp:  # noqa: S310
+        data = resp.read(COVER_MAX_BYTES)
+    return data if _is_image(data) else None
 
 
 class PreviewBusyError(AppError):
@@ -47,6 +104,8 @@ class PreviewService:
         self.preview_dir = preview_dir
         self.max_bytes = max_bytes
         self._sem = asyncio.Semaphore(1)
+        self._cover_sem = asyncio.Semaphore(COVER_CONCURRENCY)
+        self._cover_failures: dict[str, float] = {}
 
     async def request_preview(
         self, chat_id: int, message_id: int, file_size: int | None = None
@@ -129,30 +188,41 @@ class PreviewService:
                     return path
         raise AppError("not_found", f"preview {preview_id} not found")
 
-    async def thumb_path(self, chat_id: int, message_id: int) -> Path | None:
-        """消息封面（Telegram 内嵌缩略图）：缓存命中直接返回；没有封面返回 None。
+    async def cover_path(self, title: str | None, artist: str | None) -> Path | None:
+        """按「歌名 + 歌手」从公共封面接口取封面：缓存命中直接返回，取不到返回 None。
 
-        与试听共用 preview 目录（LRU 淘汰同款规则），但不进 preview_cache 表——
-        封面是纯装饰，丢了就重新下载，不值得占一条记录。
+        缓存文件名是查询串的 md5——搜索行、播放器、飞片动画对同一首歌共用同一份
+        文件；失败的查询负缓存 COVER_FAIL_TTL 秒（接口查不到时会空等超时，不值得
+        反复试）。与试听共用 preview 目录，但不进 preview_cache 表——封面是纯装饰，
+        丢了就重新抓，不值得占一条记录。
         """
-        final = self.preview_dir / f"thumb_{chat_id}_{message_id}.jpg"
+        q_title = _clean_title(title)
+        q_artist = (artist or "").strip()
+        if not q_title and not q_artist:
+            return None
+        key = f"{q_title}|{q_artist}"
+        digest = hashlib.md5(key.encode()).hexdigest()  # noqa: S324  缓存键，非安全用途
+        final = self.preview_dir / f"cover_{digest}.jpg"
         if final.exists():
             return final
-        async with self._sem:
-            if final.exists():  # 并发等待期间别人已下好
+        failed_at = self._cover_failures.get(key)
+        if failed_at is not None and time.monotonic() - failed_at < COVER_FAIL_TTL:
+            return None
+        async with self._cover_sem:
+            if final.exists():  # 排队期间别的请求已取回
                 return final
-            self.preview_dir.mkdir(parents=True, exist_ok=True)
-            temp_path = self.preview_dir / f"thumb_{chat_id}_{message_id}.tmp"
+            data: bytes | None = None
             try:
-                await self.client.download_thumb(
-                    {"chat_id": chat_id, "message_id": message_id}, str(temp_path)
-                )
-            except Exception as e:
-                if temp_path.exists():
-                    temp_path.unlink()
-                logger.info("thumb download skipped chat=%s msg=%s: %s", chat_id, message_id, e)
+                data = await asyncio.to_thread(_fetch_cover, q_title, q_artist)
+            except Exception as e:  # noqa: BLE001  封面是装饰，失败负缓存后 404
+                logger.info("cover fetch skipped title=%r artist=%r: %s", q_title, q_artist, e)
+            if not data:
+                logger.info("cover not found title=%r artist=%r", q_title, q_artist)
+                self._cover_failures[key] = time.monotonic()
                 return None
-            if not temp_path.exists():
-                return None
+            self.preview_dir.mkdir(parents=True, exist_ok=True)
+            self._cover_failures.pop(key, None)
+            temp_path = self.preview_dir / f"cover_{digest}_{uuid4().hex[:8]}.tmp"
+            temp_path.write_bytes(data)
             temp_path.replace(final)
             return final

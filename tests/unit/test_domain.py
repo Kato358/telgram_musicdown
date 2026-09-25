@@ -88,16 +88,6 @@ def test_duration_prefers_media_metadata_over_caption() -> None:
     assert message_to_card(msg, None).duration_sec == 269
 
 
-def test_card_carries_has_thumb_flag() -> None:
-    # 搜索结果行首封面（FR-SEARCH-02 补全）：has_thumb 从 telegram 层透传进卡片，
-    # 前端据它决定是否请求封面——没有缩略图的消息不发注定 404 的请求。
-    with_thumb = make_audio_message(15)
-    with_thumb["has_thumb"] = True
-    assert message_to_card(with_thumb, None).has_thumb is True
-    no_thumb = make_audio_message(16)
-    assert message_to_card(no_thumb, None).has_thumb is False
-
-
 def test_duration_from_caption_missing_or_unparseable_is_none() -> None:
     # 说明里没有 Duration / 格式认不出：留 None，不编造
     no_caption = make_audio_document_message(12)

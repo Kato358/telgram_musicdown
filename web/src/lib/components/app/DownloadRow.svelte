@@ -39,8 +39,8 @@
    * 整条路径挪进悬浮提示（title）。次级动作（重试 / 取消 / 删除）由状态直排
    * （不再藏在「⋯」里），md 起悬浮行时才显形（Hover Action），触屏常驻。
    * 元数据缺省显示 `—`（浅灰占位），不再满屏「未知」。
-   * 行首封面走 `/api/history/{id}/cover`：后端优先从音频标签取内嵌封面，
-   * 取不到再回退 Telegram 缩略图；加载失败退回音符占位。
+   * 行首封面走全局封面链路 `/api/cover`（后端：本地标签 > api.lrc.cx > 无封面）；
+   * 加载失败退回音符占位。
    */
   import type { Snippet } from "svelte";
   import CircleAlertIcon from "@lucide/svelte/icons/circle-alert";
@@ -51,6 +51,7 @@
   import Trash2Icon from "@lucide/svelte/icons/trash-2";
   import XIcon from "@lucide/svelte/icons/x";
   import type { HistoryRow } from "$lib/api/types";
+  import { coverUrl } from "$lib/cover";
   import {
     formatBitrate,
     formatDate,
@@ -136,7 +137,7 @@
 
   /** 封面加载失败（404 / 网络断）→ 退回音符占位。 */
   let coverFailed = $state(false);
-  const coverUrl = $derived(`/api/history/${row.id}/cover`);
+  const coverSrc = $derived(coverUrl(row.title, row.artist));
 </script>
 
 <li class="{ROW_CLASS} group {playing ? 'bg-primary-soft' : 'hover:bg-rule'} {className}">
@@ -155,16 +156,16 @@
           class="grid size-10 shrink-0 place-items-center overflow-hidden rounded-chip bg-primary-soft text-primary"
           aria-hidden="true"
         >
-          {#if coverFailed}
-            <MusicIcon class="size-4" />
-          {:else}
+          {#if coverSrc && !coverFailed}
             <img
-              src={coverUrl}
+              src={coverSrc}
               alt=""
               class="size-10 object-cover"
               loading="lazy"
               onerror={() => (coverFailed = true)}
             />
+          {:else}
+            <MusicIcon class="size-4" />
           {/if}
         </span>
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">

@@ -93,7 +93,6 @@ class SearchResultCard:
     caption: str | None
     file_unique_id: str | None = None
     bitrate: int | None = None
-    has_thumb: bool = False
 
 
 _DURATION_RE = re.compile(r"Duration:\s*(\d{1,2}):(\d{2})(?::(\d{2}))?", re.IGNORECASE)
@@ -143,7 +142,6 @@ def message_to_card(msg: dict[str, Any], channel_title: str | None = None) -> Se
         caption=caption,
         file_unique_id=audio.get("file_unique_id") or doc.get("file_unique_id"),
         bitrate=audio.get("bitrate"),
-        has_thumb=bool(msg.get("has_thumb")),
     )
 
 

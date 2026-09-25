@@ -50,6 +50,7 @@ def register_all(app: FastAPI, ctx: RouteContext) -> None:  # noqa: PLC0415  模
     """按资源注册全部路由模块（每个模块一个 register 函数，SRP）。"""
     from app.web.routes import (  # noqa: PLC0415
         auth,
+        cover,
         downloads,
         history,
         logs,
@@ -71,3 +72,4 @@ def register_all(app: FastAPI, ctx: RouteContext) -> None:  # noqa: PLC0415  模
     settings.register(app, ctx)
     search.register(app, ctx)
     logs.register(app, ctx)
+    cover.register(app, ctx)

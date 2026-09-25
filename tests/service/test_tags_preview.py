@@ -10,6 +10,7 @@ from mutagen.flac import FLAC, Picture
 from mutagen.id3 import APIC, ID3
 from mutagen.mp4 import MP4, MP4Cover
 
+import app.services.preview as preview_mod
 from app.db.models import PreviewCache
 from app.db.store import Store
 from app.domain import TrackMeta
@@ -201,3 +202,32 @@ def test_preview_stream_path_only_accepts_id(tmp_path: Path) -> None:
     assert preview.stream_path(1) == file
     with pytest.raises(AppError):
         preview.stream_path(999)
+
+
+async def test_cover_path_caches_query_and_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 封面（api.lrc.cx）：抓取结果按查询串 md5 落盘缓存，同一首歌只外呼一次
+    # （扩展名/空白归一后视为同一查询）；查不到的查询负缓存期内不再外呼。
+    calls: list[tuple[str, str]] = []
+
+    def fake_fetch(title: str, artist: str) -> bytes | None:
+        calls.append((title, artist))
+        return b"\xff\xd8jpeg" if title == "晴天" else None
+
+    monkeypatch.setattr(preview_mod, "_fetch_cover", fake_fetch)
+    preview = PreviewService(None, None, EventBus(), tmp_path)  # type: ignore[arg-type]
+
+    first = await preview.cover_path("晴天.flac", "周杰伦")
+    assert first is not None and first.read_bytes() == b"\xff\xd8jpeg"
+    assert first.parent == tmp_path and first.name.startswith("cover_")
+    again = await preview.cover_path("晴天", " 周杰伦 ")  # 归一后同一查询 → 缓存命中
+    assert again == first
+    assert calls == [("晴天", "周杰伦")]
+
+    assert await preview.cover_path("未知歌", "未知歌手") is None
+    assert await preview.cover_path("未知歌", "未知歌手") is None  # 负缓存内不再外呼
+    assert calls == [("晴天", "周杰伦"), ("未知歌", "未知歌手")]
+
+    assert await preview.cover_path(None, None) is None  # 无可查字段：不外呼
+    assert calls == [("晴天", "周杰伦"), ("未知歌", "未知歌手")]

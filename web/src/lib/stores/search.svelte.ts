@@ -6,6 +6,7 @@
  */
 
 import { api, errorText } from "$lib/api/client";
+import { coverUrl } from "$lib/cover";
 import type { SearchResponse, SearchResult, SourceRow } from "$lib/api/types";
 import { t } from "$lib/i18n/index.svelte";
 import { fly, type FlyOrigin } from "$lib/stores/fly.svelte";
@@ -16,11 +17,9 @@ interface UnreachableSource {
   reason: string;
 }
 
-/** 飞片用的封面：消息带内嵌缩略图才给 URL（没有就飞音符占位），与行内封面同源。 */
+/** 飞片用的封面：走全局封面链路（与行内封面同源），没有可查字段就飞音符占位。 */
 function coverOf(item: SearchResult): string | null {
-  return item.has_thumb
-    ? `/api/search/cover?chat_id=${item.chat_id}&message_id=${item.message_id}`
-    : null;
+  return coverUrl(item.title, item.artist);
 }
 
 class SearchStore {

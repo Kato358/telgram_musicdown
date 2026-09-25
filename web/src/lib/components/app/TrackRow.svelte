@@ -58,6 +58,7 @@
   } from "$lib/components/ui/dropdown-menu";
   import { Checkbox } from "$lib/components/ui/checkbox";
   import { formatDate, formatDuration, formatSize } from "$lib/format";
+  import { coverUrl } from "$lib/cover";
   import type { Tone } from "$lib/tone";
   import { ROW_CLASS } from "./DataTable.svelte";
   import Lamp from "./Lamp.svelte";
@@ -93,8 +94,8 @@
     onselected?: (selected: boolean) => void;
     /** 勾选框的无障碍名；不给就用标题。 */
     selectLabel?: string;
-    /** 消息定位（chat_id/message_id）：给了才请求 Telegram 内嵌封面（搜索结果行）。 */
-    cover?: { chatId: number; messageId: number } | null;
+    /** 封面查询（title/artist）：给了就按全局封面链路 /api/cover 取（本地标签 > api）。 */
+    cover?: { title?: string | null; artist?: string | null } | null;
     menu?: RowMenuItem[];
     feedback?: Snippet;
     class?: string;
@@ -131,9 +132,7 @@
 
   /** 封面加载失败（404 / 网络断）→ 退回音符占位（与下载页同款）。 */
   let coverFailed = $state(false);
-  const coverUrl = $derived(
-    cover ? `/api/search/cover?chat_id=${cover.chatId}&message_id=${cover.messageId}` : null,
-  );
+  const coverSrc = $derived(coverUrl(cover?.title, cover?.artist));
 </script>
 
 <li class="{ROW_CLASS} {playing ? 'bg-primary-soft' : 'hover:bg-rule'} {className}">
@@ -154,9 +153,9 @@
           class="grid size-10 shrink-0 place-items-center overflow-hidden rounded-chip bg-primary-soft text-primary"
           aria-hidden="true"
         >
-          {#if cover && coverUrl && !coverFailed}
+          {#if coverSrc && !coverFailed}
             <img
-              src={coverUrl}
+              src={coverSrc}
               alt=""
               class="size-10 object-cover"
               loading="lazy"

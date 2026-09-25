@@ -5,6 +5,7 @@
  */
 
 import { api } from "./client";
+import { coverUrl } from "$lib/cover";
 import type { HistoryRow } from "./types";
 import type { Track } from "$lib/stores/player.svelte";
 
@@ -20,6 +21,7 @@ export function rowToTrack(row: HistoryRow): Track {
     title: row.title ?? "",
     artist: row.artist,
     streamUrl: `/api/history/${row.id}/stream`,
+    cover: coverUrl(row.title, row.artist),
   };
 }
 

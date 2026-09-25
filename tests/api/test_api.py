@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from hashlib import md5
 from pathlib import Path
 
 import pytest
@@ -708,28 +709,27 @@ def test_delete_missing_history_returns_404(client: TestClient) -> None:
     assert client.delete("/api/history/99999").status_code == 404
 
 
-def test_search_cover_streams_cached_thumb(client: TestClient, tmp_path: Path) -> None:
-    # 搜索结果封面：缩略图已缓存 → 200 且回图片字节；没有缓存 → 404（前端退回占位）。
+def test_cover_streams_cached_api_cover(client: TestClient, tmp_path: Path) -> None:
+    # 全局封面（api 段）：按歌名/歌手查公共封面接口，查询串 md5 命中磁盘缓存 → 200 回图片字节；
+    # 无可查字段（title/artist 都空）→ 404，前端退回音符占位。
     preview = tmp_path / "temp" / "preview"
     preview.mkdir(parents=True)
-    (preview / "thumb_-1001_5.jpg").write_bytes(b"\xff\xd8jpeg")
+    digest = md5("晴天|周杰伦".encode()).hexdigest()  # noqa: S324
+    (preview / f"cover_{digest}.jpg").write_bytes(b"\xff\xd8jpeg")
 
-    r = client.get("/api/search/cover", params={"chat_id": -1001, "message_id": 5})
+    r = client.get("/api/cover", params={"title": "晴天", "artist": "周杰伦"})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("image/jpeg")
     assert r.content == b"\xff\xd8jpeg"
-    assert (
-        client.get("/api/search/cover", params={"chat_id": -1001, "message_id": 404}).status_code
-        == 404
-    )
+    assert client.get("/api/cover").status_code == 404
 
 
-def test_history_cover_serves_embedded_tag_cover(client: TestClient, tmp_path: Path) -> None:
-    # 已入库封面从音频标签取（下载页行首 <img> 的 /api/history/{id}/cover）：
-    # 200 出 APIC 字节 + ETag；带 If-None-Match 重访直接 304，不必再读一遍标签。
+def test_cover_local_tag_beats_api(client: TestClient, tmp_path: Path) -> None:
+    # 全局封面（本地段）：按标题找到已落盘的成功记录，优先读文件的内嵌封面——
+    # 即使 api 缓存也有同名封面，本地仍优先；200 出 APIC 字节 + ETag，重访 304。
     store = Store(tmp_path / "app.db")
     audio = make_cover_mp3(tmp_path, name="song.mp3")
-    hid = store.upsert_history(
+    store.upsert_history(
         History(
             id=None,
             chat_id=-1002,
@@ -739,20 +739,37 @@ def test_history_cover_serves_embedded_tag_cover(client: TestClient, tmp_path: P
             save_path=str(audio),
         )
     )
+    preview = tmp_path / "temp" / "preview"
+    preview.mkdir(parents=True)
+    digest = md5(b"Song|").hexdigest()  # noqa: S324
+    (preview / f"cover_{digest}.jpg").write_bytes(b"\xff\xd8jpeg-api")
 
-    r = client.get(f"/api/history/{hid}/cover")
+    r = client.get("/api/cover", params={"title": "Song"})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("image/jpeg")
-    assert r.content == JPEG
-    r304 = client.get(f"/api/history/{hid}/cover", headers={"If-None-Match": r.headers["etag"]})
+    assert r.content == JPEG  # 本地标签字节，不是 api 的占位字节
+    r304 = client.get(
+        "/api/cover", params={"title": "Song"}, headers={"If-None-Match": r.headers["etag"]}
+    )
     assert r304.status_code == 304
 
 
-def test_history_cover_without_file_returns_404(client: TestClient, tmp_path: Path) -> None:
-    # 未入库（save_path 空）且没有缩略图缓存：404，前端退回音符占位。
+def test_cover_without_local_file_falls_back_to_api(client: TestClient, tmp_path: Path) -> None:
+    # 全局封面（api 兜底）：没落盘（save_path 空）→ 预置 api 磁盘缓存命中，不打外网；
+    # 连歌名/歌手都没有的行无处可查 → 404。
     store = Store(tmp_path / "app.db")
-    hid = store.upsert_history(History(id=None, chat_id=-1002, message_id=9, title="Song"))
-    assert client.get(f"/api/history/{hid}/cover").status_code == 404
+    store.upsert_history(History(id=None, chat_id=-1002, message_id=9, title="Song"))
+    preview = tmp_path / "temp" / "preview"
+    preview.mkdir(parents=True)
+    digest = md5(b"Song|").hexdigest()  # noqa: S324
+    (preview / f"cover_{digest}.jpg").write_bytes(b"\xff\xd8jpeg")
+
+    r = client.get("/api/cover", params={"title": "Song"})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/jpeg")
+    assert r.content == b"\xff\xd8jpeg"
+    # 无可查依据（title/artist 都缺省）→ 404，不打外网
+    assert client.get("/api/cover").status_code == 404
 
 
 def test_put_settings_applies_templates_immediately(tmp_path: Path) -> None:

@@ -40,6 +40,9 @@ class HistoryRepo(Protocol):
     def find_history_success(
         self, chat_id: int, message_id: int, file_unique_id: str | None = None
     ) -> History | None: ...
+    def find_history_cover_source(self, title: str) -> History | None:
+        """全局封面「本地优先」：按标题取最近一条已落盘的成功记录。"""
+        ...
     def list_history(
         self,
         status: str | None = None,

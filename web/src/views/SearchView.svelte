@@ -209,7 +209,7 @@
         selected={search.selection.has(key)}
         onselected={(checked) => search.toggleSelect(key, checked)}
         selectLabel={t("search.selectRow", { title: item.title ?? t("common.unknown") })}
-        cover={item.has_thumb ? { chatId: item.chat_id, messageId: item.message_id } : null}
+        cover={{ title: item.title, artist: item.artist }}
       >
         {#snippet feedback()}
           {#if search.rowError[key]}

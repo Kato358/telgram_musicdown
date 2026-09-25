@@ -245,6 +245,20 @@ class Store:
         ).fetchone()
         return row_to(History, row) if row else None
 
+    def find_history_cover_source(self, title: str) -> History | None:
+        """全局封面「本地优先」：按标题精确匹配最近一条已落盘的成功记录。
+
+        封面是装饰，同名多行取最新（id 最大）即可；只挑 save_path 非空的 success 行
+        （文件真的在磁盘上，才读得到内嵌封面）。
+        """
+        row = self._conn.execute(
+            "SELECT * FROM history"
+            " WHERE title=? AND status='success' AND save_path IS NOT NULL AND save_path!=''"
+            " ORDER BY id DESC LIMIT 1",
+            (title,),
+        ).fetchone()
+        return row_to(History, row) if row else None
+
     def list_history(
         self,
         status: str | None = None,
