@@ -41,6 +41,7 @@
    * 文件不在磁盘时整行换成原因文案，该行播放键随之 `aria-disabled` 且不可点击。
    */
   import type { Snippet } from "svelte";
+  import DownloadIcon from "@lucide/svelte/icons/download";
   import EllipsisVerticalIcon from "@lucide/svelte/icons/ellipsis-vertical";
   import MusicIcon from "@lucide/svelte/icons/music";
   import PauseIcon from "@lucide/svelte/icons/pause";
@@ -78,6 +79,11 @@
     playable?: boolean;
     playLabel: string;
     onplay?: () => void;
+    /** 搜索结果的下载直排按钮（不再藏在「⋯」菜单里）；不给就不渲染。 */
+    downloadLabel?: string;
+    ondownload?: () => void;
+    /** 消息定位（chat_id/message_id）：给了才请求 Telegram 内嵌封面（搜索结果行）。 */
+    cover?: { chatId: number; messageId: number } | null;
     menu?: RowMenuItem[];
     feedback?: Snippet;
     class?: string;
@@ -99,12 +105,21 @@
     playable = true,
     playLabel,
     onplay,
+    downloadLabel,
+    ondownload,
+    cover = null,
     menu,
     feedback,
     class: className = "",
   }: Props = $props();
 
   const secondLine = $derived([artist, subtitle].filter(Boolean).join(" | "));
+
+  /** 封面加载失败（404 / 网络断）→ 退回音符占位（与下载页同款）。 */
+  let coverFailed = $state(false);
+  const coverUrl = $derived(
+    cover ? `/api/search/cover?chat_id=${cover.chatId}&message_id=${cover.messageId}` : null,
+  );
 </script>
 
 <li class="{ROW_CLASS} {playing ? 'bg-primary-soft' : 'hover:bg-rule'} {className}">
@@ -114,10 +129,20 @@
     {:else if column.key === "title"}
       <div class="flex {column.class} items-center gap-3">
         <span
-          class="grid size-10 shrink-0 place-items-center rounded-chip bg-primary-soft text-primary"
+          class="grid size-10 shrink-0 place-items-center overflow-hidden rounded-chip bg-primary-soft text-primary"
           aria-hidden="true"
         >
-          <MusicIcon class="size-4" />
+          {#if cover && coverUrl && !coverFailed}
+            <img
+              src={coverUrl}
+              alt=""
+              class="size-10 object-cover"
+              loading="lazy"
+              onerror={() => (coverFailed = true)}
+            />
+          {:else}
+            <MusicIcon class="size-4" />
+          {/if}
         </span>
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
           <p class="truncate text-body font-medium">{title}</p>
@@ -165,6 +190,18 @@
             <PlayIcon class="size-4" aria-hidden="true" />
           {/if}
         </button>
+
+        {#if downloadLabel && ondownload}
+          <button
+            type="button"
+            class="ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground"
+            aria-label={downloadLabel}
+            title={downloadLabel}
+            onclick={() => ondownload?.()}
+          >
+            <DownloadIcon class="size-4" aria-hidden="true" />
+          </button>
+        {/if}
 
         {#if menu && menu.length > 0}
           <DropdownMenu>

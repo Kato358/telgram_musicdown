@@ -18,7 +18,7 @@
   import Note from "$lib/components/app/Note.svelte";
   import PageHeader from "$lib/components/app/PageHeader.svelte";
   import SectionCard from "$lib/components/app/SectionCard.svelte";
-  import TrackRow, { trackColumns, type RowMenuItem } from "$lib/components/app/TrackRow.svelte";
+  import TrackRow, { trackColumns } from "$lib/components/app/TrackRow.svelte";
 
   interface UnreachableSource {
     source_id: number;
@@ -145,10 +145,6 @@
     } catch (err) {
       setRowError(key, errorText(err, t("common.error")));
     }
-  }
-
-  function menuFor(item: SearchResult): RowMenuItem[] {
-    return [{ label: t("search.download"), onselect: () => void download(item) }];
   }
 
   function keyOf(item: SearchResult): string {
@@ -280,7 +276,9 @@
         {playing}
         playLabel={playLabelOf(key)}
         onplay={() => void preview(item)}
-        menu={menuFor(item)}
+        downloadLabel={t("search.download")}
+        ondownload={() => void download(item)}
+        cover={item.has_thumb ? { chatId: item.chat_id, messageId: item.message_id } : null}
       >
         {#snippet feedback()}
           {#if queued[key]}

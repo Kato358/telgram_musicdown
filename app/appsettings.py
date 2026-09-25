@@ -23,8 +23,6 @@ DEFAULT_FILE_TEMPLATE = "{track:02d} {title}"
 DEFAULT_DATE_FORMAT = "%Y-%m"
 DEFAULT_MAX_DOWNLOAD_TASK = 3
 DEFAULT_PREVIEW_CACHE_MAX_BYTES = 512 * 1024 * 1024
-
-
 def _int_setting(store: SettingsRepo, key: str, default: int) -> int:
     raw = store.get_setting(key)
     if not raw:
@@ -84,7 +82,9 @@ def load_app_settings(
             dir_template=_str_setting(store, "dir_template", DEFAULT_DIR_TEMPLATE),
             file_template=_str_setting(store, "file_template", DEFAULT_FILE_TEMPLATE),
             date_format=_str_setting(store, "date_format", DEFAULT_DATE_FORMAT),
-            save_path=Path(store.get_setting("save_path") or ""),
+            # 空 save_path 回退 base_dir/downloads：不能用相对 '.'（当前目录）——
+            # 服务从别的目录启动时（workdir ≠ base_dir），文件会落到启动目录而不是曲库。
+            save_path=Path(store.get_setting("save_path") or base_dir / "downloads"),
         ),
         download=DownloadSettings(
             max_concurrent=_int_setting(store, "max_download_task", DEFAULT_MAX_DOWNLOAD_TASK),

@@ -160,6 +160,8 @@ export interface SearchResult {
   message_date: string | null;
   caption: string | null;
   file_unique_id: string | null;
+  /** 消息带内嵌缩略图：true 才值得请求封面（没有就直接音符占位，不发注定 404 的请求）。 */
+  has_thumb: boolean;
 }
 
 export interface SearchResponse {

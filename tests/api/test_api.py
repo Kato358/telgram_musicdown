@@ -705,3 +705,18 @@ def test_delete_history_record_with_active_task_cancels_task(
 def test_delete_missing_history_returns_404(client: TestClient) -> None:
     # 不存在的记录：404，前端照常弹失败提示。
     assert client.delete("/api/history/99999").status_code == 404
+
+
+def test_search_cover_streams_cached_thumb(client: TestClient, tmp_path: Path) -> None:
+    # 搜索结果封面：缩略图已缓存 → 200 且回图片字节；没有缓存 → 404（前端退回占位）。
+    preview = tmp_path / "temp" / "preview"
+    preview.mkdir(parents=True)
+    (preview / "thumb_-1001_5.jpg").write_bytes(b"\xff\xd8jpeg")
+
+    r = client.get("/api/search/cover", params={"chat_id": -1001, "message_id": 5})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/jpeg")
+    assert r.content == b"\xff\xd8jpeg"
+    assert client.get(
+        "/api/search/cover", params={"chat_id": -1001, "message_id": 404}
+    ).status_code == 404

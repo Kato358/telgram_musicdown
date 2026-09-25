@@ -50,6 +50,14 @@ def test_load_app_settings_defaults(tmp_path: Path) -> None:
     assert settings.preview.max_bytes == 512 * 1024 * 1024
 
 
+def test_load_app_settings_empty_save_path_falls_back_to_base_downloads(tmp_path: Path) -> None:
+    # 空 save_path 不能回退相对 '.'（当前目录）——服务从别的目录启动时（workdir ≠ base_dir）
+    # 文件会落到启动目录而不是曲库；缺省值必须是 base_dir/downloads。
+    store = Store(tmp_path / "app.db")
+    settings = load_app_settings(tmp_path, store)
+    assert settings.template.save_path == tmp_path / "downloads"
+
+
 def test_load_app_settings_reads_db(tmp_path: Path) -> None:
     """DB settings 表覆盖缺省值（FR-CFG-03）。"""
     store = Store(tmp_path / "app.db")

@@ -93,28 +93,57 @@ class SearchResultCard:
     caption: str | None
     file_unique_id: str | None = None
     bitrate: int | None = None
+    has_thumb: bool = False
+
+
+_DURATION_RE = re.compile(r"Duration:\s*(\d{1,2}):(\d{2})(?::(\d{2}))?", re.IGNORECASE)
+
+
+def _duration_from_caption(caption: str | None) -> int | None:
+    """消息说明里的「Duration: MM:SS / HH:MM:SS」→ 秒；认不出返回 None（不编造）。
+
+    document 音频（pyrogram 的 Document 没有时长字段）的兜底：频道发歌时说明里
+    常带 Duration，这是唯一拿得到时长的来源。
+    """
+    if not caption:
+        return None
+    match = _DURATION_RE.search(caption)
+    if match is None:
+        return None
+    parts = [int(p) for p in match.groups() if p is not None]
+    if len(parts) == 3:
+        h, m, s = parts
+    else:
+        h, m, s = 0, parts[0], parts[1]
+    return h * 3600 + m * 60 + s
 
 
 def message_to_card(msg: dict[str, Any], channel_title: str | None = None) -> SearchResultCard:
-    """telegram 层消息 dict → 卡片（字段缺失留 None，不编造）。"""
+    """telegram 层消息 dict → 卡片（字段缺失留 None，不编造）。
+
+    时长在媒体元数据拿不到时（document 音频）从说明文案的「Duration:」兜底解析。
+    """
     audio = msg.get("audio") or {}
     doc = msg.get("document") or {}
     file_name = audio.get("file_name") or doc.get("file_name")
     ext = file_name.rsplit(".", 1)[-1] if file_name and "." in file_name else None
+    caption = msg.get("caption")
+    duration = audio.get("duration") or doc.get("duration") or _duration_from_caption(caption)
     return SearchResultCard(
         chat_id=msg["chat_id"],
         message_id=msg["message_id"],
         title=audio.get("title") or file_name,
         artist=audio.get("performer"),
-        duration_sec=audio.get("duration") or doc.get("duration"),
+        duration_sec=duration,
         file_size=audio.get("file_size") or doc.get("file_size"),
         ext=ext,
         mime=audio.get("mime_type") or doc.get("mime_type"),
         channel_title=channel_title,
         message_date=msg.get("message_date"),
-        caption=msg.get("caption"),
+        caption=caption,
         file_unique_id=audio.get("file_unique_id") or doc.get("file_unique_id"),
         bitrate=audio.get("bitrate"),
+        has_thumb=bool(msg.get("has_thumb")),
     )
 
 

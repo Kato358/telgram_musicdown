@@ -92,7 +92,9 @@ run("弹窗里确认后调用 deleteRow 并关闭弹窗", () => {
 });
 
 run("deleteRow 完成后清空 deleteTarget", () => {
-  const fn = downloadsViewSrc.match(/async function deleteRow[\s\S]*?\n  \}\n\n  async function confirmDelete/);
+  const fn = downloadsViewSrc.match(
+    /async function deleteRow[\s\S]*?\n  \}\r?\n\r?\n  async function confirmDelete/,
+  );
   assert.ok(fn, "deleteRow 应在 confirmDelete 之前且完整");
   assert.ok(downloadsViewSrc.includes("deleteTarget = null"), "执行后应清空 deleteTarget");
   const confirm = downloadsViewSrc.match(/async function confirmDelete[\s\S]*?\n  \}/);
