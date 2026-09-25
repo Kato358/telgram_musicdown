@@ -2,7 +2,7 @@
   import { t } from "$lib/i18n/index.svelte";
   import type { Column } from "./DataTable.svelte";
 
-  /** 下载页的列（设计规范 §5.4）：勾选 / 歌曲 / 歌手 / 专辑 / 时长 / 大小 / 入库时间 / 操作。
+  /** 下载页的列（设计规范 §5.4）：勾选 / 歌曲 / 歌手 / 专辑 / 时长 / 大小 / 码率 / 入库时间 / 操作。
    *
    * 没有「状态」「进度」两列：正在跑的那些项归上面的队列卡（那里才有实时读数与控制），
    * 这张表是**下载记录**——记录里，状态由第二行的「文件名 / 失败原因 / 灯 + 词」说清，
@@ -16,9 +16,10 @@
   export const COL_ALBUM = "hidden w-14 shrink-0 truncate lg:block";
   export const COL_DURATION = "w-12 shrink-0 text-right";
   export const COL_SIZE = "hidden w-14 shrink-0 text-right sm:block";
+  export const COL_BITRATE = "hidden w-14 shrink-0 text-right md:block";
   export const COL_DATE = "hidden w-20 shrink-0 text-right lg:block";
-  /** 操作列（v3.9 加「打开所在文件夹」）：播放（常驻）+ 文件夹 + 「⋯」（重试 / 复制路径 / 重新下载）。 */
-  export const COL_DOWNLOAD_ACTIONS = "flex w-[104px] shrink-0 items-center justify-end gap-1.5";
+  /** 操作列（v3.10 直排）：播放（常驻）+ 重试 / 取消 / 删除（不再藏在「⋯」里）。 */
+  export const COL_DOWNLOAD_ACTIONS = "flex w-[132px] shrink-0 items-center justify-end gap-1";
 
   export function downloadColumns(): Column[] {
     return [
@@ -28,6 +29,7 @@
       { key: "album", label: t("table.album"), class: COL_ALBUM },
       { key: "duration", label: t("table.duration"), class: COL_DURATION },
       { key: "size", label: t("table.size"), class: COL_SIZE },
+      { key: "bitrate", label: t("downloads.bitrate"), class: COL_BITRATE },
       { key: "date", label: t("table.date"), class: COL_DATE },
       { key: "actions", label: "", class: COL_DOWNLOAD_ACTIONS },
     ];
@@ -35,31 +37,34 @@
 </script>
 
 <script lang="ts">
-  /** 下载记录行（设计规范 §5.4，v3.9 精修）：一行 = 一次下载。
+  /** 下载记录行（设计规范 §5.4，v3.10 精修）：一行 = 一次下载。
    *
-   * 绝对路径不再占着第二行（v3.9）：第二行只放**文件名**——目录段是噪音，Windows 全路径
-   * 把每行的视觉焦点都拽走；整条路径挪进悬浮提示（title），行尾补一颗「打开所在文件夹」。
-   * 次级动作（文件夹 / 「⋯」）悬浮行时才显形（Hover Action），静止的列表不再一排按钮。
+   * 第二行只放**文件名**——目录段是噪音，Windows 全路径把每行的视觉焦点都拽走；
+   * 整条路径挪进悬浮提示（title）。次级动作（重试 / 取消 / 删除）由状态直排
+   * （不再藏在「⋯」里），md 起悬浮行时才显形（Hover Action），触屏常驻。
    * 元数据缺省显示 `—`（浅灰占位），不再满屏「未知」。
+   * 行首封面用 Telegram 内嵌缩略图（`/api/history/{id}/cover`），加载失败退回音符占位。
    */
   import type { Snippet } from "svelte";
   import CircleAlertIcon from "@lucide/svelte/icons/circle-alert";
-  import EllipsisVerticalIcon from "@lucide/svelte/icons/ellipsis-vertical";
-  import FolderOpenIcon from "@lucide/svelte/icons/folder-open";
   import MusicIcon from "@lucide/svelte/icons/music";
   import PauseIcon from "@lucide/svelte/icons/pause";
   import PlayIcon from "@lucide/svelte/icons/play";
+  import RotateCcwIcon from "@lucide/svelte/icons/rotate-ccw";
+  import Trash2Icon from "@lucide/svelte/icons/trash-2";
+  import XIcon from "@lucide/svelte/icons/x";
   import type { HistoryRow } from "$lib/api/types";
-  import { formatDate, formatDuration, formatSize, progressRatio, splitPath } from "$lib/format";
+  import {
+    formatBitrate,
+    formatDate,
+    formatDuration,
+    formatSize,
+    progressRatio,
+    splitPath,
+  } from "$lib/format";
   import type { TaskReadings } from "$lib/stores/queue.svelte";
   import { statusText, taskTone } from "$lib/tone";
   import { Checkbox } from "$lib/components/ui/checkbox";
-  import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-  } from "$lib/components/ui/dropdown-menu";
   import { ROW_CLASS } from "./DataTable.svelte";
   import Lamp from "./Lamp.svelte";
   import { taskRetryable } from "./TaskRow.svelte";
@@ -76,10 +81,8 @@
     onselected: (selected: boolean) => void;
     onplay: () => void;
     onretry: () => void;
-    onredownload: () => void;
-    oncopy: () => void;
-    /** 打开所在文件夹（行尾悬浮键；后端在文件管理器里打开落盘目录）。 */
-    onreveal: () => void;
+    oncancel: () => void;
+    ondelete: () => void;
     feedback?: Snippet;
     class?: string;
   }
@@ -94,9 +97,8 @@
     onselected,
     onplay,
     onretry,
-    onredownload,
-    oncopy,
-    onreveal,
+    oncancel,
+    ondelete,
     feedback,
     class: className = "",
   }: Props = $props();
@@ -112,6 +114,10 @@
     row.save_path === null && row.status === "success" ? t("downloads.noPath") : null,
   );
   const retryable = $derived(row.task_id !== null && taskRetryable(row.status));
+  /** 进行中的行显示取消，其余可删；两个动作由状态推出（不再叠「⋯」）。 */
+  const cancellable = $derived(
+    row.task_id !== null && ["queued", "downloading", "paused"].includes(row.status),
+  );
   /** 进行中的行第二行带实时百分比：读数是 SSE 帧优先、DB 快照兜底（`queue.readingsFor`）。 */
   const ratio = $derived(
     readings === null ? null : progressRatio(readings.received, readings.total),
@@ -120,9 +126,13 @@
     ratio === null ? null : t("tasks.percent", { percent: Math.round(ratio * 100) }),
   );
 
-  /** 次级动作（文件夹 / ⋯）：md 起悬浮行或键盘聚焦时才显形；触屏常驻（无 hover）。 */
-  const HOVER_ACTION =
-    "ui-transition max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 data-[state=open]:opacity-100";
+  /** 次级动作（重试 / 取消 / 删除）常驻可见：修复回归——原 `md:opacity-0` 把按钮藏到
+   *  悬浮之后，鼠标不到按钮上方就看不见也点不到；现在所有端都常驻，hover 只给底色。 */
+  const HOVER_ACTION = "ui-transition";
+
+  /** 封面加载失败（404 / 网络断）→ 退回音符占位。 */
+  let coverFailed = $state(false);
+  const coverUrl = $derived(`/api/history/${row.id}/cover`);
 </script>
 
 <li class="{ROW_CLASS} group {playing ? 'bg-primary-soft' : 'hover:bg-rule'} {className}">
@@ -138,10 +148,20 @@
     {:else if column.key === "title"}
       <div class="flex {column.class} items-center gap-3">
         <span
-          class="grid size-10 shrink-0 place-items-center rounded-chip bg-primary-soft text-primary"
+          class="grid size-10 shrink-0 place-items-center overflow-hidden rounded-chip bg-primary-soft text-primary"
           aria-hidden="true"
         >
-          <MusicIcon class="size-4" />
+          {#if coverFailed}
+            <MusicIcon class="size-4" />
+          {:else}
+            <img
+              src={coverUrl}
+              alt=""
+              class="size-10 object-cover"
+              loading="lazy"
+              onerror={() => (coverFailed = true)}
+            />
+          {/if}
         </span>
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
           <p class="truncate text-body font-medium">{title}</p>
@@ -196,6 +216,10 @@
       <span class="{column.class} tabular text-caption text-faint-foreground">
         {formatSize(row.file_size)}
       </span>
+    {:else if column.key === "bitrate"}
+      <span class="{column.class} tabular text-caption text-faint-foreground">
+        {formatBitrate(row.bitrate)}
+      </span>
     {:else if column.key === "date"}
       <span class="{column.class} tabular text-caption text-faint-foreground">
         {formatDate(row.created_at)}
@@ -217,41 +241,41 @@
           {/if}
         </button>
 
-        {#if row.save_path}
+        {#if retryable}
           <button
             type="button"
             class="{HOVER_ACTION} ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground"
-            aria-label={t("downloads.openFolder")}
-            title={t("downloads.openFolder")}
-            onclick={onreveal}
+            aria-label={t("tasks.retry")}
+            title={t("tasks.retry")}
+            onclick={onretry}
           >
-            <FolderOpenIcon class="size-4" aria-hidden="true" />
+            <RotateCcwIcon class="size-4" aria-hidden="true" />
           </button>
         {/if}
 
-        <DropdownMenu>
-          <DropdownMenuTrigger>
-            {#snippet child({ props })}
-              <button
-                {...props}
-                type="button"
-                class="{HOVER_ACTION} ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground"
-                aria-label={t("table.actions")}
-              >
-                <EllipsisVerticalIcon class="size-4" aria-hidden="true" />
-              </button>
-            {/snippet}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {#if retryable}
-              <DropdownMenuItem onSelect={onretry}>{t("tasks.retry")}</DropdownMenuItem>
-            {/if}
-            {#if row.save_path}
-              <DropdownMenuItem onSelect={oncopy}>{t("downloads.copyPath")}</DropdownMenuItem>
-            {/if}
-            <DropdownMenuItem onSelect={onredownload}>{t("downloads.redownload")}</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {#if cancellable}
+          <button
+            type="button"
+            class="{HOVER_ACTION} ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground"
+            aria-label={t("tasks.cancel")}
+            title={t("tasks.cancel")}
+            onclick={oncancel}
+          >
+            <XIcon class="size-4" aria-hidden="true" />
+          </button>
+        {/if}
+
+        {#if !cancellable}
+          <button
+            type="button"
+            class="{HOVER_ACTION} ui-transition grid size-8 shrink-0 place-items-center rounded-full text-destructive-text hover:bg-destructive/10"
+            aria-label={t("downloads.delete")}
+            title={t("downloads.delete")}
+            onclick={ondelete}
+          >
+            <Trash2Icon class="size-4" aria-hidden="true" />
+          </button>
+        {/if}
       </div>
     {/if}
   {/each}

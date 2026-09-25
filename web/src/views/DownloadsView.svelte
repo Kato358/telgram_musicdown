@@ -69,6 +69,9 @@
   let failures = $state<DownloadItemResult[]>([]);
   let pasteOpen = $state(false);
   let clearOpen = $state(false);
+  /** 行删除的二次确认弹窗：`deleteTarget` 是待删的那条记录，确认后才真正删。 */
+  let confirmOpen = $state(false);
+  let deleteTarget = $state<HistoryRow | null>(null);
 
   let keyword = $state("");
   let stableKeyword = $state("");
@@ -282,17 +285,6 @@
     }
   }
 
-  async function redownload(row: HistoryRow) {
-    flash = null;
-    try {
-      await enqueueRefs([row]);
-      flash = { id: row.id, tone: "done", text: t("downloads.redownloaded") };
-      await refresh();
-    } catch (err) {
-      flash = { id: row.id, tone: "fail", text: errorText(err, t("common.error")) };
-    }
-  }
-
   function enqueueRefs(targets: HistoryRow[]) {
     return api.post<{ items: DownloadItemResult[] }>("/api/downloads", {
       message_refs: targets.map((row) => ({ chat_id: row.chat_id, message_id: row.message_id })),
@@ -318,26 +310,22 @@
     }
   }
 
-  /** 在系统文件管理器里打开这条记录的落盘目录。 */
-  async function reveal(row: HistoryRow) {
-    error = "";
-    try {
-      await api.post(`/api/history/${row.id}/reveal`);
-    } catch (err) {
-      error = errorText(err, t("common.error"));
-    }
-  }
-
-  async function copyPath(row: HistoryRow) {
-    const path = row.save_path;
-    if (!path) return;
+  /** 删除这条记录：走记录级端点（DELETE /api/history/{id}），落盘文件保留，列表随即重取。 */
+  async function deleteRow(row: HistoryRow) {
     flash = null;
+    confirmOpen = false;
+    deleteTarget = null;
     try {
-      await navigator.clipboard.writeText(path);
-      flash = { id: row.id, tone: "done", text: t("downloads.copied") };
+      await api.delete(`/api/history/${row.id}`);
+      flash = { id: row.id, tone: "done", text: t("downloads.deleted") };
+      await refresh();
     } catch (err) {
       flash = { id: row.id, tone: "fail", text: errorText(err, t("common.error")) };
     }
+  }
+
+  async function confirmDelete() {
+    if (deleteTarget !== null) await deleteRow(deleteTarget);
   }
 
   /** 入队一段链接文本：内联输入与批量弹窗共用（按空白/逗号拆，逐条报解析失败）。 */
@@ -587,9 +575,11 @@
           onselected={(checked) => toggleRow(row, checked)}
           onplay={() => playFrom(row)}
           onretry={() => void retry(row)}
-          onredownload={() => void redownload(row)}
-          oncopy={() => void copyPath(row)}
-          onreveal={() => void reveal(row)}
+          oncancel={() => row.task_id !== null && void act(row.task_id, "cancel")}
+          ondelete={() => {
+            deleteTarget = row;
+            confirmOpen = true;
+          }}
         >
           {#snippet feedback()}
             {#if rowFeedback}
@@ -652,6 +642,33 @@
       <Button variant="outline" onclick={() => (clearOpen = false)}>{t("common.cancel")}</Button>
       <Button variant="destructive" size="lg" disabled={busy} onclick={() => void clearQueue()}>
         {t("downloads.clearConfirm")}
+      </Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+
+<Dialog
+  bind:open={confirmOpen}
+  onOpenChange={(open) => {
+    if (!open) deleteTarget = null;
+  }}
+>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle class="text-h2 font-semibold">{t("downloads.deleteTitle")}</DialogTitle>
+      <DialogDescription class="text-caption">
+        {deleteTarget
+          ? t("downloads.deleteBody", {
+              title: deleteTarget.title?.trim() || t("common.unknown"),
+            })
+          : ""}
+      </DialogDescription>
+    </DialogHeader>
+
+    <DialogFooter>
+      <Button variant="outline" onclick={() => (confirmOpen = false)}>{t("common.cancel")}</Button>
+      <Button variant="destructive" size="lg" disabled={busy} onclick={() => void confirmDelete()}>
+        {t("downloads.deleteConfirm")}
       </Button>
     </DialogFooter>
   </DialogContent>
