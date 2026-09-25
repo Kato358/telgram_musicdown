@@ -201,4 +201,27 @@ export interface TaskStatusEvent {
 export interface LogErrorEvent {
   message: string;
   ts: number;
+  logger?: string;
+}
+
+/** 运行日志（GET /api/logs，app/web/routes/logs.py）。 */
+export interface LogEntry {
+  ts: number;
+  level: string;
+  logger: string;
+  message: string;
+}
+
+export interface LogFile {
+  name: string;
+  size: number;
+  mtime: number;
+}
+
+export interface LogsResponse {
+  entries: LogEntry[];
+  files: LogFile[];
+  active_file: string;
+  file_size: number;
+  truncated: boolean;
 }

@@ -50,6 +50,7 @@ class Events {
             id: (this.#errorSeq += 1),
             message: String(parsed.payload.message ?? ""),
             ts: Number(parsed.payload.ts ?? Date.now() / 1000),
+            logger: parsed.payload.logger ? String(parsed.payload.logger) : undefined,
           },
         ];
       }

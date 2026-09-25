@@ -56,3 +56,11 @@ export function statusText(status: string): string {
   const text = t(key);
   return text === key ? status : text;
 }
+
+/** 日志级别 → 语义色（日志页）：ERROR/CRITICAL 红、WARNING 黄、其余中性。 */
+export function logLevelTone(level: string): Tone {
+  const up = level.toUpperCase();
+  if (up === "ERROR" || up === "CRITICAL") return "fail";
+  if (up === "WARNING") return "wait";
+  return "idle";
+}

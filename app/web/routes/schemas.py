@@ -169,3 +169,30 @@ class PreviewPathRequest(BaseModel):
 
 class SettingsUpdateRequest(BaseModel):
     values: dict[str, Any]
+
+
+class LogEntry(BaseModel):
+    """一条解析后的日志行（多行 traceback 并入 message）。"""
+
+    ts: float
+    level: str
+    logger: str
+    message: str
+
+
+class LogFile(BaseModel):
+    """logs/ 目录下的一个日志文件（当前 + 旋转备份）。"""
+
+    name: str
+    size: int
+    mtime: float
+
+
+class LogsResponse(BaseModel):
+    """``GET /api/logs``：日志尾部窗口 + 可选文件清单。"""
+
+    entries: list[LogEntry]
+    files: list[LogFile]
+    active_file: str
+    file_size: int
+    truncated: bool

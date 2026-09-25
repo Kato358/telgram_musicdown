@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import traceback
 from dataclasses import dataclass, field
 from time import time
 
@@ -44,7 +45,6 @@ class EventBus:
         self._maxsize = maxsize
         self._lock = asyncio.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
-
 
     async def subscribe(self) -> asyncio.Queue[Event]:
         q: asyncio.Queue[Event] = asyncio.Queue(maxsize=self._maxsize)
@@ -97,3 +97,36 @@ class EventBus:
                 with contextlib.suppress(asyncio.QueueEmpty):
                     q.get_nowait()
             q.put_nowait(event)
+
+
+class EventBusLogHandler(logging.Handler):
+    """logging → 事件总线桥：ERROR+ 记录发布为 ``log.error``（日志页「实时错误」）。
+
+    历史事实源仍是 ``logs/app.log`` 文件，这里只补「连接期间发生了什么」的实时提示。
+    ``logging.Handler`` 可能在任意线程被调（worker 池、Pyrogram loop），所以发布走
+    ``publish_nowait``（跨线程安全）；发布路径自身不再记日志，不会自激成环。
+    """
+
+    def __init__(self, bus: EventBus, level: int = logging.ERROR) -> None:
+        super().__init__(level=level)
+        self._bus = bus
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = record.getMessage()
+            if record.exc_info:
+                message += "\n" + "".join(traceback.format_exception(*record.exc_info)).rstrip()
+        except Exception:  # noqa: BLE001  emit 内异常按 logging 约定交 handleError，不外抛
+            self.handleError(record)
+            return
+        self._bus.publish_nowait(
+            Event("log.error", {"message": message, "logger": record.name, "ts": record.created})
+        )
+
+
+def attach_event_log_bridge(bus: EventBus, root: logging.Logger | None = None) -> None:
+    """把桥接 handler 挂到根 logger（幂等）；在组合根（run）调用一次。"""
+    root = root or logging.getLogger()
+    if any(isinstance(h, EventBusLogHandler) for h in root.handlers):
+        return
+    root.addHandler(EventBusLogHandler(bus))

@@ -19,7 +19,7 @@ from app.config import SecretConfig, load_secrets, web_dist_dir
 from app.container import build_container
 from app.domain import TemplateConfig
 from app.errors import SessionLockedError, WebAuthConfigError
-from app.events import EventBus
+from app.events import EventBus, attach_event_log_bridge
 from app.services.download import DownloadService
 from app.services.preview import PreviewService
 from app.services.source import SearchService, SourceService
@@ -107,6 +107,8 @@ async def run(base_dir: Path) -> None:
 
     svc = build_services(base_dir)
     store = svc.store
+    # ERROR+ 日志桥到 SSE：日志页的「实时错误」靠它（事件总线见 app/events.py）
+    attach_event_log_bridge(svc.events)
     recovered = store.recover_interrupted()
     if recovered:
         logging.getLogger(__name__).info("recovered %d interrupted tasks", recovered)
