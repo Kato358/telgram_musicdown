@@ -18,7 +18,7 @@ from pyrogram.types import Message
 from app.config import SecretConfig
 from app.domain import TrackMeta, card_to_meta
 from app.errors import AppError
-from app.services.download import DownloadRequest, DownloadService
+from app.services.download import DownloadQueueServiceProto, DownloadRequest
 from app.telegram.user_client import CONNECT_TIMEOUT_SEC, _connect_error, _proxy_dict
 from app.utils.linkparse import parse_link
 
@@ -36,7 +36,7 @@ class BotClient:
         self,
         secrets: SecretConfig,
         session_dir: Any,
-        downloads: DownloadService,
+        downloads: DownloadQueueServiceProto,
         search: Any = None,
         allowed_user_ids: set[int] | None = None,
     ) -> None:

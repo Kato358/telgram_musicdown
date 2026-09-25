@@ -16,13 +16,13 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.db.models import Source
-from app.db.store import Store
 from app.domain import (
     SourceFilters,
     card_to_meta,
     message_to_card,
     scope_allows,
 )
+from app.ports import IStore
 from app.services.download import DownloadRequest
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class _Scan:
 class SyncRunner:
     """扫源入队（FR-SRC-04）。"""
 
-    def __init__(self, store: Store, client: SyncClientProto, queue: DownloadQueueProto) -> None:
+    def __init__(self, store: IStore, client: SyncClientProto, queue: DownloadQueueProto) -> None:
         self.store = store
         self.client = client
         self.queue = queue

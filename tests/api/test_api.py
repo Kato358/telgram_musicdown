@@ -585,7 +585,7 @@ def test_history_reveal_opens_folder(
     def record_open(folder: Path) -> None:
         opened.append(folder)
 
-    monkeypatch.setattr("app.web.routes._open_in_file_manager", record_open)
+    monkeypatch.setattr("app.web.routes.history._open_in_file_manager", record_open)
     library = tmp_path / "library"
     library.mkdir()
     on_disk = library / "a.mp3"
@@ -639,7 +639,7 @@ def test_history_reveal_reports_open_failure(
         del folder
         raise OSError("no file manager")
 
-    monkeypatch.setattr("app.web.routes._open_in_file_manager", boom)
+    monkeypatch.setattr("app.web.routes.history._open_in_file_manager", boom)
     library = tmp_path / "library"
     library.mkdir()
     on_disk = library / "a.mp3"

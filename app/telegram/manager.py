@@ -15,6 +15,7 @@ from typing import Any
 
 from app.config import SecretConfig
 from app.errors import AppError, SessionLockedError
+from app.services.download import DownloadQueueServiceProto
 from app.telegram.bot_client import SESSION_NAME as BOT_SESSION_NAME
 from app.telegram.bot_client import BotClient
 from app.telegram.user_client import SESSION_NAME as USER_SESSION_NAME
@@ -83,7 +84,7 @@ class TelegramManager:
     ``authorized``；``authorized_client()`` 是下载/搜索/同步层取客户端的唯一入口。
     """
 
-    _downloads: Any = None
+    _downloads: DownloadQueueServiceProto | None = None
     _search: Any = None
 
     def __init__(self, secrets: SecretConfig, session_dir: Path) -> None:
@@ -117,8 +118,8 @@ class TelegramManager:
                 logger.warning("user client connect failed at startup", exc_info=True)
         await self.start_bot_configured()
 
-    def set_services(self, downloads: Any, search: Any) -> None:
-        """注入 DownloadService/SearchService（Bot handlers 需要）。"""
+    def set_services(self, downloads: DownloadQueueServiceProto, search: Any) -> None:
+        """注入下载队列与搜索（Bot handlers 需要）。"""
         self._downloads = downloads
         self._search = search
 
@@ -166,7 +167,13 @@ class TelegramManager:
         info = await self.me()
         if info and info.get("id"):
             allowed.add(int(info["id"]))  # allowed_user_ids 默认 me（FR-AUTH-04）
-        self.bot = BotClient(self.secrets, self.session_dir, self._downloads, self._search, allowed)
+        self.bot = BotClient(
+            self.secrets,
+            self.session_dir,
+            downloads=self._downloads,  # type: ignore[arg-type]  # 装配期已保证非 None
+            search=self._search,
+            allowed_user_ids=allowed,
+        )
         try:
             await self.start_bot()
         except SessionLockedError:

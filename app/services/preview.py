@@ -12,10 +12,11 @@ import logging
 from pathlib import Path
 
 from app.db.models import PreviewCache
-from app.db.store import Store, utcnow
+from app.db.store import utcnow
 from app.errors import AppError
 from app.events import Event, EventBus
-from app.services.download import TelegramClientProto
+from app.ports import IStore
+from app.ports.telegram import TelegramClientProto
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ class PreviewService:
 
     def __init__(
         self,
-        store: Store,
+        store: IStore,
         client: TelegramClientProto,
         events: EventBus,
         preview_dir: Path,

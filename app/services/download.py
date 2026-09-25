@@ -23,22 +23,22 @@ import json
 import logging
 import os
 import re
-from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any, Protocol
 
 from app.db.models import History, Task
-from app.db.store import utcnow
 from app.domain import TemplateConfig, TrackMeta, card_to_meta, message_to_card, meta_from_dict
 from app.errors import AppError, TaskNotFoundError
 from app.events import Event, EventBus
+from app.ports import IStore
+from app.ports.telegram import TelegramClientProto
 from app.services.path_builder import render_path, resolve_conflict
 from app.services.tags import TagService
 
 if TYPE_CHECKING:
-    from app.db.store import Store
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -54,23 +54,19 @@ def backoff_sec(retry_count: int) -> int:
     return int(min(2**retry_count * RETRY_BASE_SEC, RETRY_CAP_SEC))
 
 
-class TelegramClientProto(Protocol):
-    """下载所需协议面（FakeUserClient 实现，NFR-07）。"""
-
-    def download_media(
-        self,
-        message_ref: dict[str, Any],
-        file_name: str,
-        progress: Callable[[int, int], None] | None = None,
-    ) -> Any: ...
-
-    def get_messages(self, chat_id: int, message_ids: list[int]) -> Any: ...
-
-
 class SyncRunnerProto(Protocol):
     """源同步执行器协议面（FR-SRC-04，实现在 services/sync.py）。"""
 
     async def run(self, task_id: int, payload: dict[str, Any]) -> Any: ...
+
+
+class DownloadQueueServiceProto(Protocol):
+    """下载队列对外协议面（bot 层依赖它，不依赖 DownloadService 具体类）。"""
+
+    store: IStore
+
+    async def enqueue(self, req: DownloadRequest) -> int | None: ...
+    async def cancel_task(self, task_id: int) -> None: ...
 
 
 @dataclass(slots=True)
@@ -192,7 +188,7 @@ class DownloadService:
 
     def __init__(
         self,
-        store: Store,
+        store: IStore,
         client: TelegramClientProto,
         events: EventBus,
         temp_dir: Path,
@@ -400,16 +396,10 @@ class DownloadService:
                 self._cancelled_tasks.discard(task_id)
 
     def _next_queued(self) -> dict[str, Any] | None:
-        row = self.store._conn.execute(
-            "SELECT * FROM tasks WHERE status='queued'"
-            " AND (next_retry_at IS NULL OR next_retry_at <= ?)"
-            " ORDER BY id LIMIT 1",
-            (utcnow(),),
-        ).fetchone()
-        if row is None:
+        """取下一条可执行任务（FR-DL-01）：SQL 在仓储里，本层只补历史镜像。"""
+        task = self.store.next_queued_task()
+        if task is None:
             return None
-        task = {k: row[k] for k in row.keys()}  # noqa: SIM118  sqlite3.Row
-        self.store.update_task(task["id"], status="downloading")
         self._mirror_history_status(task.get("history_id"), "downloading")
         return task
 

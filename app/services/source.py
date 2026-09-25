@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from app.db.models import Source
-from app.db.store import Store
 from app.domain import (
     SearchResultCard,
     is_audio_message,
@@ -20,6 +19,7 @@ from app.domain import (
     source_tags,
 )
 from app.errors import SourceUnreachableError
+from app.ports import IStore
 from app.utils.linkparse import ParsedLink
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class DiscoverCandidate:
 class SourceService:
     """音乐源增删改查（FR-SRC-01~03）。"""
 
-    def __init__(self, store: Store, client: SourceClientProto) -> None:
+    def __init__(self, store: IStore, client: SourceClientProto) -> None:
         self.store = store
         self.client = client
 
@@ -162,7 +162,7 @@ class SearchResponse:
 class SearchService:
     """已启用源内关键词搜索（FR-SEARCH-01~03）。"""
 
-    def __init__(self, store: Store, client: SourceClientProto) -> None:
+    def __init__(self, store: IStore, client: SourceClientProto) -> None:
         self.store = store
         self.client = client
 

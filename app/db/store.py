@@ -1,5 +1,6 @@
-"""仓储层：全部 SQL 收口于此（编码规范 §2.6）。
+"""仓储层：全部 SQL 收口于此（编码规范 §2.6，DIP 适配器）。
 
+- ``Store`` 实现 ``app.ports.repository.IStore`` 协议：服务层依赖端口，不依赖本类。
 - 参数化查询（``?`` 占位），禁止 f-string/``%`` 拼 SQL。
 - 事务边界在 store 方法内；写 history 与 tasks 关联更新同事务。
 - 迁移：db/migrations/NNN_*.sql 顺序执行并记 schema_version。
@@ -414,6 +415,24 @@ class Store:
         with self._conn:
             cur = self._conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
             return cur.rowcount > 0
+
+    def next_queued_task(self) -> dict[str, Any] | None:
+        """取最早一条可执行任务并标 downloading（Worker 池消费，FR-DL-01）。
+
+        「可执行」= status='queued' 且 next_retry_at 已到；取到即置 downloading，
+        使同一任务不会被第二个 Worker 再次取走。
+        """
+        row = self._conn.execute(
+            "SELECT * FROM tasks WHERE status='queued'"
+            " AND (next_retry_at IS NULL OR next_retry_at <= ?)"
+            " ORDER BY id LIMIT 1",
+            (utcnow(),),
+        ).fetchone()
+        if row is None:
+            return None
+        task = {k: row[k] for k in row.keys()}  # noqa: SIM118  sqlite3.Row
+        self.update_task(task["id"], status="downloading")
+        return task
 
     def recover_interrupted(self) -> int:
         """NFR-05 恢复：queued 保持、downloading 标 failed（retryable），其余不动。

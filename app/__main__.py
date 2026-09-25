@@ -13,9 +13,10 @@ import sys
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Any
 
-from app.config import SecretConfig, app_dirs, load_secrets, web_dist_dir
-from app.db.store import Store
+from app.config import SecretConfig, load_secrets, web_dist_dir
+from app.container import build_container
 from app.domain import TemplateConfig
 from app.errors import SessionLockedError, WebAuthConfigError
 from app.events import EventBus
@@ -49,7 +50,7 @@ class AppServices:
 
     dirs: dict[str, Path]
     secrets: SecretConfig
-    store: Store
+    store: Any
     events: EventBus
     template: TemplateConfig
     sources: SourceService
@@ -60,50 +61,41 @@ class AppServices:
 
 
 def build_services(base_dir: Path) -> AppServices:
-    """装配全部服务；返回依赖容器（供 web/tg 与测试共用）。"""
-    dirs = app_dirs(base_dir)
+    """装配全部服务；返回依赖容器（供 web/tg 与测试共用）。
+
+    组合根：配置与仓储装配走 ``build_container``（DI），TG 生命周期在此收口。
+    """
+    container = build_container(base_dir)
+    dirs = container.dirs
+    store = container.store
     secrets = load_secrets(base_dir)
     web_auth.check_auth_config(secrets.web_host, secrets.web_login_secret)
-    store = Store(dirs["data"] / "app.db")
-    events = EventBus()
+    events = container.extras["events"]
     template = TemplateConfig(
-        dir_template=store.get_setting("dir_template", "{artist}/{album}") or "{artist}/{album}",
-        file_template=store.get_setting("file_template", "{track:02d} {title}")
-        or "{track:02d} {title}",
-        date_format=store.get_setting("date_format", "%Y-%m") or "%Y-%m",
+        dir_template=container.settings.template.dir_template,
+        file_template=container.settings.template.file_template,
+        date_format=container.settings.template.date_format,
         save_path=dirs["save_path"],
     )
     tg = TelegramManager(secrets, dirs["sessions"])
-    sources = SourceService(store, tg.user_client_proxy)
-    search = SearchService(store, tg.user_client_proxy)
+    downloads = container.downloads
     # 依赖注入边界：user_client 未连接时占位 proxy 报 not_connected
-    downloads = DownloadService(
-        store,
-        tg.download_client_proxy,
-        events,
-        dirs["temp"],
-        template,
-        max_concurrent=int(store.get_setting("max_download_task", "3") or 3),
-    )
+    downloads.client = tg.download_client_proxy
+    container.sources.client = tg.user_client_proxy
+    container.search.client = tg.user_client_proxy
     # 源同步/回溯（FR-SRC-04）由下载 Worker 池执行：扫描 → 逐条入队
     downloads.set_sync_runner(SyncRunner(store, tg.user_client_proxy, downloads))
-    preview = PreviewService(
-        store,
-        tg.download_client_proxy,
-        events,
-        dirs["preview"],
-        max_bytes=int(store.get_setting("preview_cache_max_bytes", str(512 * 1024 * 1024)) or 0),
-    )
+    container.preview.client = tg.download_client_proxy
     return AppServices(
         dirs=dirs,
         secrets=secrets,
         store=store,
         events=events,
         template=template,
-        sources=sources,
-        search=search,
+        sources=container.sources,
+        search=container.search,
         downloads=downloads,
-        preview=preview,
+        preview=container.preview,
         tg=tg,
     )
 
@@ -153,6 +145,8 @@ async def run(base_dir: Path) -> None:
 
 def main() -> None:
     # Docker：TGM_BASE_DIR 指向挂载卷（/data）；默认源码根
+    from app.config import app_dirs  # noqa: PLC0415  仅 main 需要
+
     base_dir = Path(os.environ.get("TGM_BASE_DIR") or Path(__file__).resolve().parent.parent)
     dirs = app_dirs(base_dir)
     setup_logging(dirs["logs"])
