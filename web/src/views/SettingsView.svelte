@@ -3,7 +3,10 @@
    * （FR-SET-01/02、FR-AUTH-02/03/04、FR-OPS-02）。
    *
    * 命名模板改动即时预览（防抖 200ms，POST /api/settings/preview-path），但只有「保存更改」写库；
-   * 缓存上限在库里是字节字符串，界面按 MB 编辑，保存时换算。界面两项只存本机浏览器。
+   * 预览用后端内置的真实歌曲示例（响应里带落盘根 root，前端淡显区分根与渲染段）。
+   * 模板字段定义来自 GET /api/settings/template-fields（字段名 + 示例值，说明文案在 i18n），
+   * 点按字段插入到最后聚焦的模板框。缓存上限在库里是字节字符串，界面按 MB 编辑，保存时换算。
+   * 界面两项只存本机浏览器。
    *
    * 密钥类改动（bot_token / 代理）走 `POST /api/setup/secrets` 写 config.yaml：留空 = 不改动，
    * 用户名密码不回显（NFR-02）；已连上的客户端由返回的 restart_required 决定提示重启还是即时生效。
@@ -83,7 +86,53 @@
   let savedKey = $state<string | null>(null);
 
   let preview = $state("");
+  let previewRoot = $state("");
   let previewError = $state("");
+
+  // ---- 模板字段定义（FR-NAME-02：字段 + 示例值来自后端，说明文案在 i18n）----
+
+  type TemplateFieldDoc = { field: string; example: string };
+
+  let fieldDocs = $state<TemplateFieldDoc[]>([]);
+  let fieldSample = $state<{ artist: string | null; title: string | null } | null>(null);
+  /** 点按字段插入的目标：最后聚焦的模板框（默认文件名模板）；mousedown 兜底窗口无焦点时的点击。 */
+  let lastTemplate: "dir" | "file" = "file";
+
+  /** 字段名 → i18n 说明键（settings.* 下）。 */
+  const FIELD_KEY: Record<string, string> = {
+    title: "fieldTitle",
+    artist: "fieldArtist",
+    album: "fieldAlbum",
+    track: "fieldTrack",
+    ext: "fieldExt",
+    duration: "fieldDuration",
+    bitrate: "fieldBitrate",
+    size: "fieldSize",
+    date: "fieldDate",
+    year: "fieldYear",
+    channel: "fieldChannel",
+    channel_id: "fieldChannelId",
+    message_id: "fieldMessageId",
+    caption: "fieldCaption",
+    file_name: "fieldFileName",
+    unique_id: "fieldUniqueId",
+  };
+
+  /** 过滤器语法（说明走 i18n；示例值直接渲染，不经 t 的插值）。 */
+  const TEMPLATE_FILTERS = [
+    { syntax: "{field:02d}", key: "settings.filterPad", example: "{track:02d} → 01" },
+    {
+      syntax: "{field:truncate:N}",
+      key: "settings.filterTruncate",
+      example: "{title:truncate:24}",
+    },
+    { syntax: "{field:%Y-%m}", key: "settings.filterDate", example: "{date:%Y-%m} → 2024-05" },
+  ];
+
+  function fieldLabel(name: string): string {
+    const key = FIELD_KEY[name];
+    return key ? t(`settings.${key}`) : name;
+  }
 
   // ---- 账号与连接（FR-AUTH-02/03/04、FR-OPS-02）----
 
@@ -304,18 +353,54 @@
     }
   }
 
+  async function loadFieldDocs() {
+    try {
+      const resp = await api.get<{
+        fields: TemplateFieldDoc[];
+        sample: { artist: string | null; title: string | null };
+      }>("/api/settings/template-fields");
+      fieldDocs = resp.fields;
+      fieldSample = resp.sample;
+    } catch {
+      // 字段表加载失败不阻塞设置页，仅少一块文档
+    }
+  }
+
   async function runPreview(dir: string, file: string) {
     try {
-      const resp = await api.post<{ path: string }>("/api/settings/preview-path", {
+      const resp = await api.post<{ path: string; root?: string }>("/api/settings/preview-path", {
         dir_template: dir,
         file_template: file,
       });
       preview = resp.path;
+      previewRoot = resp.root ?? "";
       previewError = "";
     } catch (err) {
       preview = "";
+      previewRoot = "";
       previewError = errorText(err, t("common.error"));
     }
+  }
+
+  /** 预览拆成「落盘根（淡显）+ 渲染段」：根来自库里 save_path，模板只决定后半段。 */
+  const previewParts = $derived.by(() => {
+    if (!preview) return null;
+    let root = previewRoot !== "" && preview.startsWith(previewRoot) ? previewRoot : "";
+    let rest = preview.slice(root.length);
+    if (root !== "" && /^[\\/]/.test(rest)) {
+      root += rest[0];
+      rest = rest.slice(1);
+    }
+    return { root, rest };
+  });
+
+  /** 点按字段：以空格衔接追加到最后聚焦的模板框，预览随之刷新。 */
+  function insertField(name: string) {
+    const current = lastTemplate === "dir" ? dirTemplate : fileTemplate;
+    const glue = current === "" || /[\s/\\]$/.test(current) ? "" : " ";
+    const next = current + glue + `{${name}}`;
+    if (lastTemplate === "dir") dirTemplate = next;
+    else fileTemplate = next;
   }
 
   /** 模板改动只影响预览，写库要等「保存更改」。 */
@@ -360,6 +445,7 @@
 
   onMount(() => {
     void load();
+    void loadFieldDocs();
     void loadConnection();
   });
 </script>
@@ -372,23 +458,90 @@
 
 <SectionCard title={t("settings.pathSection")} hint={t("settings.pathHint")} icon={FolderTreeIcon}>
   <div class="flex flex-col gap-4">
-    <Field label={t("settings.dirTemplate")} for="setting-dir-template">
-      <Input id="setting-dir-template" class="tabular" bind:value={dirTemplate} />
-    </Field>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <Field label={t("settings.dirTemplate")} for="setting-dir-template">
+        <Input
+          id="setting-dir-template"
+          class="tabular"
+          bind:value={dirTemplate}
+          onfocus={() => (lastTemplate = "dir")}
+          onmousedown={() => (lastTemplate = "dir")}
+        />
+      </Field>
 
-    <Field label={t("settings.fileTemplate")} for="setting-file-template">
-      <Input id="setting-file-template" class="tabular" bind:value={fileTemplate} />
-    </Field>
+      <Field label={t("settings.fileTemplate")} for="setting-file-template">
+        <Input
+          id="setting-file-template"
+          class="tabular"
+          bind:value={fileTemplate}
+          onfocus={() => (lastTemplate = "file")}
+          onmousedown={() => (lastTemplate = "file")}
+        />
+      </Field>
+    </div>
 
     <Field label={t("settings.dateFormat")} for="setting-date-format">
       <Input id="setting-date-format" class="tabular w-40" bind:value={dateFormat} />
     </Field>
 
+    <div class="rounded-control border border-border bg-surface-subtle">
+      <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-3 pt-2.5">
+        <span class="text-caption font-semibold">{t("settings.templateFieldsTitle")}</span>
+        <span class="text-caption text-faint-foreground">{t("settings.templateFieldsHint")}</span>
+      </div>
+      {#if fieldDocs.length > 0}
+        <div class="grid gap-x-6 px-2 py-1.5 sm:grid-cols-2">
+          {#each fieldDocs as doc (doc.field)}
+            <button
+              type="button"
+              class="ui-transition flex min-w-0 items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-rule"
+              onclick={() => insertField(doc.field)}
+              title={`{${doc.field}} — ${fieldLabel(doc.field)}`}
+            >
+              <code class="shrink-0 text-code text-primary">{`{${doc.field}}`}</code>
+              <span class="min-w-0 flex-1 truncate text-caption text-muted-foreground">
+                {fieldLabel(doc.field)}
+              </span>
+              <span
+                class="max-w-36 shrink-0 truncate text-caption text-faint-foreground"
+                title={doc.example}
+              >
+                {doc.example}
+              </span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+      <div class="flex flex-col gap-1 border-t border-border px-3 py-2.5">
+        {#each TEMPLATE_FILTERS as filter (filter.syntax)}
+          <div class="flex min-w-0 items-baseline gap-2">
+            <code class="shrink-0 text-code">{filter.syntax}</code>
+            <span class="min-w-0 flex-1 truncate text-caption text-muted-foreground">
+              {t(filter.key)}
+            </span>
+            <code class="shrink-0 text-caption text-faint-foreground">{filter.example}</code>
+          </div>
+        {/each}
+      </div>
+    </div>
+
     <div class="flex flex-col gap-1.5">
-      <span class="text-caption text-muted-foreground">{t("settings.preview")}</span>
-      {#if preview}
+      <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <span class="text-caption text-muted-foreground">{t("settings.preview")}</span>
+        {#if fieldSample?.title}
+          <span class="text-caption text-faint-foreground">
+            {t("settings.previewSample", {
+              artist: fieldSample.artist ?? "",
+              title: fieldSample.title,
+            })}
+          </span>
+        {/if}
+      </div>
+      {#if previewParts}
         <code class="rounded-control border border-border bg-surface-subtle p-3 text-code break-all"
-          >{preview}</code
+          ><span class="text-faint-foreground">{previewParts.root}</span><span
+            >{previewParts.rest}</span
+          ></code
         >
       {:else if !loadError}
         <p

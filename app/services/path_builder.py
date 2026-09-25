@@ -84,6 +84,11 @@ def _resolve_field(meta: TrackMeta, field: str, cfg: TemplateConfig) -> str | No
     return None
 
 
+def resolve_field(meta: TrackMeta, field: str, cfg: TemplateConfig) -> str | None:
+    """单字段取值（含回退链）的公开入口：设置页模板字段文档与预览共用。"""
+    return _resolve_field(meta, field, cfg)
+
+
 def _truncate_filter(value: str, spec: str) -> str:
     try:
         n = int(spec.split(":", 1)[1])
