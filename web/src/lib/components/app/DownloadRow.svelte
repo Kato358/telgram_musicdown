@@ -2,18 +2,15 @@
   import { t } from "$lib/i18n/index.svelte";
   import type { Column } from "./DataTable.svelte";
 
-  /** 下载页的列（设计规范 §5.4）：勾选 / 歌曲 / 歌手 / 专辑 / 时长 / 大小 / 码率 / 入库时间 / 操作。
+  /** 下载页的列（设计规范 §5.4）：勾选 / 歌曲 / 歌手 / 时长 / 大小 / 码率 / 入库时间 / 操作。
    *
    * 没有「状态」「进度」两列：正在跑的那些项归上面的队列卡（那里才有实时读数与控制），
    * 这张表是**下载记录**——记录里，状态由第二行的「文件名 / 失败原因 / 灯 + 词」说清，
-   * 进度不是记录的一部分。
+   * 进度不是记录的一部分。专辑列已撤（v3.11）：歌手与专辑同义相邻，窄列里总是截断。
    */
   export const COL_CHECK = "flex w-4 shrink-0 items-center";
   export const COL_TITLE = "min-w-0 flex-1";
   export const COL_ARTIST = "hidden w-14 shrink-0 truncate md:block";
-  /** 专辑列只在 lg 出现：md 及以下主栏装不下八个定宽列（歌手与专辑同义相邻，
-   *  先退场的是它）；lg 起右栏已移除（v3.8 单栏），全宽放得下它。 */
-  export const COL_ALBUM = "hidden w-14 shrink-0 truncate lg:block";
   export const COL_DURATION = "w-12 shrink-0 text-right";
   export const COL_SIZE = "hidden w-14 shrink-0 text-right sm:block";
   export const COL_BITRATE = "hidden w-14 shrink-0 text-right md:block";
@@ -26,7 +23,6 @@
       { key: "check", label: "", class: COL_CHECK },
       { key: "title", label: t("table.song"), class: COL_TITLE },
       { key: "artist", label: t("table.artist"), class: COL_ARTIST },
-      { key: "album", label: t("table.album"), class: COL_ALBUM },
       { key: "duration", label: t("table.duration"), class: COL_DURATION },
       { key: "size", label: t("table.size"), class: COL_SIZE },
       { key: "bitrate", label: t("downloads.bitrate"), class: COL_BITRATE },
@@ -126,9 +122,16 @@
     ratio === null ? null : t("tasks.percent", { percent: Math.round(ratio * 100) }),
   );
 
-  /** 次级动作（重试 / 取消 / 删除）常驻可见：修复回归——原 `md:opacity-0` 把按钮藏到
-   *  悬浮之后，鼠标不到按钮上方就看不见也点不到；现在所有端都常驻，hover 只给底色。 */
-  const HOVER_ACTION = "ui-transition";
+  /** 次级动作常驻可见：修复回归——原 `md:opacity-0` 把按钮藏到悬浮之后，鼠标不到
+   *  按钮上方就看不见也点不到；现在所有端都常驻，hover 只给底色。
+   *  v3.11 起次级动作与播放键同规格：size-8 圆形实底，换动作只换配色
+   *  （重试=淡绿、取消=灰、删除=淡红），不再是轻飘飘的裸图标。 */
+  const ACTION_BASE =
+    "ui-transition grid size-8 shrink-0 place-items-center rounded-full active:scale-[0.98]";
+  const PLAY_ACTION = `${ACTION_BASE} bg-primary text-primary-foreground hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50`;
+  const RETRY_ACTION = `${ACTION_BASE} bg-primary-soft text-primary hover:bg-primary/20`;
+  const CANCEL_ACTION = `${ACTION_BASE} bg-muted text-muted-foreground hover:bg-border hover:text-foreground`;
+  const DELETE_ACTION = `${ACTION_BASE} bg-destructive/10 text-destructive-text hover:bg-destructive/20`;
 
   /** 封面加载失败（404 / 网络断）→ 退回音符占位。 */
   let coverFailed = $state(false);
@@ -200,14 +203,6 @@
       >
         {row.artist?.trim() || t("common.placeholder")}
       </span>
-    {:else if column.key === "album"}
-      <span
-        class="{column.class} text-caption {row.album?.trim()
-          ? 'text-muted-foreground'
-          : 'text-faint-foreground'}"
-      >
-        {row.album?.trim() || t("common.placeholder")}
-      </span>
     {:else if column.key === "duration"}
       <span class="{column.class} tabular text-caption text-faint-foreground">
         {formatDuration(row.duration_sec)}
@@ -228,7 +223,7 @@
       <div class={column.class}>
         <button
           type="button"
-          class="ui-transition grid size-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground hover:bg-primary-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+          class={PLAY_ACTION}
           aria-label={playLabel}
           aria-disabled={!playable}
           disabled={!playable}
@@ -244,7 +239,7 @@
         {#if retryable}
           <button
             type="button"
-            class="{HOVER_ACTION} ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground"
+            class={RETRY_ACTION}
             aria-label={t("tasks.retry")}
             title={t("tasks.retry")}
             onclick={onretry}
@@ -256,7 +251,7 @@
         {#if cancellable}
           <button
             type="button"
-            class="{HOVER_ACTION} ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground"
+            class={CANCEL_ACTION}
             aria-label={t("tasks.cancel")}
             title={t("tasks.cancel")}
             onclick={oncancel}
@@ -268,7 +263,7 @@
         {#if !cancellable}
           <button
             type="button"
-            class="{HOVER_ACTION} ui-transition grid size-8 shrink-0 place-items-center rounded-full text-destructive-text hover:bg-destructive/10"
+            class={DELETE_ACTION}
             aria-label={t("downloads.delete")}
             title={t("downloads.delete")}
             onclick={ondelete}

@@ -110,6 +110,10 @@ async def run(base_dir: Path) -> None:
     recovered = store.recover_interrupted()
     if recovered:
         logging.getLogger(__name__).info("recovered %d interrupted tasks", recovered)
+    # 旧记录缺时长/大小/码率（链接入队时拿不到）：启动时按落盘文件补一次
+    backfilled = await asyncio.to_thread(svc.downloads.backfill_history_media)
+    if backfilled:
+        logging.getLogger(__name__).info("backfilled media facts for %d history rows", backfilled)
 
     app = create_app(
         store=svc.store,

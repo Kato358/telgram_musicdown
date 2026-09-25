@@ -506,3 +506,69 @@ async def test_finish_display_parses_filename_when_untagged(
     row = store.get_history(history_id)
     assert row is not None
     assert (row.title, row.artist) == ("夜曲", "周杰伦")
+
+
+def _mp3_frames_bytes() -> bytes:
+    """10 帧 128kbps/44100Hz 的裸 MPEG 帧：mutagen 读得出时长与码率。"""
+    return (b"\xff\xfb\x90\x44" + b"\x00" * 413) * 10
+
+
+async def test_finish_history_backfills_media_facts(
+    svc: tuple[DownloadService, Store, FakeUserClient],
+) -> None:
+    # 完成回填：时长/大小/码率以落盘文件实测为准（链接入队时这些读数是空的）
+    service, store, client = svc
+    client.content = _mp3_frames_bytes()
+    task_id = await service.enqueue(req(1, ext="mp3"))
+    assert task_id is not None
+    history_id = store.get_task(task_id).history_id  # type: ignore[union-attr]
+    assert history_id is not None
+    row = store.get_history(history_id)
+    assert row is not None
+    assert row.file_size is None  # 下载前读数是空的
+    await service._run_task(worker_row(store, task_id))
+    row = store.get_history(history_id)
+    assert row is not None
+    assert row.file_size == 4170  # 落盘实测
+    # 合成帧总长 ≈0.26s，round 后是 0 —— 0 视为无值不回填（真实曲目不会是 0 秒）
+    assert row.duration_sec is None
+    assert row.bitrate == 128  # kbps
+
+
+async def test_bare_link_hydrates_history_media(
+    svc: tuple[DownloadService, Store, FakeUserClient],
+) -> None:
+    # 链接入队 meta 全空：hydrate 拿到消息后，时长/大小先随 meta 回填历史行
+    service, store, _ = svc
+    task_id = await service.enqueue(req(1))
+    assert task_id is not None
+    history_id = store.get_task(task_id).history_id  # type: ignore[union-attr]
+    assert history_id is not None
+    await service._run_task(worker_row(store, task_id))
+    row = store.get_history(history_id)
+    assert row is not None
+    assert row.duration_sec == 269  # Fake 消息 audio.duration
+    assert row.file_size == 100
+
+
+async def test_backfill_history_media_repairs_old_rows(
+    svc: tuple[DownloadService, Store, FakeUserClient], tmp_path: Path
+) -> None:
+    # 启动回填：旧记录（各读数为 NULL 但文件在）按文件补一次；文件不在的行不编造。
+    service, store, _ = svc
+    p = tmp_path / "frames.mp3"
+    p.write_bytes(_mp3_frames_bytes())
+    store.upsert_history(
+        History(id=None, chat_id=CHAT_ID, message_id=1, status="success", save_path=str(p))
+    )
+    missing = tmp_path / "gone.mp3"
+    store.upsert_history(
+        History(id=None, chat_id=CHAT_ID, message_id=2, status="success", save_path=str(missing))
+    )
+    count = service.backfill_history_media()
+    assert count == 1
+    rows = store.list_history()
+    by_msg = {r.message_id: r for r in rows}
+    assert by_msg[1].file_size == 4170
+    assert by_msg[1].bitrate == 128
+    assert by_msg[2].file_size is None

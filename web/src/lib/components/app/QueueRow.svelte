@@ -11,10 +11,9 @@
    *
    * 一行 = DB 快照（状态、标题、元信息）+ SSE 进度帧（字节、速率、剩余），拼装收在
    * `queue.readings()`；动作由状态推出：下载中→暂停、已暂停→继续、进行中→取消
-   * （队列里没有终态行）。动作一律是圆形图标键（参考图的画法），词由 `aria-label` 补全。
+   * （队列里没有终态行）。动作一律是圆形实底键（与下载记录行同一族），词由 `aria-label` 补全。
    */
   import ClockIcon from "@lucide/svelte/icons/clock";
-  import Disc3Icon from "@lucide/svelte/icons/disc-3";
   import MusicIcon from "@lucide/svelte/icons/music";
   import PauseIcon from "@lucide/svelte/icons/pause";
   import PlayIcon from "@lucide/svelte/icons/play";
@@ -57,18 +56,13 @@
   const statusLine = $derived(
     percent === null ? statusText(task.status) : `${statusText(task.status)} · ${percent}`,
   );
-  const readings = $derived(
-    [
-      `${formatSize(progress.received)} / ${formatSize(progress.total)}`,
-      progress.speed ? formatRate(progress.speed) : "",
-      progress.eta ? `${t("tasks.eta")} ${formatEta(progress.eta)}` : "",
-    ]
-      .filter(Boolean)
-      .join(" · "),
-  );
+  /** 读数拆成三段而不是拼一串：整行宽度随便放，小卡也截不断「剩余时间」。 */
+  const total = $derived(`${formatSize(progress.received)} / ${formatSize(progress.total)}`);
+  const speed = $derived(progress.speed ? formatRate(progress.speed) : null);
+  const eta = $derived(progress.eta ? `${t("tasks.eta")} ${formatEta(progress.eta)}` : null);
 </script>
 
-<li class="flex items-center gap-3 rounded-nav bg-surface-subtle p-3 {className}">
+<li class="flex items-start gap-3 rounded-nav bg-surface-subtle p-3 {className}">
   <span
     class="grid size-10 shrink-0 place-items-center rounded-chip bg-primary-soft text-primary"
     aria-hidden="true"
@@ -76,19 +70,28 @@
     <MusicIcon class="size-4" />
   </span>
 
-  <div class="flex min-w-0 flex-1 flex-col gap-1">
-    <p class="truncate text-body font-medium">{heading}</p>
+  <!-- 进度区横贯中间整行：右侧不再留固定窄列（v3.11）——之前 w-48 里塞三个读数，
+       宽屏大片留白、窄屏把「剩余时间」截掉。 -->
+  <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+    <div class="flex items-center gap-2">
+      <p class="min-w-0 flex-1 truncate text-body font-medium">{heading}</p>
+      <span class="tabular shrink-0 text-caption text-muted-foreground">{statusLine}</span>
+    </div>
+    <ProgressBar {ratio} label={heading} />
+    <div class="tabular flex flex-wrap items-center gap-x-3 gap-y-0.5 text-caption text-faint-foreground">
+      <span>{total}</span>
+      {#if speed}
+        <span>{speed}</span>
+      {/if}
+      {#if eta}
+        <span>{eta}</span>
+      {/if}
+    </div>
     <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-caption text-muted-foreground">
       <span class="flex min-w-0 items-center gap-1">
         <UserIcon class="size-3.5 shrink-0" aria-hidden="true" />
         <span class="truncate">{artistLine}</span>
       </span>
-      {#if task.album?.trim()}
-        <span class="flex min-w-0 items-center gap-1">
-          <Disc3Icon class="size-3.5 shrink-0" aria-hidden="true" />
-          <span class="truncate">{task.album}</span>
-        </span>
-      {/if}
       {#if task.duration_sec !== null}
         <span class="tabular flex items-center gap-1">
           <ClockIcon class="size-3.5 shrink-0" aria-hidden="true" />
@@ -100,16 +103,10 @@
       {/if}
     </div>
   </div>
-
-  <div class="flex w-28 shrink-0 flex-col gap-1 sm:w-40 lg:w-48">
-    <span class="tabular truncate text-caption text-muted-foreground">{statusLine}</span>
-    <ProgressBar {ratio} label={heading} />
-    <p class="tabular truncate text-caption text-faint-foreground">{readings}</p>
-  </div>
   <div class="flex shrink-0 items-center gap-1.5">
     {#if task.status === "downloading"}
       <Button
-        variant="outline"
+        variant="secondary"
         size="icon"
         class="rounded-full"
         aria-label={t("tasks.pause")}
@@ -120,7 +117,7 @@
       </Button>
     {:else if task.status === "paused"}
       <Button
-        variant="outline"
+        variant="secondary"
         size="icon"
         class="rounded-full"
         aria-label={t("tasks.resume")}
@@ -131,7 +128,7 @@
       </Button>
     {/if}
     <Button
-      variant="outline"
+      variant="secondary"
       size="icon"
       class="rounded-full"
       aria-label={t("tasks.cancel")}

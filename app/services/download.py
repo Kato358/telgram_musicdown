@@ -581,17 +581,24 @@ class DownloadService:
         return self.temp_dir / f"task_{task.id}_{message_id}"
 
     def _sync_history_display(self, history_id: int, meta: TrackMeta) -> None:
-        if not (meta.title or meta.artist or meta.album):
-            return
-        history = self.store.get_history(history_id)
-        if history is None:
-            return
-        self.store.set_history_display_tags(
-            history_id,
-            meta.title or history.title,
-            meta.artist or history.artist,
-            meta.album or history.album,
-        )
+        """把 meta 里的展示与读数字段同步进历史行（下载页各列的事实源）。
+
+        展示字段（标题/歌手/专辑）只在 meta 给得出时写；时长/大小/码率在链接入队的
+        场景要等 hydrate 或落盘实测才有值，有真值就回填（store 层只认非空更新）。
+        """
+        if meta.title or meta.artist or meta.album:
+            history = self.store.get_history(history_id)
+            if history is not None:
+                self.store.set_history_display_tags(
+                    history_id,
+                    meta.title or history.title,
+                    meta.artist or history.artist,
+                    meta.album or history.album,
+                )
+        if meta.duration_sec or meta.file_size or meta.bitrate:
+            self.store.set_history_media(
+                history_id, meta.duration_sec, meta.file_size, meta.bitrate
+            )
 
     def _display_meta(self, save_path: str, meta: TrackMeta) -> TrackMeta:
         """完成态的显示元数据（FR-META-01）：落盘文件的内嵌标签是事实源，缺项再补。
@@ -622,12 +629,41 @@ class DownloadService:
         self, history_id: int, save_path: str, payload: dict[str, Any], meta: TrackMeta
     ) -> None:
         self.store.mark_history_status(history_id, "success", save_path=save_path, finished=True)
-        self._sync_history_display(history_id, self._display_meta(save_path, meta))
+        # 时长/大小/码率以落盘文件实测为准（链接入队时这些读数都是空的）
+        path = Path(save_path)
+        facts = self.tags.media_facts(path)
+        measured = replace(
+            meta,
+            duration_sec=facts["duration_sec"] or meta.duration_sec,
+            file_size=facts["file_size"] or meta.file_size,
+            bitrate=facts["bitrate"] or meta.bitrate,
+        )
+        self._sync_history_display(history_id, self._display_meta(save_path, measured))
         if payload.get("write_tags", True):
             try:
-                self.tags.write_tags(Path(save_path), meta)
+                self.tags.write_tags(path, meta)
             except Exception:
                 logger.exception("tag write failed for %s (task continues)", save_path)
+
+    def backfill_history_media(self, limit: int = 500) -> int:
+        """启动回填：旧版本入队的已落盘记录缺时长/大小/码率，按文件补一次。
+
+        文件已被手动移走的行不编造，保持原样留给用户重下。
+        """
+        count = 0
+        for row in self.store.list_history_missing_media(limit=limit):
+            if row.id is None or not row.save_path:
+                continue
+            path = Path(row.save_path)
+            if not path.exists():
+                continue
+            facts = self.tags.media_facts(path)
+            if facts["duration_sec"] or facts["file_size"] or facts["bitrate"]:
+                self.store.set_history_media(
+                    int(row.id), facts["duration_sec"], facts["file_size"], facts["bitrate"]
+                )
+                count += 1
+        return count
 
 
 def _history_row(meta: TrackMeta, source_id: int | None) -> History:

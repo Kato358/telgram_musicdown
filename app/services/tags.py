@@ -8,8 +8,10 @@ mutagen 是同步库，标签读写必须 to_thread（编码规范 §2.3）。
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 
+from mutagen import File as MutagenFile
 from mutagen.flac import FLAC
 from mutagen.id3 import ID3, ID3NoHeaderError
 from mutagen.mp4 import MP4
@@ -47,6 +49,35 @@ class TagService:
         if container == "vorbis":
             return self._read_vorbis(path)
         return self._read_mp4(path)
+
+    def media_facts(self, path: Path) -> dict[str, int | None]:
+        """落盘实测（下载页「时长 / 大小 / 码率」列的事实源）：读不出为 None，不编造。
+
+        用 ``mutagen.File`` 全容器探测而不是 read_tags 的三套容器：ape/wma 这类
+        只读容器也能读出流信息；cue 等认不出的格式至少还给得到文件字节。
+        """
+        facts: dict[str, int | None] = {
+            "duration_sec": None,
+            "file_size": None,
+            "bitrate": None,
+        }
+        try:
+            facts["file_size"] = path.stat().st_size
+        except OSError:
+            return facts
+        try:
+            audio = MutagenFile(str(path))
+        except Exception:  # noqa: BLE001  损坏/未识别容器按「无流信息」处理
+            return facts
+        if audio is None or audio.info is None:
+            return facts
+        length = getattr(audio.info, "length", None)
+        if isinstance(length, (int, float)) and math.isfinite(length) and length > 0:
+            facts["duration_sec"] = round(length)
+        bitrate = getattr(audio.info, "bitrate", None)
+        if isinstance(bitrate, (int, float)) and math.isfinite(bitrate) and bitrate > 0:
+            facts["bitrate"] = round(bitrate / 1000)  # bps → kbps
+        return facts
 
     def write_tags(self, path: Path, meta: TrackMeta) -> None:
         """写标签（FR-META-01/02）：title、artist、album、track、year。"""

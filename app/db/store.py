@@ -339,6 +339,39 @@ class Store:
                 (title, artist, album, history_id),
             )
 
+    def set_history_media(
+        self,
+        history_id: int,
+        duration_sec: int | None,
+        file_size: int | None,
+        bitrate: int | None,
+    ) -> None:
+        """回填时长 / 大小 / 码率（链接入队时未知，落盘实测后才拿得到）。
+
+        只认有真值的更新：传 NULL 的字段保持原样，不把已有读数冲掉。
+        """
+        with self._conn:
+            self._conn.execute(
+                "UPDATE history SET"
+                " duration_sec=COALESCE(?, duration_sec),"
+                " file_size=COALESCE(?, file_size),"
+                " bitrate=COALESCE(?, bitrate)"
+                " WHERE id=?",
+                (duration_sec, file_size, bitrate, history_id),
+            )
+
+    def list_history_missing_media(self, limit: int = 500) -> list[History]:
+        """已落盘但缺时长/大小/码率的行（启动回填用），旧的在前。"""
+        return [
+            row_to(History, r)
+            for r in self._conn.execute(
+                "SELECT * FROM history WHERE status='success' AND save_path IS NOT NULL"
+                " AND (duration_sec IS NULL OR file_size IS NULL OR bitrate IS NULL)"
+                " ORDER BY id LIMIT ?",
+                (limit,),
+            )
+        ]
+
     # ---- tasks ----
 
     def create_task(self, t: Task) -> int:
