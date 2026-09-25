@@ -1,8 +1,15 @@
-/** 播放器状态（FR-PLAY-01/03）：全局唯一 `<audio>` 挂在 TransportBar。
+/** 播放器：全局唯一实例交给 APlayer（吸底模式），这里只是它的事件桥。
  *
- * 队列上下文 = 历史筛选结果或搜索结果的已可播项；同一时刻一首。
- * 进度外观偏好存本机浏览器（`tgm-player-progress`），与主题/语言同为「不写服务端」的界面偏好。
+ * 页面与行内按钮只说两件事——「按这份上下文播放第 index 首」与「现在哪首在响」；
+ * 进度、音量、循环、顺序与播放列表 UI 全部由 APlayer 自己承担（它的设置存在
+ * 自己的 localStorage 键里，与主题/语言一样不写服务端）。挂载点在 PlayerHost：
+ * 外壳常驻，切页不销毁，歌照播。
  */
+
+import APlayer from "aplayer";
+import "aplayer/dist/APlayer.min.css";
+import { t } from "$lib/i18n/index.svelte";
+import { theme } from "$lib/stores/theme.svelte";
 
 export interface Track {
   /** 稳定的行标识（history id / chat_id-message_id），用于高亮当前行。 */
@@ -10,166 +17,150 @@ export interface Track {
   title: string;
   artist: string | null;
   streamUrl: string;
+  /** 封面 URL；给了就在 APlayer 的封面位显示，没有则显示主色块。 */
+  cover?: string | null;
 }
 
-/** 进度条两种形式：线型（默认）与波形，同一 range 内核只换皮肤。 */
-export type ProgressStyle = "line" | "wave";
-
-const PROGRESS_KEY = "tgm-player-progress";
-
-export const PROGRESS_STYLES: { value: ProgressStyle; label: string }[] = [
-  { value: "line", label: "player.styleLine" },
-  { value: "wave", label: "player.styleWave" },
-];
-
-function readStoredStyle(): ProgressStyle {
-  try {
-    return localStorage.getItem(PROGRESS_KEY) === "wave" ? "wave" : "line";
-  } catch {
-    return "line";
-  }
-}
+/** 播放器的主题色跟随界面主色（浅/深各一档，取设计令牌 --primary 的原值）。 */
+const THEME_COLOR = { light: "#0b7a55", dark: "#4fb08a" } as const;
 
 class Player {
-  queue = $state<Track[]>([]);
-  index = $state(-1);
+  /** 正在响的那首 Track.id：行高亮据此判断自己是不是当前行。 */
+  currentId = $state<string | null>(null);
   playing = $state(false);
-  buffering = $state(false);
-  currentTime = $state(0);
-  duration = $state(0);
-  volume = $state(1);
-  error = $state<string | null>(null);
-  progressStyle = $state<ProgressStyle>(readStoredStyle());
-  shuffle = $state(false);
-  /** 循环：队尾之后回到队首，不重复单曲。 */
-  repeat = $state(false);
+
+  #ap: APlayer | null = null;
+  /** 当前列表的上下文：APlayer 的列表只存 url/name，行高亮还得靠 id 对回 Track。 */
+  #tracks: Track[] = [];
 
   get current(): Track | null {
-    return this.queue[this.index] ?? null;
+    return this.#tracks.find((track) => track.id === this.currentId) ?? null;
   }
 
-  get hasPrev(): boolean {
-    return this.index > 0 || (this.repeat && this.queue.length > 1);
-  }
+  /** PlayerHost 挂载时创建实例；外壳常驻，一次就够。 */
+  mount(container: HTMLElement) {
+    if (this.#ap) return;
+    const ap = new APlayer({
+      container,
+      audio: [],
+      fixed: true,
+      // 1.10.1 里 fixed 模式的 mini 默认值是 true（mini: narrow || fixed），
+      // 不显式关掉的话控制区会被 scaleX(0) 折叠成只剩封面的窄条
+      mini: false,
+      autoplay: false,
+      theme: THEME_COLOR[theme.resolved],
+      loop: "all",
+      order: "list",
+      preload: "metadata",
+      volume: 0.7,
+      mutex: true,
+      listFolded: true,
+      // 1.10.1 会把这个值原样内插进 style="max-height: …"：必须带单位，
+      // 纯数字会生成非法 CSS 被浏览器丢弃，列表就失去高度上限了。
+      listMaxHeight: "420px",
+      storageName: "tgm-aplayer",
+    });
+    this.#ap = ap;
 
-  get hasNext(): boolean {
-    return this.index >= 0 && (this.index < this.queue.length - 1 || (this.repeat && this.queue.length > 1));
-  }
-
-  get ratio(): number {
-    if (this.duration <= 0) return 0;
-    return Math.min(1, Math.max(0, this.currentTime / this.duration));
-  }
-
-  play(tracks: Track[], index: number) {
-    this.queue = tracks;
-    this.index = index;
-    this.#resetFrom(0);
-    this.playing = true;
-  }
-
-  pause() {
-    this.playing = false;
-  }
-
-  resume() {
-    if (this.current) {
-      this.error = null;
-      this.playing = true;
-    }
-  }
-
-  toggle() {
-    if (this.playing) this.pause();
-    else this.resume();
-  }
-
-  /** 下一首：随机优先，其次顺延，再次（开了循环）回到队首；都没有就停在末尾。 */
-  next() {
-    if (this.queue.length === 0) return;
-    if (this.shuffle && this.queue.length > 1) {
-      this.index = this.#randomIndex();
-    } else if (this.index < this.queue.length - 1) {
-      this.index += 1;
-    } else if (this.repeat) {
-      this.index = 0;
-    } else {
+    ap.on("play", () => (this.playing = true));
+    ap.on("pause", () => (this.playing = false));
+    // loop=all 时下一首的 play 事件会接上，这里只是循环关尽的兜底
+    ap.on("ended", () => (this.playing = false));
+    ap.on("listswitch", (data) => {
+      this.currentId = this.#tracks[data.index ?? -1]?.id ?? null;
+    });
+    // APlayer 自带的报错是英文写死的：用同一个通知条换成界内文案
+    ap.on("error", () => {
       this.playing = false;
-      this.currentTime = this.duration;
-      return;
-    }
-    this.#resetFrom(0);
-    this.playing = true;
+      ap.notice(t("player.unplayable"), 3000);
+    });
+
+    // APlayer 的 <audio> 默认是游离节点：挂进容器（hidden 不占版面），
+    // 带着在播的游离媒体节点做整页导航在部分内嵌内核上会崩掉渲染进程
+    ap.audio.hidden = true;
+    container.appendChild(ap.audio);
+
+    // fixed 模板出厂给 info 写了内联 display:none，指望 mini:true 的构造分支救回；
+    // 我们显式 mini:false 起步就是展开态，把这个内联样式摘掉
+    container.querySelector(".aplayer-info")?.removeAttribute("style");
   }
 
-  /** 上一首：播放已超过 3 秒时先回到本曲开头（与原生播放器手感一致）。 */
-  prev() {
-    if (!this.current) return;
-    if (this.currentTime > 3) {
-      this.currentTime = 0;
+  unmount() {
+    this.#ap?.destroy();
+    this.#ap = null;
+    this.#tracks = [];
+    this.currentId = null;
+    this.playing = false;
+  }
+
+  /** 播放入口：行内播放键 / 试听 / 播放所选都汇到这一个方法。
+   *
+   * - 上下文（列表）换了就整列重建；
+   * - 点的是当前正在响的那首：按钮此刻就是「暂停」，只暂停，不从头重放；
+   * - 其余一律从这首的开头播。
+   */
+  play(tracks: Track[], index: number) {
+    const ap = this.#ap;
+    const track = tracks[index];
+    if (!ap || !track) return;
+
+    if (track.id === this.currentId && this.playing) {
+      ap.pause();
       return;
     }
-    if (this.index > 0) {
-      this.index -= 1;
-    } else if (this.repeat && this.queue.length > 1) {
-      this.index = this.queue.length - 1;
+
+    if (!this.#sameContext(tracks)) {
+      this.#replaceList(ap, tracks);
+    }
+
+    const target = this.#tracks.findIndex((item) => item.id === track.id);
+    if (target < 0) return;
+    if (target === ap.list.index) {
+      ap.seek(0);
     } else {
-      this.currentTime = 0;
-      return;
+      ap.list.switch(target);
     }
-    this.#resetFrom(0);
+    ap.play();
+    this.currentId = track.id;
     this.playing = true;
   }
 
-  stop() {
-    this.queue = [];
-    this.index = -1;
-    this.playing = false;
-    this.buffering = false;
-    this.currentTime = 0;
-    this.duration = 0;
-    this.error = null;
+  /** 页面卸载（pagehide）时调用：先把在播的音频停住。
+   *  APlayer 的 audio 元素是游离节点，带着「正在播」的状态做整页导航
+   *  会把渲染进程挂死——卸载前暂停是兜底。 */
+  pause() {
+    this.#ap?.pause();
   }
 
-  seekRatio(ratio: number) {
-    if (this.duration > 0) {
-      this.currentTime = Math.min(this.duration, Math.max(0, ratio * this.duration));
+  /** 主题切换时把主色刷进封面块 / 进度条 / 列表游标。 */
+  applyTheme() {
+    const color = THEME_COLOR[theme.resolved];
+    const ap = this.#ap;
+    if (!ap) return;
+    for (let index = 0; index < ap.list.audios.length; index += 1) {
+      ap.theme(color, index);
     }
   }
 
-  setVolume(next: number) {
-    this.volume = Math.min(1, Math.max(0, next));
+  #sameContext(tracks: Track[]): boolean {
+    return (
+      this.#tracks.length === tracks.length &&
+      tracks.every((track, i) => track.id === this.#tracks[i]?.id)
+    );
   }
 
-  setProgressStyle(next: ProgressStyle) {
-    this.progressStyle = next;
-    try {
-      localStorage.setItem(PROGRESS_KEY, next);
-    } catch {
-      // 隐私模式：只在本会话生效
-    }
-  }
-
-  fail(message: string) {
-    this.playing = false;
-    this.buffering = false;
-    this.error = message;
-  }
-
-  #resetFrom(seconds: number) {
-    this.currentTime = seconds;
-    this.duration = 0;
-    this.error = null;
-    this.buffering = false;
-  }
-
-  #randomIndex(): number {
-    if (this.queue.length < 2) return this.index;
-    let next = this.index;
-    while (next === this.index) {
-      next = Math.floor(Math.random() * this.queue.length);
-    }
-    return next;
+  #replaceList(ap: APlayer, tracks: Track[]) {
+    this.#tracks = tracks;
+    ap.list.clear();
+    ap.list.add(
+      tracks.map((track) => ({
+        name: track.title,
+        artist: track.artist ?? "",
+        url: track.streamUrl,
+        cover: track.cover ?? undefined,
+        theme: THEME_COLOR[theme.resolved],
+      })),
+    );
   }
 }
 

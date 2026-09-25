@@ -550,24 +550,8 @@ export const zhCN: Dict = {
   },
 
   player: {
-    idle: "未在播放",
-    nowTitle: "当前播放",
-    idleHint: "在历史行点「播放」，或在搜索结果上点「试听」。",
-    play: "播放",
-    pause: "暂停",
-    prev: "上一首",
-    next: "下一首",
-    shuffle: "随机播放",
-    repeat: "循环播放",
-    queue: "播放队列",
-    queueEmpty: "队列空着。",
-    progressStyle: "进度外观",
-    styleLine: "线型",
-    styleWave: "波形",
-    position: "播放位置",
-    volume: "音量",
+    title: "音乐播放器",
     unplayable: "无法在浏览器播放这首，可打开本地文件。",
-    buffering: "缓冲中",
   },
 
   common: {
@@ -1148,24 +1132,8 @@ export const en: Dict = {
   },
 
   player: {
-    idle: "Nothing playing",
-    nowTitle: "Now playing",
-    idleHint: "Press Play on a history row, or Preview on a search result.",
-    play: "Play",
-    pause: "Pause",
-    prev: "Previous",
-    next: "Next",
-    shuffle: "Shuffle",
-    repeat: "Repeat",
-    queue: "Play queue",
-    queueEmpty: "The queue is empty.",
-    progressStyle: "Progress style",
-    styleLine: "Line",
-    styleWave: "Wave",
-    position: "Playback position",
-    volume: "Volume",
+    title: "Music player",
     unplayable: "This track cannot play in the browser; open the local file instead.",
-    buffering: "Buffering",
   },
 
   common: {

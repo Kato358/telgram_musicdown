@@ -144,6 +144,7 @@ class SearchStore {
       title: item.title ?? t("common.unknown"),
       artist: item.artist,
       streamUrl: `/api/preview/${this.previews[`${item.chat_id}-${item.message_id}`]}/stream`,
+      cover: coverOf(item),
     }));
     const index = tracks.findIndex((track) => track.id === activeKey);
     if (index >= 0) player.play(tracks, index);

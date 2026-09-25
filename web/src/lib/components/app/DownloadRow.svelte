@@ -39,7 +39,8 @@
    * 整条路径挪进悬浮提示（title）。次级动作（重试 / 取消 / 删除）由状态直排
    * （不再藏在「⋯」里），md 起悬浮行时才显形（Hover Action），触屏常驻。
    * 元数据缺省显示 `—`（浅灰占位），不再满屏「未知」。
-   * 行首封面用 Telegram 内嵌缩略图（`/api/history/{id}/cover`），加载失败退回音符占位。
+   * 行首封面走 `/api/history/{id}/cover`：后端优先从音频标签取内嵌封面，
+   * 取不到再回退 Telegram 缩略图；加载失败退回音符占位。
    */
   import type { Snippet } from "svelte";
   import CircleAlertIcon from "@lucide/svelte/icons/circle-alert";

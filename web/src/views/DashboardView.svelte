@@ -1,7 +1,7 @@
 <script lang="ts">
-  /** 仪表盘（设计规范 §10）：一屏之内回答四件事——在传什么、库有多大、最近下了什么、现在在听什么。
+  /** 仪表盘（设计规范 §10）：一屏之内回答三件事——在传什么、库有多大、最近下了什么。
    *
-   * 版面照参考图：欢迎横幅 + 四张统计卡 + 下载任务表（主栏）/ 快速操作 + 当前播放 + 系统状态（右栏）。
+   * 版面照参考图：欢迎横幅 + 四张统计卡 + 下载任务表（主栏）/ 快速操作 + 系统状态（右栏）。
    * 但「正在写入」那块淡绿状态卡留着，而且仍然紧跟统计卡——真实字节、速率、剩余与**落盘路径**
    * 是这个产品对用户的唯一承诺，它不能因为改版掉到看不见的地方。
    * 页头（H1）不重复：顶栏已经写着当前页名，横幅就是这一屏的开场。
@@ -21,12 +21,13 @@
   import TimerIcon from "@lucide/svelte/icons/timer";
   import ZapIcon from "@lucide/svelte/icons/zap";
   import { api, errorText } from "$lib/api/client";
+  import { fetchTracks } from "$lib/api/library";
   import type { HistoryRow } from "$lib/api/types";
   import { formatCount, formatSize, formatUptime, splitPath } from "$lib/format";
   import { t } from "$lib/i18n/index.svelte";
   import { navigate, pathOf } from "$lib/router.svelte";
   import { events } from "$lib/stores/events.svelte";
-  import { player, type Track } from "$lib/stores/player.svelte";
+  import { player } from "$lib/stores/player.svelte";
   import { queue } from "$lib/stores/queue.svelte";
   import { session } from "$lib/stores/session.svelte";
   import { stats } from "$lib/stores/stats.svelte";
@@ -38,7 +39,6 @@
   import Lamp from "$lib/components/app/Lamp.svelte";
   import Link from "$lib/components/app/Link.svelte";
   import Note from "$lib/components/app/Note.svelte";
-  import NowPlayingCard from "$lib/components/app/NowPlayingCard.svelte";
   import SectionCard from "$lib/components/app/SectionCard.svelte";
   import StatCard from "$lib/components/app/StatCard.svelte";
   import HeroBanner from "$lib/components/app/HeroBanner.svelte";
@@ -90,16 +90,6 @@
     [...queue.tasks]
       .sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || b.id - a.id)
       .slice(0, ROWS),
-  );
-
-  const playable = $derived(recent.filter((row) => row.save_path !== null));
-  const tracks = $derived(
-    playable.map((row): Track => ({
-      id: String(row.id),
-      title: row.title ?? "",
-      artist: row.artist,
-      streamUrl: `/api/history/${row.id}/stream`,
-    })),
   );
 
   /** 系统状态：四条都是真读数，不做「看起来正常」的占位。 */
@@ -187,10 +177,16 @@
     }
   }
 
-  function playFrom(row: HistoryRow) {
-    const index = playable.findIndex((item) => item.id === row.id);
-    if (index < 0) return;
-    player.play(tracks, index);
+  async function playFrom(row: HistoryRow) {
+    error = "";
+    try {
+      // 队列上下文是整个曲库，不只是屏上的几行「最近」：点哪首，从哪首起播
+      const tracks = await fetchTracks({ status: "success" });
+      const index = tracks.findIndex((track) => track.id === String(row.id));
+      if (index >= 0) player.play(tracks, index);
+    } catch (err) {
+      error = errorText(err, t("common.error"));
+    }
   }
 
   function search(keyword: string) {
@@ -364,8 +360,6 @@
     >
       <ActionTileGrid items={quickItems} />
     </SectionCard>
-
-    <NowPlayingCard />
 
     <SectionCard title={t("dashboard.systemTitle")} icon={ActivityIcon}>
       {#snippet actions()}

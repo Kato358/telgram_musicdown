@@ -1,8 +1,9 @@
 <script lang="ts">
-  /** 应用外壳：初始化闸门 + 侧栏/顶栏/内容区/播放条四段结构（设计规范 §2.1、SDD §5.1）。
+  /** 应用外壳：初始化闸门 + 侧栏/顶栏/内容区三段结构 + 吸底播放器（设计规范 §2.1、SDD §5.1）。
    *
-   * 全站唯一常驻的四处：导航、顶栏、内容出口、播放条。其余都是路由内容。
-   * 键盘快捷键只在注册一次——顶栏搜索的 Ctrl/⌘+K 从这里发信号，不在组件里各挂各的。
+   * 全站唯一常驻的：导航、顶栏、内容出口、APlayer 吸底播放器（PlayerHost）。
+   * 其余都是路由内容。键盘快捷键只在注册一次——顶栏搜索的 Ctrl/⌘+K 从这里发信号，
+   * 不在组件里各挂各的。
    */
   import { onMount } from "svelte";
   import type { Component } from "svelte";
@@ -15,7 +16,7 @@
   import { stats } from "$lib/stores/stats.svelte";
   import Sidebar from "$lib/components/app/Sidebar.svelte";
   import TopBar from "$lib/components/app/TopBar.svelte";
-  import TransportBar from "$lib/components/app/TransportBar.svelte";
+  import PlayerHost from "$lib/components/app/PlayerHost.svelte";
   import FlyOverlay from "$lib/components/app/FlyOverlay.svelte";
   import DashboardView from "@/views/DashboardView.svelte";
   import DownloadsView from "@/views/DownloadsView.svelte";
@@ -127,7 +128,7 @@
         </main>
       </div>
     </div>
-    <TransportBar />
+    <PlayerHost />
     <!-- 「飞进侧边栏下载」的全局动画层：fixed 定位，挂在外壳上与路由无关 -->
     <FlyOverlay />
   </div>

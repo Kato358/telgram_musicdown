@@ -12,12 +12,13 @@
   import ChevronLeftIcon from "@lucide/svelte/icons/chevron-left";
   import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
   import { api, errorText } from "$lib/api/client";
+  import { fetchTracks, rowToTrack } from "$lib/api/library";
   import type { DownloadItemResult, HistoryRow } from "$lib/api/types";
   import { formatSize } from "$lib/format";
   import { t } from "$lib/i18n/index.svelte";
   import { router } from "$lib/router.svelte";
   import { events } from "$lib/stores/events.svelte";
-  import { player, type Track } from "$lib/stores/player.svelte";
+  import { player } from "$lib/stores/player.svelte";
   import { queue } from "$lib/stores/queue.svelte";
   import { stats } from "$lib/stores/stats.svelte";
   import type { Tone } from "$lib/tone";
@@ -129,18 +130,6 @@
   /** 页脚里的一页总大小：只加这一页有大小可算的行。 */
   const pageBytes = $derived(rows.reduce((sum, row) => sum + (row.file_size ?? 0), 0));
 
-  const playable = $derived(rows.filter((row) => row.save_path !== null));
-  const tracks = $derived(playable.map(rowToTrack));
-
-  function rowToTrack(row: HistoryRow): Track {
-    return {
-      id: String(row.id),
-      title: row.title ?? "",
-      artist: row.artist,
-      streamUrl: `/api/history/${row.id}/stream`,
-    };
-  }
-
   async function load(q: string, status: string, pg: number) {
     const seq = (requestSeq += 1);
     const parts: string[] = [];
@@ -247,10 +236,17 @@
       : new Set([...selected].filter((id) => id !== row.id));
   }
 
-  function playFrom(row: HistoryRow) {
-    const index = playable.findIndex((item) => item.id === row.id);
-    if (index < 0) return;
-    player.play(tracks, index);
+  /** 行内播放：队列上下文 = 当前筛选（关键词 + 页签）下的整个曲库，不只这一页。
+   *  点哪首从哪首起播；筛选里没有它的可播条目时保持安静。 */
+  async function playFrom(row: HistoryRow) {
+    error = "";
+    try {
+      const tracks = await fetchTracks({ q: stableKeyword.trim(), status: statusQuery });
+      const index = tracks.findIndex((track) => track.id === String(row.id));
+      if (index >= 0) player.play(tracks, index);
+    } catch (err) {
+      error = errorText(err, t("common.error"));
+    }
   }
 
   function playSelected() {
