@@ -481,6 +481,71 @@
   background: var(--popover);
   color: var(--popover-foreground);
 }
+
+/* 歌词条：贴页面底缘整宽居中（经典 APlayer fixed 歌词样式）。
+   无卡片底、无遮罩，纯文字 + 轻投影浮在页面内容之上；
+   播放器机身（z 99）压在其上，歌词行从卡片背后穿过。
+   行高 16px 是它 JS 滚动位移的算数基准，不能动——字号随页面缩放
+   靠 zoom 整体等比放大歌词条：行距与 JS 的 16px 位移同步缩放，
+   对齐不破，文字按缩放后的尺寸原生渲染（transform:scale 会糊）。
+   出厂 12px 太小，基线放大到 14.4px，宽屏再逐档加大。 */
+.aplayer-host.aplayer.aplayer-fixed .aplayer-lrc {
+  display: block;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 10px;
+  z-index: 98;
+  box-sizing: border-box;
+  height: 30px;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  pointer-events: none;
+  overflow: hidden;
+  zoom: 1.2;
+}
+
+@media (min-width: 1024px) {
+  .aplayer-host.aplayer.aplayer-fixed .aplayer-lrc {
+    zoom: 1.35; /* 16.2px */
+  }
+}
+
+@media (min-width: 1600px) {
+  .aplayer-host.aplayer.aplayer-fixed .aplayer-lrc {
+    zoom: 1.5; /* 18px */
+  }
+}
+
+/* 行文字：非当前行出厂 opacity .4，配令牌色即是淡出的前后行 */
+.aplayer-host.aplayer .aplayer-lrc p {
+  color: var(--muted-foreground);
+}
+
+/* 当前行稍大：行高 16px 是 JS 滚动位移的基准不能动，只把字号从出厂
+   12px 提到 15px（仍在线框内不裁字）；换行时沿用出厂 all .5s 平滑过渡 */
+.aplayer-host.aplayer .aplayer-lrc p.aplayer-lrc-current {
+  color: var(--card-foreground);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+/* 不渲染歌词条（须排在上面的 display:block 之后，同优先级靠后者赢）：
+   无歌词（aplayer-lrc-empty）、按钮收起（aplayer-lrc-hide）。 */
+.aplayer-host.aplayer.aplayer-fixed.aplayer-lrc-empty .aplayer-lrc,
+.aplayer-host.aplayer.aplayer-fixed .aplayer-lrc.aplayer-lrc-hide {
+  display: none;
+}
+
+/* 窄屏：机身几乎占满整行，歌词条让到机身正上方，否则被卡片盖住 */
+@media (max-width: 639px) {
+  .aplayer-host.aplayer.aplayer-fixed .aplayer-lrc {
+    bottom: 92px;
+  }
+}
+
 /* ============================================================
    动效（§7）：hover/active 过渡、路由淡入、进行中状态点呼吸。
    prefers-reduced-motion: reduce 时全部静止。

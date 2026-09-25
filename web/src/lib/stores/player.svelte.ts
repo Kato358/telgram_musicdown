@@ -9,6 +9,7 @@
 import APlayer from "aplayer";
 import "aplayer/dist/APlayer.min.css";
 import { t } from "$lib/i18n/index.svelte";
+import { lyricsUrl } from "$lib/lyrics";
 import { theme } from "$lib/stores/theme.svelte";
 
 export interface Track {
@@ -32,6 +33,8 @@ class Player {
   #ap: APlayer | null = null;
   /** 当前列表的上下文：APlayer 的列表只存 url/name，行高亮还得靠 id 对回 Track。 */
   #tracks: Track[] = [];
+  /** 盯 APlayer 歌词容器的空/非空：没有歌词时把面板整个收掉（见 mount）。 */
+  #lrcObserver: MutationObserver | null = null;
 
   get current(): Track | null {
     return this.#tracks.find((track) => track.id === this.currentId) ?? null;
@@ -54,6 +57,9 @@ class Player {
       preload: "metadata",
       volume: 0.7,
       mutex: true,
+      // lrcType 3 = 每首 audio.lrc 是一个 URL，APlayer 切歌时自行 XHR 拉取并滚动；
+      // URL 由 #replaceList 统一给后端 /api/lyrics（恒 200，无歌词回空体）。
+      lrcType: 3,
       listFolded: true,
       // 1.10.1 会把这个值原样内插进 style="max-height: …"：必须带单位，
       // 纯数字会生成非法 CSS 被浏览器丢弃，列表就失去高度上限了。
@@ -83,9 +89,22 @@ class Player {
     // fixed 模板出厂给 info 写了内联 display:none，指望 mini:true 的构造分支救回；
     // 我们显式 mini:false 起步就是展开态，把这个内联样式摘掉
     container.querySelector(".aplayer-info")?.removeAttribute("style");
+
+    // 歌词面板的空/非空：APlayer 没有对应事件，盯它的歌词容器自己维护。
+    // 有内容才显示面板（空歌词不渲染一张空卡），容器 class 供 CSS 命中。
+    const lrcContents = container.querySelector(".aplayer-lrc-contents");
+    if (lrcContents) {
+      const sync = () =>
+        container.classList.toggle("aplayer-lrc-empty", lrcContents.children.length === 0);
+      this.#lrcObserver = new MutationObserver(sync);
+      this.#lrcObserver.observe(lrcContents, { childList: true });
+      sync();
+    }
   }
 
   unmount() {
+    this.#lrcObserver?.disconnect();
+    this.#lrcObserver = null;
     this.#ap?.destroy();
     this.#ap = null;
     this.#tracks = [];
@@ -158,6 +177,8 @@ class Player {
         artist: track.artist ?? "",
         url: track.streamUrl,
         cover: track.cover ?? undefined,
+        // 歌词走后端代理：恒 200，查不到空体 → APlayer 解析为空，面板留白
+        lrc: lyricsUrl(track.title, track.artist),
         theme: THEME_COLOR[theme.resolved],
       })),
     );
