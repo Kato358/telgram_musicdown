@@ -341,9 +341,11 @@
   overflow: hidden;
 }
 
-/* 折叠（迷你）态：压回 66px，让右缘的折叠把手仍能把手身收起 */
+/* 折叠（迷你）态：86px = 66px 封面 + 18px 折叠把手内边距 + 2px 边框。
+   机身是 border-box（含边框内边距），照抄 APlayer 出厂的 66px 内容区只剩
+   48px，封面会被 overflow:hidden 裁掉一块——这里按盒模型实算补齐。 */
 .aplayer-host.aplayer.aplayer-fixed.aplayer-narrow .aplayer-body {
-  width: 66px !important;
+  width: 86px !important;
 }
 
 .aplayer-host.aplayer.aplayer-fixed .aplayer-info {
@@ -409,6 +411,17 @@
   background: var(--progress-track);
 }
 
+/* 折叠把手箭头：APlayer 出厂语义是「左锚定」布局的（展开时指左=向左收起）。
+   这里机身锚在右下角，方向整体对调——展开态指右（点击向右收起），
+   折叠态指左（点击向左展开），箭头始终指向机身即将移动的方向。 */
+.aplayer-host.aplayer .aplayer-miniswitcher .aplayer-icon {
+  transform: rotateY(0);
+}
+
+.aplayer-host.aplayer.aplayer-narrow .aplayer-miniswitcher .aplayer-icon {
+  transform: rotateY(180deg);
+}
+
 .aplayer-host.aplayer .aplayer-miniswitcher {
   background: var(--surface-subtle);
 }
@@ -422,9 +435,10 @@
 }
 
 /* 播放列表：悬浮在机身正上方，同一张卡的语言。
-   （APlayer 自带的 fixed 列表没有背景色，浮在内容上会「透底」。） */
+   （APlayer 自带的 fixed 列表没有背景色，浮在内容上会「透底」。）
+   66px 机身 + 2px 上下边框，让出 68px 正好露出完整机身。 */
 .aplayer-host.aplayer.aplayer-fixed .aplayer-list {
-  margin-bottom: 66px;
+  margin-bottom: 68px;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--card);
