@@ -163,7 +163,10 @@
   async function load() {
     try {
       const [history, sourceRows] = await Promise.all([
-        api.get<HistoryRow[]>("/api/history?page=0"),
+        // 「最近入库」只说已入库的那批（status=success）：未下载完成的行 save_path
+        // 还是 null，混进来会让它们顶着「文件不在磁盘」的红色文案——那是给
+        // 已入库后文件丢失准备的提示，与「查看全部」指向的 ?status=success 同一判据。
+        api.get<HistoryRow[]>("/api/history?page=0&status=success"),
         api.get<{ id: number }[]>("/api/sources"),
       ]);
       historyRows = history;
