@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from mutagen.id3 import ID3, TALB, TIT2, TPE1
 
 from app.db.models import History
 from app.db.models import Task as TaskModel
@@ -447,3 +448,61 @@ async def test_delete_downloading_task_cancels_active_worker(
 
     assert store.get_task(task_id) is None
     assert store.get_history(history_id) is not None
+
+
+def _tagged_mp3_bytes(tmp_path: Path) -> bytes:
+    """带 ID3 标签的最小 MP3：验证完成后的显示元数据从落盘文件里读出来。"""
+    p = tmp_path / "tagged.mp3"
+    p.write_bytes(b"\xff\xfb\x90\x44" + b"\x00" * 107)
+    tags = ID3()
+    tags.add(TIT2(encoding=3, text="夜曲"))
+    tags.add(TPE1(encoding=3, text="周杰伦"))
+    tags.add(TALB(encoding=3, text="十一月的萧邦"))
+    tags.save(p)
+    return p.read_bytes()
+
+
+def _untagged_flac_bytes() -> bytes:
+    """最小合法 FLAC（无 Vorbis Comment）：读标签得到全空，走文件名补全。"""
+    return (
+        b"fLaC"
+        + b"\x00\x00\x00\x22"
+        + b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10"
+        + b"\x00\x00\x00\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    )
+
+
+async def test_finish_display_uses_file_tags(
+    svc: tuple[DownloadService, Store, FakeUserClient], tmp_path: Path
+) -> None:
+    # FR-META-01：完成后的显示元数据以落盘文件的内嵌标签为准，TG 元数据只兜底。
+    service, store, client = svc
+    client.content = _tagged_mp3_bytes(tmp_path)
+    task_id = await service.enqueue(req(1, ext="mp3", title="TG标题.mp3"))
+    assert task_id is not None
+    await service._run_task(worker_row(store, task_id))
+    history_id = store.get_task(task_id).history_id  # type: ignore[union-attr]
+    assert history_id is not None
+    row = store.get_history(history_id)
+    assert row is not None
+    assert (row.title, row.artist, row.album) == ("夜曲", "周杰伦", "十一月的萧邦")
+
+
+async def test_finish_display_parses_filename_when_untagged(
+    svc: tuple[DownloadService, Store, FakeUserClient], tmp_path: Path
+) -> None:
+    # 下载中复用 TG 原文件名；完成后无标签 → 收掉扩展名并按「歌手 - 歌名」补出歌手。
+    service, store, client = svc
+    client.content = _untagged_flac_bytes()
+    task_id = await service.enqueue(req(2, ext="flac", title="周杰伦 - 夜曲.flac"))
+    assert task_id is not None
+    history_id = store.get_task(task_id).history_id  # type: ignore[union-attr]
+    assert history_id is not None
+    row = store.get_history(history_id)
+    assert row is not None
+    assert row.title == "周杰伦 - 夜曲.flac"
+    assert row.artist is None
+    await service._run_task(worker_row(store, task_id))
+    row = store.get_history(history_id)
+    assert row is not None
+    assert (row.title, row.artist) == ("夜曲", "周杰伦")

@@ -22,8 +22,9 @@ import asyncio
 import json
 import logging
 import os
+import re
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any, Protocol
@@ -81,13 +82,10 @@ class DownloadRequest:
     force: bool = False
 
 
-
 class _ProgressReporter:
     """把 Pyrogram 同步进度回调转换成节流的 SSE 与 DB 更新。"""
 
-    def __init__(
-        self, service: DownloadService, task_id: int, total_bytes: int | None
-    ) -> None:
+    def __init__(self, service: DownloadService, task_id: int, total_bytes: int | None) -> None:
         self._service = service
         self._task_id = task_id
         self._total_bytes = total_bytes
@@ -142,9 +140,7 @@ class _ProgressReporter:
 
         # 最终帧在 async flush 中 await 发布，保证随后 task.status 的顺序。
         if not final:
-            self._service.events.publish_nowait(
-                Event("task.progress", self._payload())
-            )
+            self._service.events.publish_nowait(Event("task.progress", self._payload()))
 
         if final or now - self._last_db_at >= PROGRESS_DB_INTERVAL_SEC:
             self._last_db_at = now
@@ -189,6 +185,7 @@ class _ProgressReporter:
         )
         if not cancelled:
             await self._service.events.publish(Event("task.progress", self._payload()))
+
 
 class DownloadService:
     """下载队列：入队去重、worker 池、状态机、重试（FR-DL-01~06）。"""
@@ -426,7 +423,7 @@ class DownloadService:
         history_id: int | None = task.get("history_id")
         meta = _meta_from_payload(payload)
         # bot 链接/转发入队只有 chat_id/message_id：下载前取一次消息补全 meta
-        #（ext 决定落盘扩展名与标签容器，file_size 决定完整性校验）。
+        # （ext 决定落盘扩展名与标签容器，file_size 决定完整性校验）。
         if meta.ext is None and meta.file_size is None and meta.title is None:
             meta = await self._hydrate_meta(meta)
         if history_id is not None:
@@ -606,11 +603,36 @@ class DownloadService:
             meta.album or history.album,
         )
 
+    def _display_meta(self, save_path: str, meta: TrackMeta) -> TrackMeta:
+        """完成态的显示元数据（FR-META-01）：落盘文件的内嵌标签是事实源，缺项再补。
+
+        补全顺序：文件标签 → Telegram 原文件名拆「歌手 - 歌名」（caption 正则同一份配置）
+        → 入队时的元数据。下载中的行不动（显示 TG 原文件名），完成后才按文件补全。
+        """
+        title, artist, album = meta.title, meta.artist, meta.album
+        try:
+            tags = self.tags.read_tags(Path(save_path))
+        except Exception:  # noqa: BLE001  只读容器/损坏文件按「无标签」处理，不挡完成流程
+            tags = {}
+        else:
+            title = tags.get("title") or title
+            artist = tags.get("artist") or artist
+            album = tags.get("album") or album
+        # 标题还是 TG 原文件名兜底（带扩展名）：去掉扩展名，并按「歌手 - 歌名」补齐缺失项
+        if title and meta.ext and title.lower().endswith(f".{meta.ext.lower()}"):
+            title = title[: -len(meta.ext) - 1]
+            if not artist:
+                m = re.match(self.cfg.caption_artist_re, title)
+                if m:
+                    artist = m.group("artist").strip() or None
+                    title = m.group("title").strip() or title
+        return replace(meta, title=title, artist=artist, album=album)
+
     def _finish_history(
         self, history_id: int, save_path: str, payload: dict[str, Any], meta: TrackMeta
     ) -> None:
         self.store.mark_history_status(history_id, "success", save_path=save_path, finished=True)
-        self._sync_history_display(history_id, meta)
+        self._sync_history_display(history_id, self._display_meta(save_path, meta))
         if payload.get("write_tags", True):
             try:
                 self.tags.write_tags(Path(save_path), meta)

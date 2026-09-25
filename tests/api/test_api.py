@@ -573,3 +573,89 @@ def test_download_list_and_lifecycle_routes(client: TestClient, tmp_path: Path) 
     assert store.get_history(history_id) is not None
     assert client.post("/api/downloads/999/retry").status_code == 404
     assert client.delete("/api/downloads/999").status_code == 404
+
+
+def test_history_reveal_opens_folder(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient, tmp_path: Path
+) -> None:
+    # 「打开所在文件夹」：落盘目录在 → 200 且把目录交给文件管理器；
+    # 文件被移走但目录还在仍可打开；目录都没了或记录不存在 → 404。
+    opened: list[Path] = []
+
+    def record_open(folder: Path) -> None:
+        opened.append(folder)
+
+    monkeypatch.setattr("app.web.routes._open_in_file_manager", record_open)
+    library = tmp_path / "library"
+    library.mkdir()
+    on_disk = library / "a.mp3"
+    on_disk.write_bytes(b"x")
+    store = Store(tmp_path / "app.db")
+    hid = store.upsert_history(
+        History(
+            id=None,
+            chat_id=-1001,
+            message_id=1,
+            title="A",
+            status="success",
+            save_path=str(on_disk),
+        )
+    )
+    moved_id = store.upsert_history(
+        History(
+            id=None,
+            chat_id=-1001,
+            message_id=2,
+            title="Moved",
+            status="success",
+            save_path=str(library / "gone.mp3"),
+        )
+    )
+    vanished_id = store.upsert_history(
+        History(
+            id=None,
+            chat_id=-1001,
+            message_id=3,
+            title="Vanished",
+            status="success",
+            save_path=str(tmp_path / "no-such-dir" / "a.mp3"),
+        )
+    )
+
+    resp = client.post(f"/api/history/{hid}/reveal")
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert client.post(f"/api/history/{moved_id}/reveal").status_code == 200
+    assert opened == [library, library]
+    assert client.post(f"/api/history/{vanished_id}/reveal").status_code == 404
+    assert client.post("/api/history/99999/reveal").status_code == 404
+
+
+def test_history_reveal_reports_open_failure(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient, tmp_path: Path
+) -> None:
+    # 文件管理器打不开（OSError）→ 500 且说原因，不静默。
+    def boom(folder: Path) -> None:
+        del folder
+        raise OSError("no file manager")
+
+    monkeypatch.setattr("app.web.routes._open_in_file_manager", boom)
+    library = tmp_path / "library"
+    library.mkdir()
+    on_disk = library / "a.mp3"
+    on_disk.write_bytes(b"x")
+    store = Store(tmp_path / "app.db")
+    hid = store.upsert_history(
+        History(
+            id=None,
+            chat_id=-1001,
+            message_id=1,
+            title="A",
+            status="success",
+            save_path=str(on_disk),
+        )
+    )
+
+    resp = client.post(f"/api/history/{hid}/reveal")
+    assert resp.status_code == 500
+    assert "no file manager" in resp.text

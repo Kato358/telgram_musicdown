@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
+import subprocess
+import sys
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -76,6 +79,16 @@ def _disk_bytes(paths: list[str]) -> int:
         except OSError:
             continue
     return total
+
+
+def _open_in_file_manager(folder: Path) -> None:
+    """用系统文件管理器打开目录（Windows / macOS / Linux 各自的原生方式）。"""
+    if sys.platform == "win32":
+        os.startfile(folder)  # type: ignore[attr-defined]  # noqa: S606
+    elif sys.platform == "darwin":
+        subprocess.run(["/usr/bin/open", str(folder)], check=True)  # noqa: S603
+    else:
+        subprocess.run(["/usr/bin/xdg-open", str(folder)], check=True)  # noqa: S603
 
 
 def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天然超限
@@ -473,6 +486,21 @@ def create_app(  # noqa: PLR0915  路由工厂注册全部端点，语句数天�
             p.open("rb"),  # noqa: ASYNC230, ASYNC240
             media_type="application/octet-stream",
         )
+
+    @app.post("/api/history/{history_id}/reveal")
+    async def history_reveal(history_id: int, _: None = Depends(check_session)) -> dict[str, bool]:
+        """在系统文件管理器里打开这条记录的落盘目录（下载页行尾的「打开文件夹」）。"""
+        h = store.get_history(history_id)
+        if h is None or not h.save_path:
+            raise HTTPException(status_code=404, detail="history not found")
+        folder = Path(h.save_path).parent
+        if not folder.exists():  # noqa: ASYNC240  路由级存在性检查非热路径
+            raise HTTPException(status_code=404, detail="file missing")
+        try:
+            await asyncio.to_thread(_open_in_file_manager, folder)
+        except (OSError, subprocess.SubprocessError) as e:
+            raise HTTPException(status_code=500, detail=f"cannot open folder: {e}") from e
+        return {"ok": True}
 
     # ---- preview ----
 
