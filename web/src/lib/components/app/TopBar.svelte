@@ -134,7 +134,7 @@
   {:else}
     <MobileNav />
 
-    <div class="hidden min-w-0 flex-1 md:flex md:max-w-[320px] lg:max-w-[480px]">
+    <div class="hidden min-w-0 flex-1 md:flex md:max-w-[480px]">
       <div
         class="flex h-10 min-w-0 w-full items-center gap-2 rounded-full border border-border bg-surface-subtle px-3.5"
       >

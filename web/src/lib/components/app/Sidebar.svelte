@@ -1,5 +1,6 @@
 <script lang="ts">
-  /** 侧边导航（设计规范 §5.1）：190px 展开，768–1023px 塌为 64px 图标模式（<768 收入抽屉）。
+  /** 侧边导航（设计规范 §5.1）：≥1024px 固定 260px 展开（侧栏:主栏 ≈ 1:4~1:5），
+   *  <1024px 整条收进顶栏汉堡抽屉（MobileNav），没有中间的图标模式。
    *
    * 当前页用浅绿圆角块包裹，不用左条标记；计数用浅绿药丸，为 0 时不渲染。
    */
@@ -39,7 +40,7 @@ import { queue } from "$lib/stores/queue.svelte";
   }
 </script>
 
-<aside class="hidden shrink-0 flex-col border-r border-border bg-card md:flex md:w-16 lg:w-[190px]">
+<aside class="hidden shrink-0 flex-col border-r border-border bg-card lg:flex lg:w-[260px]">
   <div class="flex h-16 shrink-0 items-center gap-2.5 px-4">
     <span
       class="grid size-7 shrink-0 place-items-center rounded-chip bg-primary text-primary-foreground"
@@ -47,7 +48,7 @@ import { queue } from "$lib/stores/queue.svelte";
     >
       <MusicIcon class="size-4" />
     </span>
-    <span class="hidden min-w-0 flex-col lg:flex">
+    <span class="min-w-0 flex-col">
       <span class="truncate text-body font-semibold">{t("app.name")}</span>
       <span class="tabular truncate text-caption text-muted-foreground">{t("app.repo")}</span>
     </span>
@@ -63,10 +64,9 @@ import { queue } from "$lib/stores/queue.svelte";
       <Link
         href={pathOf(route.key)}
         {active}
-        class="ui-transition flex h-[42px] items-center justify-center gap-2.5 rounded-nav px-3 lg:justify-start {active
+        class="ui-transition flex h-[42px] items-center gap-2.5 rounded-nav px-3 {active
           ? 'bg-primary-soft text-primary'
           : 'text-muted-foreground hover:bg-rule hover:text-foreground'}"
-        title={t(`nav.${route.key}`)}
       >
         {#if route.key === "downloads"}
           <!-- 搜索页加入队列后飞片飞到 data-fly-downloads 这个点；fly.pulse 递增一次
@@ -82,17 +82,17 @@ import { queue } from "$lib/stores/queue.svelte";
         {:else}
           <Icon class="size-[18px] shrink-0" />
         {/if}
-        <span class="hidden min-w-0 flex-1 truncate text-body font-medium lg:block">
+        <span class="min-w-0 flex-1 truncate text-body font-medium">
           {t(`nav.${route.key}`)}
         </span>
-        <Badge count={countFor(route.key)} class="hidden lg:inline-flex" />
+        <Badge count={countFor(route.key)} />
       </Link>
     {/each}
   </nav>
 
   <!-- 底部的曲库卡（参考图的侧栏底部位）：只回答「曲库现在多大」，整块点进下载页的已入库筛选。
-      64px 图标模式下不渲染（那里放不下两行字）。 -->
-  <div class="hidden px-3 pb-4 lg:block">
+      侧栏只在 ≥1024px 渲染，抽屉模式下曲库占用读数随侧栏一起隐藏。 -->
+  <div class="px-3 pb-4">
     <Link
       href={`${pathOf("downloads")}?status=success`}
       class="surface-promo ui-transition block rounded-nav p-3 hover:opacity-90"

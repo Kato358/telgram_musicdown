@@ -226,7 +226,9 @@
       }}
     />
 
-    <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-5">
+    <!-- lg 档带右栏时主栏只剩 ~430px，四列每卡 ~93px 放不下「469 MB」（§2.5 的 ~130px 下限），
+        退为 2×2；<1024px 无右栏、≥1280px 主栏 ≥690px 时仍四列。 -->
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-5 lg:grid-cols-2 lg:gap-4 xl:grid-cols-4 xl:gap-5">
       <StatCard
         label={t("dashboard.statTasks")}
         value={formatCount(queue.activeCount)}

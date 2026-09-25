@@ -1,7 +1,7 @@
 <script lang="ts">
-  /** 小屏导航抽屉（设计规范 §6.3）：<768px 侧栏收起后，导航在这里。
+  /** 小屏导航抽屉（设计规范 §6.3）：<1024px 侧栏收起后，导航在这里（off-canvas，汉堡键 ☰ 唤起）。
    *
-   * 条目规格与 Sidebar 一致（42px 高、12px 圆角、激活项浅绿块）；
+   * 条目规格与 Sidebar 一致（42px 高、12px 圆角、激活项浅绿块），抽屉宽度与桌面侧栏同为 260px；
    * Esc 关闭并把焦点还给汉堡键（§7）。
    */
   import type { Component } from "svelte";
@@ -59,7 +59,7 @@
   bind:this={trigger}
   type="button"
   data-fly-navmenu
-  class="ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground md:hidden"
+  class="ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground lg:hidden"
   aria-label={t("app.menu")}
   aria-expanded={open}
   onclick={() => (open = true)}
@@ -68,9 +68,9 @@
 </button>
 
 {#if open}
-  <div class="fixed inset-0 z-40 bg-foreground/20 md:hidden" aria-hidden="true" onclick={close}></div>
+  <div class="fixed inset-0 z-40 bg-foreground/20 lg:hidden" aria-hidden="true" onclick={close}></div>
   <nav
-    class="fixed top-0 left-0 z-50 flex h-full w-[264px] flex-col border-r border-border bg-card p-3 md:hidden"
+    class="fixed top-0 left-0 z-50 flex h-full w-[260px] flex-col border-r border-border bg-card p-3 lg:hidden"
     aria-label={t("app.navLabel")}
   >
     <div class="mb-2 flex h-10 items-center justify-between gap-2 px-2">
