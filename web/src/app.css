@@ -360,6 +360,33 @@
   .dot-pulse {
     animation: dot-pulse 1.6s ease-in-out infinite;
   }
+
+  /* 侧边栏导航图标的落定弹跳：一批飞片到齐时 FlyOverlay 递增 fly.pulse，{#key} 重放一次 */
+  .fly-pop {
+    animation: fly-pop 360ms ease-out;
+  }
+}
+
+/* 飞入侧边栏的圆片（加入队列的即时反馈）：定位与投影在这里收口，
+   飞行的 transform 由 FlyOverlay 用 WAAPI 接管（fixed + translate(-50%,-50%) 居中在起点上）。 */
+.fly-chip {
+  position: fixed;
+  z-index: 70;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  pointer-events: none;
+  box-shadow: var(--card-shadow);
+}
+
+@keyframes fly-pop {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.18);
+  }
 }
 
 @keyframes dot-pulse {

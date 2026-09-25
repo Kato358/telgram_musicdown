@@ -2,7 +2,11 @@
   import { t } from "$lib/i18n/index.svelte";
   import type { Column } from "./DataTable.svelte";
 
-  /** 曲目行共用列（设计规范 §5.4）：表头（DataTable）与行引用同一份类串，列宽天然对齐。 */
+  /** 曲目行共用列（设计规范 §5.4）：表头（DataTable）与行引用同一份类串，列宽天然对齐。
+   *
+   * COL_CHECK 只在多选（批量下载）时由调用方拼进列首，平时不占位。
+   */
+  export const COL_CHECK = "flex w-4 shrink-0 items-center";
   export const COL_INDEX = "hidden w-8 shrink-0 text-right sm:block";
   export const COL_TITLE = "min-w-0 flex-1";
   export const COL_STATUS = "hidden w-20 shrink-0 sm:block";
@@ -52,6 +56,7 @@
     DropdownMenuItem,
     DropdownMenuTrigger,
   } from "$lib/components/ui/dropdown-menu";
+  import { Checkbox } from "$lib/components/ui/checkbox";
   import { formatDate, formatDuration, formatSize } from "$lib/format";
   import type { Tone } from "$lib/tone";
   import { ROW_CLASS } from "./DataTable.svelte";
@@ -79,9 +84,15 @@
     playable?: boolean;
     playLabel: string;
     onplay?: () => void;
-    /** 搜索结果的下载直排按钮（不再藏在「⋯」菜单里）；不给就不渲染。 */
+    /** 搜索结果的下载直排按钮（不再藏在「⋯」菜单里）；不给就不渲染。
+     *  回调带按钮中心的 viewport 坐标：「飞进侧边栏」的动画从这里起跳。 */
     downloadLabel?: string;
-    ondownload?: () => void;
+    ondownload?: (origin: { x: number; y: number }) => void;
+    /** 多选（批量下载）：列定义里拼进 `check` 列时，这两项驱动行首勾选框。 */
+    selected?: boolean;
+    onselected?: (selected: boolean) => void;
+    /** 勾选框的无障碍名；不给就用标题。 */
+    selectLabel?: string;
     /** 消息定位（chat_id/message_id）：给了才请求 Telegram 内嵌封面（搜索结果行）。 */
     cover?: { chatId: number; messageId: number } | null;
     menu?: RowMenuItem[];
@@ -107,6 +118,9 @@
     onplay,
     downloadLabel,
     ondownload,
+    selected = false,
+    onselected,
+    selectLabel,
     cover = null,
     menu,
     feedback,
@@ -124,7 +138,15 @@
 
 <li class="{ROW_CLASS} {playing ? 'bg-primary-soft' : 'hover:bg-rule'} {className}">
   {#each columns as column (column.key)}
-    {#if column.key === "index"}
+    {#if column.key === "check"}
+      <span class={column.class}>
+        <Checkbox
+          checked={selected}
+          onCheckedChange={(value) => onselected?.(value === true)}
+          aria-label={selectLabel ?? title}
+        />
+      </span>
+    {:else if column.key === "index"}
       <span class="{column.class} tabular text-caption text-faint-foreground">{index ?? ""}</span>
     {:else if column.key === "title"}
       <div class="flex {column.class} items-center gap-3">
@@ -192,12 +214,17 @@
         </button>
 
         {#if downloadLabel && ondownload}
+          <!-- 与播放键同规格的圆形实底（多选批量下载的行入口）：浅一档的 soft 底保住
+              「播放 = 试听、下载 = 入队」的主次，悬浮时填成主色。 -->
           <button
             type="button"
-            class="ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground"
+            class="ui-transition grid size-8 shrink-0 place-items-center rounded-full bg-primary-soft text-primary hover:bg-primary hover:text-primary-foreground active:scale-[0.98]"
             aria-label={downloadLabel}
             title={downloadLabel}
-            onclick={() => ondownload?.()}
+            onclick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              ondownload?.({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+            }}
           >
             <DownloadIcon class="size-4" aria-hidden="true" />
           </button>

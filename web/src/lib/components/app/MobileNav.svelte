@@ -58,6 +58,7 @@
 <button
   bind:this={trigger}
   type="button"
+  data-fly-navmenu
   class="ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground md:hidden"
   aria-label={t("app.menu")}
   aria-expanded={open}

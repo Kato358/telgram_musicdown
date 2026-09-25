@@ -12,15 +12,30 @@
   import { search } from "$lib/stores/search.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { Button } from "$lib/components/ui/button";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import type { Column } from "$lib/components/app/DataTable.svelte";
   import DataTable from "$lib/components/app/DataTable.svelte";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
   import Note from "$lib/components/app/Note.svelte";
   import PageHeader from "$lib/components/app/PageHeader.svelte";
   import SectionCard from "$lib/components/app/SectionCard.svelte";
-  import TrackRow, { trackColumns } from "$lib/components/app/TrackRow.svelte";
+  import TrackRow, { COL_CHECK, trackColumns } from "$lib/components/app/TrackRow.svelte";
 
-  const columns = $derived(trackColumns());
+  /** 多选时在列首拼一列勾选框，退出多选即摘掉。 */
+  const columns = $derived<Column[]>(
+    search.selectMode
+      ? [{ key: "check", label: "", class: COL_CHECK }, ...trackColumns()]
+      : trackColumns(),
+  );
   const resultsCount = $derived(search.results.length);
+
+  /** 批量下载的起点：「下载所选」按钮的中心，整批飞片从这里级联起飞。 */
+  function downloadSelected(event: MouseEvent) {
+    const target = event.currentTarget as HTMLElement | null;
+    if (target === null) return;
+    const rect = target.getBoundingClientRect();
+    void search.downloadSelected({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+  }
 
   $effect(() => {
     const keyword = router.query.get("q")?.trim() ?? "";
@@ -36,10 +51,13 @@
 
 <PageHeader title={t("search.title")} lede={t("search.lede")}>
   {#snippet aside()}
-    {#if search.searched}
+    {#if search.searched && search.results.length > 0}
       <span class="tabular text-caption text-muted-foreground">
         {t("search.resultsCount", { n: resultsCount })}
       </span>
+      <Button variant="outline" size="sm" onclick={() => search.toggleSelectMode()}>
+        {search.selectMode ? t("search.exitSelect") : t("search.selectMode")}
+      </Button>
     {/if}
   {/snippet}
 </PageHeader>
@@ -136,7 +154,42 @@
 {:else if !search.searched}
   <p class="max-w-[40ch] text-body text-muted-foreground">{t("search.idleHint")}</p>
 {:else}
-  <DataTable {columns}>
+  {#snippet selectBar()}
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="tabular text-caption text-primary">
+        {t("search.selectedCount", { n: search.selection.size })}
+      </span>
+      <div class="ml-auto flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="xs" onclick={() => (search.selection = new Set())}>
+          {t("search.clearSelection")}
+        </Button>
+        <Button size="xs" disabled={search.selection.size === 0} onclick={downloadSelected}>
+          {t("search.downloadSelected")}
+        </Button>
+      </div>
+    </div>
+  {/snippet}
+
+  {#snippet headerCell(column: Column)}
+    {#if column.key === "check"}
+      <span class={column.class}>
+        <Checkbox
+          checked={search.allSelected}
+          indeterminate={search.someSelected}
+          onCheckedChange={(value) => search.toggleSelectAll(value === true)}
+          aria-label={t("search.selectAll")}
+        />
+      </span>
+    {:else}
+      <span class={column.class}>{column.label}</span>
+    {/if}
+  {/snippet}
+
+  <DataTable
+    {columns}
+    {headerCell}
+    toolbar={search.selectMode ? selectBar : undefined}
+  >
     {#each search.results as item, index (search.keyOf(item))}
       {@const key = search.keyOf(item)}
       {@const playing = player.current?.id === key}
@@ -152,13 +205,14 @@
         playLabel={search.playLabelOf(key)}
         onplay={() => void search.preview(item)}
         downloadLabel={t("search.download")}
-        ondownload={() => void search.download(item)}
+        ondownload={(origin) => void search.download(item, origin)}
+        selected={search.selection.has(key)}
+        onselected={(checked) => search.toggleSelect(key, checked)}
+        selectLabel={t("search.selectRow", { title: item.title ?? t("common.unknown") })}
         cover={item.has_thumb ? { chatId: item.chat_id, messageId: item.message_id } : null}
       >
         {#snippet feedback()}
-          {#if search.queued[key]}
-            <Note tone="done">{t("search.queued")}</Note>
-          {:else if search.rowError[key]}
+          {#if search.rowError[key]}
             <Note tone="fail">{search.rowError[key]}</Note>
           {/if}
         {/snippet}

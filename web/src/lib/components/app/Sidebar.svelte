@@ -14,8 +14,9 @@
   import { t } from "$lib/i18n/index.svelte";
   import { formatCount, formatSize } from "$lib/format";
   import { NAV_ROUTES, pathOf, router, type RouteKey } from "$lib/router.svelte";
-  import { events } from "$lib/stores/events.svelte";
-  import { queue } from "$lib/stores/queue.svelte";
+import { events } from "$lib/stores/events.svelte";
+import { fly } from "$lib/stores/fly.svelte";
+import { queue } from "$lib/stores/queue.svelte";
   import { stats } from "$lib/stores/stats.svelte";
   import Badge from "./Badge.svelte";
   import Link from "./Link.svelte";
@@ -67,7 +68,20 @@
           : 'text-muted-foreground hover:bg-rule hover:text-foreground'}"
         title={t(`nav.${route.key}`)}
       >
-        <Icon class="size-[18px] shrink-0" />
+        {#if route.key === "downloads"}
+          <!-- 搜索页加入队列后飞片飞到 data-fly-downloads 这个点；fly.pulse 递增一次
+              就靠 {#key} 重挂重放一次落定弹跳，初始（pulse=0）不弹。 -->
+          {#key fly.pulse}
+            <span
+              data-fly-downloads
+              class="grid size-[18px] shrink-0 place-items-center {fly.pulse > 0 ? 'fly-pop' : ''}"
+            >
+              <Icon class="size-[18px]" />
+            </span>
+          {/key}
+        {:else}
+          <Icon class="size-[18px] shrink-0" />
+        {/if}
         <span class="hidden min-w-0 flex-1 truncate text-body font-medium lg:block">
           {t(`nav.${route.key}`)}
         </span>

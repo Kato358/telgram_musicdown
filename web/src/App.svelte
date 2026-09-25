@@ -16,6 +16,7 @@
   import Sidebar from "$lib/components/app/Sidebar.svelte";
   import TopBar from "$lib/components/app/TopBar.svelte";
   import TransportBar from "$lib/components/app/TransportBar.svelte";
+  import FlyOverlay from "$lib/components/app/FlyOverlay.svelte";
   import DashboardView from "@/views/DashboardView.svelte";
   import DownloadsView from "@/views/DownloadsView.svelte";
   import LogsView from "@/views/LogsView.svelte";
@@ -127,5 +128,7 @@
       </div>
     </div>
     <TransportBar />
+    <!-- 「飞进侧边栏下载」的全局动画层：fixed 定位，挂在外壳上与路由无关 -->
+    <FlyOverlay />
   </div>
 {/if}
