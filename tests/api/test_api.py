@@ -659,3 +659,49 @@ def test_history_reveal_reports_open_failure(
     resp = client.post(f"/api/history/{hid}/reveal")
     assert resp.status_code == 500
     assert "no file manager" in resp.text
+
+
+def test_delete_history_record_removes_row_not_file(client: TestClient, tmp_path: Path) -> None:
+    # 下载页行删除（FR-DL-06 补全）：DELETE /api/history/{id} 删记录，落盘文件保留。
+    library = tmp_path / "library"
+    library.mkdir()
+    on_disk = library / "a.mp3"
+    on_disk.write_bytes(b"x")
+    store = Store(tmp_path / "app.db")
+    hid = store.upsert_history(
+        History(
+            id=None,
+            chat_id=-1001,
+            message_id=1,
+            title="A",
+            status="success",
+            save_path=str(on_disk),
+        )
+    )
+
+    resp = client.delete(f"/api/history/{hid}")
+    assert resp.status_code == 200
+    assert store.get_history(hid) is None
+    assert client.get("/api/history").json() == []
+    assert on_disk.exists()  # 落盘文件不动
+
+
+def test_delete_history_record_with_active_task_cancels_task(
+    client: TestClient, tmp_path: Path
+) -> None:
+    # 记录还挂着在跑的任务：删记录前先取消并删台账，不留永不动的「等待」。
+    store = Store(tmp_path / "app.db")
+    hid = store.upsert_history(
+        History(id=None, chat_id=-1002, message_id=5, title="B", status="queued")
+    )
+    task_id = store.create_task(Task(id=None, type="link", payload_json="{}", history_id=hid))
+
+    resp = client.delete(f"/api/history/{hid}")
+    assert resp.status_code == 200
+    assert store.get_history(hid) is None
+    assert store.get_task(task_id) is None
+
+
+def test_delete_missing_history_returns_404(client: TestClient) -> None:
+    # 不存在的记录：404，前端照常弹失败提示。
+    assert client.delete("/api/history/99999").status_code == 404

@@ -284,6 +284,32 @@ class UserClient:
         except RPCError as e:
             raise _translate_rpc(e) from e
 
+    async def download_thumb(
+        self,
+        message_ref: dict[str, Any],
+        file_name: str,
+    ) -> str | None:
+        """下载消息封面缩略图（下载页行首的封面用）；没有封面返回 None。"""
+        chat_id = message_ref["chat_id"]
+        message_id = message_ref["message_id"]
+
+        async def _thumb() -> str | None:
+            result = await self.client.get_messages(chat_id, message_ids=[message_id])
+            msgs = result if isinstance(result, list) else [result]
+            if not msgs or msgs[0] is None:
+                return None
+            msg = msgs[0]
+            media = msg.audio or msg.document or msg.video
+            if media is None or not getattr(media, "thumbs", None):
+                return None
+            out = await self.client.download_media(msg, file_name=file_name)
+            return out if isinstance(out, str) else None
+
+        try:
+            return await with_flood_retry(_thumb, label="download_thumb")
+        except RPCError as e:
+            raise _translate_rpc(e) from e
+
 
 def _message_dict(m: Message) -> dict[str, Any]:
     audio = m.audio

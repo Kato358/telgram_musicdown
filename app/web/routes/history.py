@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import subprocess
 import sys
@@ -14,6 +15,8 @@ from fastapi.responses import StreamingResponse
 
 from app.web.routes.context import RouteContext
 from app.web.routes.presenters import history_dict
+
+logger = logging.getLogger(__name__)
 
 
 def _open_in_file_manager(folder: Path) -> None:
@@ -29,6 +32,7 @@ def _open_in_file_manager(folder: Path) -> None:
 def register(app: FastAPI, ctx: RouteContext) -> None:
     """注册历史路由。"""
     store = ctx.store
+    preview = ctx.preview
 
     @app.get("/api/history")
     async def history_ep(
@@ -79,3 +83,43 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
         except (OSError, subprocess.SubprocessError) as e:
             raise HTTPException(status_code=500, detail=f"cannot open folder: {e}") from e
         return {"ok": True}
+
+    @app.delete("/api/history/{history_id}")
+    async def history_delete(
+        history_id: int, _: None = Depends(ctx.check_session)
+    ) -> dict[str, bool]:
+        """删除这条历史记录（FR-DL-06）：落盘文件保留，列表随即重取。
+
+        记录还挂着在跑的任务（queued/downloading/paused）→ 先取消并删掉台账，
+        不留一个永远不会动的「等待」；找不到记录 → 404。
+        """
+        h = store.get_history(history_id)
+        if h is None:
+            raise HTTPException(status_code=404, detail="history not found")
+        task_id = store.latest_task_ids([history_id]).get(history_id)
+        if task_id is not None and store.get_task(task_id) is not None:
+            try:
+                await ctx.downloads.delete_task(task_id)
+            except Exception:  # noqa: BLE001  台账清理失败不阻断记录删除
+                logger.warning("cleanup of task %s for history %s failed", task_id, history_id)
+        store.delete_history(history_id)
+        return {"ok": True}
+
+    @app.get("/api/history/{history_id}/cover")
+    async def history_cover(
+        history_id: int, _: None = Depends(ctx.check_session)
+    ) -> StreamingResponse:
+        """这条记录的封面（下载页行首图标；Telegram 内嵌缩略图按需缓存）。
+
+        没有封面或下载失败 → 404，前端退回音符占位（封面是纯装饰）。
+        """
+        h = store.get_history(history_id)
+        if h is None:
+            raise HTTPException(status_code=404, detail="history not found")
+        try:
+            path = await preview.thumb_path(h.chat_id, h.message_id)
+        except Exception:  # noqa: BLE001  封面是装饰，失败退回 404（前端有占位）
+            raise HTTPException(status_code=404, detail="no cover") from None
+        if path is None or not path.exists():  # noqa: ASYNC240  路由级检查非热路径
+            raise HTTPException(status_code=404, detail="no cover")
+        return StreamingResponse(path.open("rb"), media_type="image/jpeg")  # noqa: ASYNC230

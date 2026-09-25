@@ -282,6 +282,12 @@ class Store:
         params += [limit, offset]
         return [row_to(History, r) for r in self._conn.execute(sql, params)]
 
+    def delete_history(self, history_id: int) -> bool:
+        """删除一条历史记录（下载页行删除）；返回是否删到了。磁盘文件不在这一层管。"""
+        with self._conn:
+            cur = self._conn.execute("DELETE FROM history WHERE id=?", (history_id,))
+            return cur.rowcount > 0
+
     def latest_task_ids(self, history_ids: list[int]) -> dict[int, int]:
         """每行历史记录当前挂着的任务 id（同一行取 id 最大者）。
 

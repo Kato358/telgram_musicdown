@@ -128,3 +128,31 @@ class PreviewService:
                     self.store.touch_preview(preview_id)
                     return path
         raise AppError("not_found", f"preview {preview_id} not found")
+
+    async def thumb_path(self, chat_id: int, message_id: int) -> Path | None:
+        """消息封面（Telegram 内嵌缩略图）：缓存命中直接返回；没有封面返回 None。
+
+        与试听共用 preview 目录（LRU 淘汰同款规则），但不进 preview_cache 表——
+        封面是纯装饰，丢了就重新下载，不值得占一条记录。
+        """
+        final = self.preview_dir / f"thumb_{chat_id}_{message_id}.jpg"
+        if final.exists():
+            return final
+        async with self._sem:
+            if final.exists():  # 并发等待期间别人已下好
+                return final
+            self.preview_dir.mkdir(parents=True, exist_ok=True)
+            temp_path = self.preview_dir / f"thumb_{chat_id}_{message_id}.tmp"
+            try:
+                await self.client.download_thumb(
+                    {"chat_id": chat_id, "message_id": message_id}, str(temp_path)
+                )
+            except Exception as e:
+                if temp_path.exists():
+                    temp_path.unlink()
+                logger.info("thumb download skipped chat=%s msg=%s: %s", chat_id, message_id, e)
+                return None
+            if not temp_path.exists():
+                return None
+            temp_path.replace(final)
+            return final
