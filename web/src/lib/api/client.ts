@@ -27,12 +27,35 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(path, {
+/** API 请求超时：局域网正常请求毫秒级；卡死的请求到此为止并按 GET 重试一次，
+ *  不给超时的话一次悬死的连接会一直占着浏览器的每主机并发额度。 */
+const REQUEST_TIMEOUT_MS = 15_000;
+
+async function fetchOnce(path: string, init: RequestInit): Promise<Response> {
+  return fetch(path, {
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     ...init,
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = init?.method ?? "GET";
+  let resp: Response;
+  try {
+    resp = await fetchOnce(path, { ...init });
+  } catch (err) {
+    // 超时（TimeoutError）/中断（AbortError）/连接失败（TypeError）：
+    // GET 幂等，静默重试一次；写操作不自动重放，直接报错
+    const retryable = err instanceof TypeError || err instanceof DOMException;
+    if (method !== "GET" || !retryable) throw err;
+    try {
+      resp = await fetchOnce(path, { ...init });
+    } catch {
+      throw new ApiError("network", "请求超时或连接失败，请稍后重试", 0);
+    }
+  }
   if (resp.status === 401) {
     throw new ApiError(
       "unauthorized",
