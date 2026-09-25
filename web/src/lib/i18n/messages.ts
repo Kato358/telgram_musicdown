@@ -77,17 +77,9 @@ export const zhCN: Dict = {
     statBytesHint: "已落盘",
     statSources: "音乐源",
     statSourcesHint: "共 {n} 个",
-    tasks: "最近下载任务",
-    tasksCount: "共 {n} 项",
+    queue: "下载队列",
     tasksEmpty: "暂无进行中的任务。去下载页粘贴 Telegram 链接，或在搜索页挑一首。",
-    recent: "最近入库",
-    recentEmpty: "还没有下载记录。",
     viewAll: "查看全部",
-    quickTitle: "快速操作",
-    quickHint: "常用功能，一键直达",
-    quickSearch: "搜索音乐",
-    quickAddSource: "添加音源",
-    quickDownloads: "下载",
     systemTitle: "系统状态",
     systemOk: "运行正常",
     systemAttention: "有异常",
@@ -636,18 +628,10 @@ export const en: Dict = {
     statBytesHint: "written",
     statSources: "Sources",
     statSourcesHint: "{n} total",
-    tasks: "Recent download tasks",
-    tasksCount: "{n} total",
+    queue: "Download queue",
     tasksEmpty:
       "Nothing in flight right now. Paste a Telegram link on the downloads page, or pick a track on search.",
-    recent: "Recently added",
-    recentEmpty: "No downloads yet.",
     viewAll: "View all",
-    quickTitle: "Quick actions",
-    quickHint: "Common tasks, one click away",
-    quickSearch: "Search music",
-    quickAddSource: "Add source",
-    quickDownloads: "Downloads",
     systemTitle: "System status",
     systemOk: "Running normally",
     systemAttention: "Something is off",
@@ -838,8 +822,7 @@ export const en: Dict = {
     templateFieldsHint:
       "Click a field to insert it into the template input you last focused. Empty fields drop their whole segment.",
     fieldTitle: "Track title; falls back to file name → caption first line → message_id",
-    fieldArtist:
-      "Artist; falls back to the caption's \"Artist - Title\" line, else Unknown Artist",
+    fieldArtist: 'Artist; falls back to the caption\'s "Artist - Title" line, else Unknown Artist',
     fieldAlbum: "Album; the whole segment is dropped when empty",
     fieldTrack: "Track number; the whole segment is dropped when empty",
     fieldExt: "File extension; appended automatically, keep it out of templates",
@@ -865,7 +848,8 @@ export const en: Dict = {
     maxTasksHint: "Extras queue up. Higher values hit Telegram rate limits sooner.",
     previewCache: "Preview cache limit (MB)",
     previewCacheHint: "Least recently used entries are evicted first.",
-    restartHint: "Templates and the save path apply immediately; download concurrency applies on next start.",
+    restartHint:
+      "Templates and the save path apply immediately; download concurrency applies on next start.",
 
     accountSection: "Telegram account",
     accountHint:
@@ -955,7 +939,8 @@ export const en: Dict = {
     download: "Download",
     clearLogs: "Clear log",
     clearTitle: "Clear the current log?",
-    clearBody: "app.log is truncated (rotated backups are kept); logging keeps appending afterwards.",
+    clearBody:
+      "app.log is truncated (rotated backups are kept); logging keeps appending afterwards.",
     clearConfirm: "Clear",
     clearing: "Clearing",
     levels: {

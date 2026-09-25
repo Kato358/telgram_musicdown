@@ -253,6 +253,22 @@
   ::selection {
     background: color-mix(in oklab, var(--primary) 30%, transparent);
   }
+
+  /* ============================================================
+     滚动条：全站细条 + 令牌色，随主题走。只走标准属性——Chromium 121+ 与
+     Firefox 都支持，且与 Win11 的 fluent 浮层滚动条兼容；::-webkit-scrollbar
+     在 fluent 管线下会「占位却不绘制」（拇指永远不可见），故弃用。
+     拇指色用 muted-foreground 掺透明：--border 与薄荷页底太接近，形同隐形。
+     ============================================================ */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 40%, transparent) transparent;
+  }
+
+  /* 悬停加深：滚动条所在容器被指到时提一档对比 */
+  *:hover {
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 70%, transparent) transparent;
+  }
 }
 
 @layer utilities {
@@ -311,6 +327,17 @@
    也压过 APlayer 自带样式的优先级。
    ============================================================ */
 
+/* 宿主只是定位壳：APlayer 出厂给 .aplayer 自带白底 + 投影 + 2px 小圆角，而卡片外观
+   全由 16px 大圆角的 .aplayer-body / .aplayer-list 承担。列表是宿主的流内子元素，
+   收起时仍占 2px 边框高度、展开时有完整高度——宿主的方角白底就会从机身顶边和
+   卡片圆角外缘漏出来（深色下尤其扎眼，这就是控件边缘白边的来源）。一律透明化。 */
+.aplayer-host.aplayer {
+  margin: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+
 .aplayer-host.aplayer.aplayer-fixed,
 .aplayer-host.aplayer.aplayer-fixed .aplayer-body {
   /* 对话框（z-50）与移动端抽屉（z-40）之下，页面内容之上 */
@@ -367,29 +394,15 @@
   color: var(--faint-foreground);
 }
 
-.aplayer-host.aplayer
-  .aplayer-info
-  .aplayer-controller
-  .aplayer-time
-  .aplayer-icon
-  path {
+.aplayer-host.aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon path {
   fill: var(--muted-foreground);
 }
 
-.aplayer-host.aplayer
-  .aplayer-info
-  .aplayer-controller
-  .aplayer-time
-  .aplayer-icon:hover
-  path {
+.aplayer-host.aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon:hover path {
   fill: var(--foreground);
 }
 
-.aplayer-host.aplayer
-  .aplayer-info
-  .aplayer-controller
-  .aplayer-bar-wrap
-  .aplayer-bar {
+.aplayer-host.aplayer .aplayer-info .aplayer-controller .aplayer-bar-wrap .aplayer-bar {
   background: var(--progress-track);
 }
 
@@ -446,6 +459,12 @@
   overflow: hidden;
 }
 
+/* 收起态（aplayer-list-hide = max-height:0）盒高只剩上下两条边框，会在机身
+   正上方压出一条 2px 细线——收起时把边框一并隐去，卡片顶边才算干净。 */
+.aplayer-host.aplayer.aplayer-fixed .aplayer-list.aplayer-list-hide {
+  border-color: transparent;
+}
+
 .aplayer-host.aplayer .aplayer-list ol li {
   border-top-color: var(--rule);
 }
@@ -456,25 +475,6 @@
 
 .aplayer-host.aplayer .aplayer-list ol li.aplayer-list-light {
   background: var(--primary-soft);
-}
-
-/* 列表滚动条：自带 #eee 在白卡上看不见、深色态下又刺眼，换成令牌色 */
-.aplayer-host.aplayer .aplayer-list ol::-webkit-scrollbar {
-  width: 6px;
-}
-
-.aplayer-host.aplayer .aplayer-list ol::-webkit-scrollbar-thumb {
-  border-radius: 3px;
-  background-color: var(--border);
-}
-
-.aplayer-host.aplayer .aplayer-list ol::-webkit-scrollbar-thumb:hover {
-  background-color: var(--muted-foreground);
-}
-
-.aplayer-host.aplayer .aplayer-list ol {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 .aplayer-host.aplayer .aplayer-notice {
