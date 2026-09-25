@@ -643,6 +643,7 @@ def _history_row(meta: TrackMeta, source_id: int | None) -> History:
         album=meta.album,
         duration_sec=meta.duration_sec,
         file_size=meta.file_size,
+        bitrate=meta.bitrate,
         mime=meta.mime,
         ext=meta.ext,
         caption=meta.caption,

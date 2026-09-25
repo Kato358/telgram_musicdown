@@ -92,6 +92,7 @@ class SearchResultCard:
     message_date: str | None
     caption: str | None
     file_unique_id: str | None = None
+    bitrate: int | None = None
 
 
 def message_to_card(msg: dict[str, Any], channel_title: str | None = None) -> SearchResultCard:
@@ -113,6 +114,7 @@ def message_to_card(msg: dict[str, Any], channel_title: str | None = None) -> Se
         message_date=msg.get("message_date"),
         caption=msg.get("caption"),
         file_unique_id=audio.get("file_unique_id") or doc.get("file_unique_id"),
+        bitrate=audio.get("bitrate"),
     )
 
 
@@ -137,6 +139,7 @@ def card_to_meta(card: SearchResultCard) -> TrackMeta:
         artist=card.artist,
         duration_sec=card.duration_sec,
         file_size=card.file_size,
+        bitrate=card.bitrate,
         mime=card.mime,
         ext=card.ext,
         caption=card.caption,

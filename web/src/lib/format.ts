@@ -30,6 +30,12 @@ export function formatRate(bytesPerSec: number | null | undefined): string {
   return `${formatSize(bytesPerSec)}/s`;
 }
 
+/** 音频码率（kbps）：Telegram 元数据没给或为 0 时显示占位 `--`。 */
+export function formatBitrate(bitrate: number | null | undefined): string {
+  if (bitrate == null || bitrate <= 0 || !Number.isFinite(bitrate)) return "--";
+  return `${Math.round(bitrate)} kbps`;
+}
+
 export function formatEta(sec: number | null | undefined): string {
   if (sec == null || sec < 0 || !Number.isFinite(sec)) return "--";
   if (sec < 60) return `${Math.round(sec)} 秒`;

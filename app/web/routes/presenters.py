@@ -80,6 +80,7 @@ def history_dict(h: Any, task_id: int | None = None) -> dict[str, Any]:
         "album": h.album,
         "duration_sec": h.duration_sec,
         "file_size": h.file_size,
+        "bitrate": h.bitrate,
         "save_path": h.save_path,
         "status": h.status,
         "error": h.error,

@@ -45,6 +45,7 @@ class History:
     album: str | None = None
     duration_sec: int | None = None
     file_size: int | None = None
+    bitrate: int | None = None
     mime: str | None = None
     ext: str | None = None
     caption: str | None = None

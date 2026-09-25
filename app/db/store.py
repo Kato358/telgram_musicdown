@@ -159,14 +159,15 @@ class Store:
             if h.id is None:
                 cur = self._conn.execute(
                     "INSERT INTO history (source_id, chat_id, message_id, file_unique_id,"
-                    " file_id, title, artist, album, duration_sec, file_size, mime, ext,"
+                    " file_id, title, artist, album, duration_sec, file_size, bitrate, mime, ext,"
                     " caption, message_date, save_path, status, error, created_at,"
-                    " finished_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                    " finished_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                     " ON CONFLICT(chat_id, message_id) DO UPDATE SET"
                     " source_id=excluded.source_id, file_unique_id=excluded.file_unique_id,"
                     " file_id=excluded.file_id, title=excluded.title, artist=excluded.artist,"
                     " album=excluded.album, duration_sec=excluded.duration_sec,"
-                    " file_size=excluded.file_size, mime=excluded.mime, ext=excluded.ext,"
+                    " file_size=excluded.file_size, bitrate=excluded.bitrate, mime=excluded.mime,"
+                    " ext=excluded.ext,"
                     " caption=excluded.caption, message_date=excluded.message_date,"
                     " status=excluded.status, error=NULL, finished_at=NULL"
                     " RETURNING id",
@@ -181,6 +182,7 @@ class Store:
                         h.album,
                         h.duration_sec,
                         h.file_size,
+                        h.bitrate,
                         h.mime,
                         h.ext,
                         h.caption,
@@ -196,7 +198,7 @@ class Store:
                 return int(row["id"])
             self._conn.execute(
                 "UPDATE history SET source_id=?, file_unique_id=?, file_id=?, title=?,"
-                " artist=?, album=?, duration_sec=?, file_size=?, mime=?, ext=?,"
+                " artist=?, album=?, duration_sec=?, file_size=?, bitrate=?, mime=?, ext=?,"
                 " caption=?, message_date=?, save_path=?, status=?, error=?,"
                 " finished_at=? WHERE id=?",
                 (
@@ -208,6 +210,7 @@ class Store:
                     h.album,
                     h.duration_sec,
                     h.file_size,
+                    h.bitrate,
                     h.mime,
                     h.ext,
                     h.caption,

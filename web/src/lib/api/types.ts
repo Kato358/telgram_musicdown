@@ -115,6 +115,8 @@ export interface HistoryRow {
   album: string | null;
   duration_sec: number | null;
   file_size: number | null;
+  /** 音频码率（kbps，Telegram 元数据给得出才有）：下载页「码率」列用。 */
+  bitrate: number | null;
   save_path: string | null;
   status: string;
   error: string | null;

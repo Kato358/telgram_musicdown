@@ -299,6 +299,7 @@ def _message_dict(m: Message) -> dict[str, Any]:
             "mime_type": audio.mime_type,
             "file_unique_id": audio.file_unique_id,
             "file_name": audio.file_name,
+            "bitrate": getattr(audio, "bitrate", None),
         }
         if audio
         else None,
@@ -308,12 +309,16 @@ def _message_dict(m: Message) -> dict[str, Any]:
             "file_unique_id": doc.file_unique_id,
             "file_name": doc.file_name,
             "duration": None,
+            "bitrate": None,
         }
         if doc
         else None,
         "voice": m.voice is not None,
         "caption": m.caption,
         "message_date": m.date.isoformat() if m.date else None,
+        "has_thumb": bool(
+            (audio and audio.thumbs) or (doc and doc.thumbs)
+        ),
     }
 
 
