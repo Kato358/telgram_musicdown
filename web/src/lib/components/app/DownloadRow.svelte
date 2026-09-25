@@ -11,9 +11,9 @@
   export const COL_CHECK = "flex w-4 shrink-0 items-center";
   export const COL_TITLE = "min-w-0 flex-1";
   export const COL_ARTIST = "hidden w-14 shrink-0 truncate md:block";
-  /** 专辑列只在 xl 出现：lg 档右栏已经在场（2:1），主栏 ~590px 里八个定宽列会把
-   *  「歌名」挤成一条竖线——专辑与歌手同义相邻，先退场的是它（§5.3）。 */
-  export const COL_ALBUM = "hidden w-14 shrink-0 truncate xl:block";
+  /** 专辑列只在 lg 出现：md 及以下主栏装不下八个定宽列（歌手与专辑同义相邻，
+   *  先退场的是它）；lg 起右栏已移除（v3.8 单栏），全宽放得下它。 */
+  export const COL_ALBUM = "hidden w-14 shrink-0 truncate lg:block";
   export const COL_DURATION = "w-12 shrink-0 text-right";
   export const COL_SIZE = "hidden w-14 shrink-0 text-right sm:block";
   export const COL_DATE = "hidden w-20 shrink-0 text-right lg:block";

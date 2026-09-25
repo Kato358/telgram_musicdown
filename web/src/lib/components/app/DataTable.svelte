@@ -8,9 +8,9 @@
   }
 
   /** 数据行外壳：高 60px（窄屏 56px）、1px 分割线、整行 hover 底 --rule。
-   *  列间距 8px（v3.7 由 12 收窄）：右栏在场时主栏 ~590px，八列定宽全靠它腾出歌名列。 */
+   *  列间距 12px（v3.8 由 8 放回）：下载页右栏移除后主栏全宽，不再需要收窄腾位。 */
   export const ROW_CLASS =
-    "flex h-14 items-center gap-2 border-b border-rule px-4 ui-transition last:border-b-0 md:h-[60px] md:px-6";
+    "flex h-14 items-center gap-3 border-b border-rule px-4 ui-transition last:border-b-0 md:h-[60px] md:px-6";
 </script>
 
 <script lang="ts">
@@ -57,7 +57,7 @@
     </div>
   {/if}
   <div
-    class="flex h-10 items-center gap-2 border-b border-border bg-surface-subtle px-4 text-caption text-muted-foreground md:px-6"
+    class="flex h-10 items-center gap-3 border-b border-border bg-surface-subtle px-4 text-caption text-muted-foreground md:px-6"
   >
     {#each columns as column (column.key)}
       {#if headerCell}

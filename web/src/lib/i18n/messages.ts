@@ -158,7 +158,7 @@ export const zhCN: Dict = {
     retryCount: "第 {n} 次重试",
   },
 
-  /** 下载页（横幅 + 统计卡 + 下载队列 + 记录表；右栏是进度镜像与已入库）。 */
+  /** 下载页（v3.8 单栏：横幅 + 统计卡 + 下载队列 + 记录表）。 */
   downloads: {
     heroTitle: "下载音乐，尽享好歌",
     heroBody: "支持 Telegram 频道 / 群组 / 个人，快速解析并下载音频。",
@@ -176,12 +176,6 @@ export const zhCN: Dict = {
     clearBody: "等待中的 {n} 项会被取消；正在下载的那一项不动。",
     clearConfirm: "清空",
     clearResult: "已取消 {n} 项等待任务",
-    progressTitle: "下载进度",
-    savedTitle: "已入库的曲目",
-    savedHint: "共 {n} 首",
-    savedEmpty: "还没有落盘的曲目。",
-    storageLabel: "存储空间",
-    storageHint: "库在磁盘上的实际占用",
     tabsLabel: "按状态筛选",
     selectAll: "全选本页",
     selectRow: "选择「{title}」",
@@ -223,7 +217,6 @@ export const zhCN: Dict = {
     statBytes: "曲库占用",
     statBytesHint: "已使用 / 无上限",
     tabFailed: "下载失败",
-    storageUnlimited: "无限",
   },
 
   sources: {
@@ -683,7 +676,7 @@ export const en: Dict = {
     retryCount: "Retry {n}",
   },
 
-  /** Downloads page (banner + stat cards + queue + records table; right rail mirrors progress). */
+  /** Downloads page (v3.8 single column: banner + stat cards + queue + records table). */
   downloads: {
     heroTitle: "Download music, keep the good ones",
     heroBody: "Telegram channels, groups, and chats — resolve and download the audio in one step.",
@@ -701,12 +694,6 @@ export const en: Dict = {
     clearBody: "The {n} waiting items will be cancelled; the running one keeps going.",
     clearConfirm: "Clear",
     clearResult: "{n} waiting items cancelled",
-    progressTitle: "Progress",
-    savedTitle: "In the library",
-    savedHint: "{n} tracks",
-    savedEmpty: "Nothing has landed on disk yet.",
-    storageLabel: "Storage",
-    storageHint: "Actual footprint on disk",
     tabsLabel: "Filter by status",
     selectAll: "Select all on this page",
     selectRow: "Select “{title}”",
@@ -748,7 +735,6 @@ export const en: Dict = {
     statBytes: "Library size",
     statBytesHint: "used / unlimited",
     tabFailed: "Failed",
-    storageUnlimited: "unlimited",
   },
 
   sources: {

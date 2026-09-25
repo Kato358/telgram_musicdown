@@ -12,8 +12,7 @@
    *
    * 它是「一屏内的一个分区」的统一外壳——统计卡管数字，这个管内容，
    * 所以卡头与内边距只有这一处定义，视图不自己拼边框与标题行。
-   * `dense` 给右栏的窄卡用（下载进度 / 已入库的曲目 / 存储空间）：卡头与卡体一律 16px，
-   * 每一像素都还给内容——参考图右栏的密度比主栏高（§5.7）。
+   * v3.8 起只有标准密度：右栏三张窄卡（曾用 `dense`）已随下载页单栏版式移除。
    */
   import type { Component, Snippet } from "svelte";
   import Badge from "./Badge.svelte";
@@ -25,8 +24,6 @@
     tone?: SectionTone;
     /** 卡头的计数药丸（如「下载队列」正在跑几项）；为 0 时不渲染。 */
     badge?: number;
-    /** 窄卡密度：卡头与卡体一律 16px 内边距。 */
-    dense?: boolean;
     actions?: Snippet;
     children: Snippet;
     class?: string;
@@ -38,7 +35,6 @@
     icon: Icon,
     tone = "plain",
     badge,
-    dense = false,
     actions,
     children,
     class: className = "",
@@ -49,7 +45,7 @@
 
 <section class="card overflow-hidden {className}">
   <header
-    class="flex items-center gap-2.5 {dense ? 'px-4 py-3' : 'px-4 py-3 md:px-5'} {brand
+    class="flex items-center gap-2.5 px-4 py-3 md:px-5 {brand
       ? 'surface-brand'
       : 'border-b border-border'}"
   >
@@ -87,5 +83,5 @@
     {/if}
   </header>
 
-  <div class="{dense ? 'p-4' : 'p-4 md:p-5'}">{@render children()}</div>
+  <div class="p-4 md:p-5">{@render children()}</div>
 </section>

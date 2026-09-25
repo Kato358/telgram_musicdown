@@ -1,6 +1,5 @@
 <script lang="ts">
-  /** 下载页（设计规范 §10，v3.7 按参考图调整）：主栏 = 绿色横幅（统计卡坐在里面）+
-   *  下载队列 + 记录表卡；右栏 = 下载进度（队列的窄镜像）+ 已入库的曲目 + 存储空间。
+  /** 下载页（设计规范 §10，v3.8 改单栏）：绿色横幅（统计卡坐在里面）+ 下载队列 + 记录表卡。
    *
    * 事实只有两份、都在后端：`GET /api/history`（记录，分页/搜索/状态筛选都在服务端做）与
    * `GET /api/stats`（数字）；SSE 只当失效信号，实时字节走 `queue` 的进度帧。
@@ -14,7 +13,6 @@
   import HardDriveIcon from "@lucide/svelte/icons/hard-drive";
   import MusicIcon from "@lucide/svelte/icons/music";
   import TriangleAlertIcon from "@lucide/svelte/icons/triangle-alert";
-  import { onMount } from "svelte";
   import { api, errorText } from "$lib/api/client";
   import type { DownloadItemResult, HistoryRow } from "$lib/api/types";
   import { formatCount, formatSize } from "$lib/format";
@@ -39,22 +37,17 @@
   import { Textarea } from "$lib/components/ui/textarea";
   import type { Column } from "$lib/components/app/DataTable.svelte";
   import DataTable from "$lib/components/app/DataTable.svelte";
-  import DownloadProgressCard from "$lib/components/app/DownloadProgressCard.svelte";
   import DownloadQueueCard from "$lib/components/app/DownloadQueueCard.svelte";
   import DownloadRow, { downloadColumns } from "$lib/components/app/DownloadRow.svelte";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
   import FilterTabs, { type TabItem } from "$lib/components/app/FilterTabs.svelte";
   import HeroBanner from "$lib/components/app/HeroBanner.svelte";
   import Note from "$lib/components/app/Note.svelte";
-  import SavedTracksCard from "$lib/components/app/SavedTracksCard.svelte";
   import StatCard from "$lib/components/app/StatCard.svelte";
-  import StorageCard from "$lib/components/app/StorageCard.svelte";
   import type { TaskAction } from "$lib/components/app/TaskRow.svelte";
 
   /** 与后端 `list_history(limit=50)` 对齐：满页即说明可能还有下一页。 */
   const PAGE_SIZE = 50;
-  /** 右栏「已入库的曲目」放几行。 */
-  const RAIL_ROWS = 3;
 
   /** 页签 → 服务端筛选值（`GET /api/history?status=`），一组状态就是逗号分隔的一串。 */
   const TAB_QUERY: Record<string, string> = {
@@ -88,7 +81,6 @@
   let selected = $state<Set<number>>(new Set());
 
   let rows = $state<HistoryRow[]>([]);
-  let savedRows = $state<HistoryRow[]>([]);
   let loaded = $state(false);
   let error = $state("");
   let flash = $state<{ id: number; tone: Tone; text: string } | null>(null);
@@ -219,21 +211,10 @@
     }
   }
 
-  /** 右栏「已入库的曲目」独立于表里的筛选：它要的是最近落盘的几首，不是当前页。 */
-  async function loadSaved() {
-    try {
-      const next = await api.get<HistoryRow[]>("/api/history?status=success");
-      savedRows = next.filter((row) => row.save_path !== null).slice(0, RAIL_ROWS);
-    } catch (err) {
-      error = errorText(err, t("common.error"));
-    }
-  }
-
   /** 动作之后列表、队列快照与统计卡一起重取：三者说的是同一批下载。 */
   async function refresh() {
     await Promise.all([
       load(stableKeyword.trim(), statusQuery, page),
-      loadSaved(),
       queue.refresh(),
       stats.refresh(),
     ]);
@@ -436,228 +417,195 @@
       error = errorText(err, t("common.error"));
     }
   }
-
-  // 右栏「已入库的曲目」不跟表里的筛选走，所以开屏得自己取一次
-  // （队列与统计卡由 App 的 onMount 负责，这里不重复打）。
-  onMount(() => {
-    void loadSaved();
-  });
 </script>
 
-<div class="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.5fr)] lg:gap-6">
-  <div class="flex min-w-0 flex-col gap-4">
-    {#snippet statGrid()}
-      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {#each cards as card (card.key)}
-          <StatCard
-            label={card.label}
-            value={card.value}
-            hint={card.hint}
-            tone={card.tone}
-            icon={card.icon}
-          />
-        {/each}
-      </div>
-    {/snippet}
-
-    <HeroBanner title={t("downloads.heroTitle")} body={t("downloads.heroBody")}>
-      {@render statGrid()}
-    </HeroBanner>
-
-    <div id="queue">
-      <DownloadQueueCard
-        tasks={activeTasks}
-        queued={queue.queued.length}
-        readings={(task) => queue.readings(task)}
-        onact={(taskId, action) => void act(taskId, action)}
-        onadd={() => (pasteOpen = true)}
-        onclear={() => (clearOpen = true)}
-      />
+<div class="flex min-w-0 flex-col gap-4">
+  {#snippet statGrid()}
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {#each cards as card (card.key)}
+        <StatCard
+          label={card.label}
+          value={card.value}
+          hint={card.hint}
+          tone={card.tone}
+          icon={card.icon}
+        />
+      {/each}
     </div>
+  {/snippet}
 
-    {#if error}
-      <Note tone="fail">{error}</Note>
-    {/if}
-    {#if notice}
-      <Note tone="done">{notice}</Note>
-    {/if}
+  <HeroBanner title={t("downloads.heroTitle")} body={t("downloads.heroBody")}>
+    {@render statGrid()}
+  </HeroBanner>
 
-    {#snippet tableHeader()}
-      <FilterTabs
-        items={tabs}
-        value={tab}
-        onchange={setTab}
-        label={t("downloads.tabsLabel")}
-        class="min-w-0 flex-1"
-      />
-      {#if failedCount > 0}
-        <Button variant="outline" size="sm" onclick={() => void retryFailed()}>
-          {t("downloads.retryFailed")}
-        </Button>
-      {/if}
-      <Input
-        bind:value={keyword}
-        type="search"
-        class="w-full rounded-full sm:w-48"
-        placeholder={searchPlaceholder}
-        aria-label={searchPlaceholder}
-      />
-    {/snippet}
-
-    {#snippet selectionBar()}
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="tabular text-caption text-primary">
-          {t("downloads.selectedCount", { n: selected.size })}
-        </span>
-        <div class="ml-auto flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="xs" onclick={() => (selected = new Set())}>
-            {t("downloads.clearSelection")}
-          </Button>
-          <Button
-            variant="outline"
-            size="xs"
-            disabled={playableSelected.length === 0}
-            onclick={playSelected}
-          >
-            {t("downloads.playSelected")}
-          </Button>
-          <Button size="xs" onclick={() => void redownloadSelected()}>
-            {t("downloads.redownloadSelected")}
-          </Button>
-        </div>
-      </div>
-    {/snippet}
-
-    {#snippet tableFooter()}
-      <span class="tabular text-caption text-muted-foreground">
-        {#if pageBytes > 0}
-          {t("downloads.foundSize", { n: rows.length, size: formatSize(pageBytes) })}
-        {:else}
-          {t("downloads.found", { n: rows.length })}
-        {/if}
-      </span>
-      {#if page > 0 || rows.length >= PAGE_SIZE}
-        <div class="ml-auto flex items-center gap-1">
-          <button
-            type="button"
-            class="ui-transition grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label={t("downloads.pagePrev")}
-            disabled={page === 0}
-            onclick={() => {
-              page -= 1;
-              selected = new Set();
-            }}
-          >
-            <ChevronLeftIcon class="size-4" aria-hidden="true" />
-          </button>
-          <span
-            class="tabular grid size-8 place-items-center rounded-control border border-border text-caption"
-            aria-current="page"
-          >
-            {page + 1}
-          </span>
-          <button
-            type="button"
-            class="ui-transition grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label={t("downloads.pageNext")}
-            disabled={rows.length < PAGE_SIZE}
-            onclick={() => {
-              page += 1;
-              selected = new Set();
-            }}
-          >
-            <ChevronRightIcon class="size-4" aria-hidden="true" />
-          </button>
-        </div>
-      {/if}
-    {/snippet}
-
-    {#snippet tableHeaderCell(column: Column)}
-      {#if column.key === "check"}
-        <span class={column.class}>
-          <Checkbox
-            checked={allSelected}
-            indeterminate={someSelected}
-            onCheckedChange={(value) => toggleAll(value === true)}
-            aria-label={t("downloads.selectAll")}
-          />
-        </span>
-      {:else}
-        <span class={column.class}>{column.label}</span>
-      {/if}
-    {/snippet}
-
-    <DataTable
-      {columns}
-      headerCell={tableHeaderCell}
-      header={tableHeader}
-      toolbar={selected.size > 0 ? selectionBar : undefined}
-      footer={tableFooter}
-    >
-      {#if !loaded}
-        <li class="px-4 py-8 text-caption text-muted-foreground md:px-6">
-          {t("common.loading")}
-        </li>
-      {:else if rows.length === 0 && !error}
-        <li class="px-4 py-4 md:px-6">
-          <EmptyState bare title={filtering ? t("downloads.none") : t("downloads.empty")}>
-            {#snippet actions()}
-              <Button onclick={() => (pasteOpen = true)}>{t("downloads.addLink")}</Button>
-            {/snippet}
-          </EmptyState>
-        </li>
-      {:else}
-        {#each rows as row (row.id)}
-          {@const playing = player.current?.id === String(row.id)}
-          {@const rowFeedback = flash && flash.id === row.id ? flash : null}
-          <DownloadRow
-            {columns}
-            {row}
-            readings={row.task_id !== null ? queue.readingsFor(row.task_id) : null}
-            {playing}
-            selected={selected.has(row.id)}
-            playLabel={playing ? t("downloads.playing") : t("downloads.play")}
-            onselected={(checked) => toggleRow(row, checked)}
-            onplay={() => playFrom(row)}
-            onretry={() => void retry(row)}
-            onredownload={() => void redownload(row)}
-            oncopy={() => void copyPath(row)}
-          >
-            {#snippet feedback()}
-              {#if rowFeedback}
-                <Note tone={rowFeedback.tone}>{rowFeedback.text}</Note>
-              {/if}
-            {/snippet}
-          </DownloadRow>
-        {/each}
-      {/if}
-    </DataTable>
-  </div>
-
-  <div class="flex min-w-0 flex-col gap-4">
-    <DownloadProgressCard
+  <div id="queue">
+    <DownloadQueueCard
       tasks={activeTasks}
+      queued={queue.queued.length}
       readings={(task) => queue.readings(task)}
       onact={(taskId, action) => void act(taskId, action)}
+      onadd={() => (pasteOpen = true)}
+      onclear={() => (clearOpen = true)}
     />
-
-    <SavedTracksCard
-      rows={savedRows}
-      total={stats.data?.library.tracks ?? null}
-      playingId={player.current?.id ?? null}
-      onplay={playFrom}
-      oncopy={(row) => void copyPath(row)}
-      onredownload={(row) => void redownload(row)}
-    >
-      {#snippet feedback(row)}
-        {#if flash && flash.id === row.id}
-          <Note tone={flash.tone}>{flash.text}</Note>
-        {/if}
-      {/snippet}
-    </SavedTracksCard>
-
-    <StorageCard bytes={stats.data?.library.bytes ?? null} quota={null} />
   </div>
+
+  {#if error}
+    <Note tone="fail">{error}</Note>
+  {/if}
+  {#if notice}
+    <Note tone="done">{notice}</Note>
+  {/if}
+
+  {#snippet tableHeader()}
+    <FilterTabs
+      items={tabs}
+      value={tab}
+      onchange={setTab}
+      label={t("downloads.tabsLabel")}
+      class="min-w-0 flex-1"
+    />
+    {#if failedCount > 0}
+      <Button variant="outline" size="sm" onclick={() => void retryFailed()}>
+        {t("downloads.retryFailed")}
+      </Button>
+    {/if}
+    <Input
+      bind:value={keyword}
+      type="search"
+      class="w-full rounded-full sm:w-48"
+      placeholder={searchPlaceholder}
+      aria-label={searchPlaceholder}
+    />
+  {/snippet}
+
+  {#snippet selectionBar()}
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="tabular text-caption text-primary">
+        {t("downloads.selectedCount", { n: selected.size })}
+      </span>
+      <div class="ml-auto flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="xs" onclick={() => (selected = new Set())}>
+          {t("downloads.clearSelection")}
+        </Button>
+        <Button
+          variant="outline"
+          size="xs"
+          disabled={playableSelected.length === 0}
+          onclick={playSelected}
+        >
+          {t("downloads.playSelected")}
+        </Button>
+        <Button size="xs" onclick={() => void redownloadSelected()}>
+          {t("downloads.redownloadSelected")}
+        </Button>
+      </div>
+    </div>
+  {/snippet}
+
+  {#snippet tableFooter()}
+    <span class="tabular text-caption text-muted-foreground">
+      {#if pageBytes > 0}
+        {t("downloads.foundSize", { n: rows.length, size: formatSize(pageBytes) })}
+      {:else}
+        {t("downloads.found", { n: rows.length })}
+      {/if}
+    </span>
+    {#if page > 0 || rows.length >= PAGE_SIZE}
+      <div class="ml-auto flex items-center gap-1">
+        <button
+          type="button"
+          class="ui-transition grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label={t("downloads.pagePrev")}
+          disabled={page === 0}
+          onclick={() => {
+            page -= 1;
+            selected = new Set();
+          }}
+        >
+          <ChevronLeftIcon class="size-4" aria-hidden="true" />
+        </button>
+        <span
+          class="tabular grid size-8 place-items-center rounded-control border border-border text-caption"
+          aria-current="page"
+        >
+          {page + 1}
+        </span>
+        <button
+          type="button"
+          class="ui-transition grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label={t("downloads.pageNext")}
+          disabled={rows.length < PAGE_SIZE}
+          onclick={() => {
+            page += 1;
+            selected = new Set();
+          }}
+        >
+          <ChevronRightIcon class="size-4" aria-hidden="true" />
+        </button>
+      </div>
+    {/if}
+  {/snippet}
+
+  {#snippet tableHeaderCell(column: Column)}
+    {#if column.key === "check"}
+      <span class={column.class}>
+        <Checkbox
+          checked={allSelected}
+          indeterminate={someSelected}
+          onCheckedChange={(value) => toggleAll(value === true)}
+          aria-label={t("downloads.selectAll")}
+        />
+      </span>
+    {:else}
+      <span class={column.class}>{column.label}</span>
+    {/if}
+  {/snippet}
+
+  <DataTable
+    {columns}
+    headerCell={tableHeaderCell}
+    header={tableHeader}
+    toolbar={selected.size > 0 ? selectionBar : undefined}
+    footer={tableFooter}
+  >
+    {#if !loaded}
+      <li class="px-4 py-8 text-caption text-muted-foreground md:px-6">
+        {t("common.loading")}
+      </li>
+    {:else if rows.length === 0 && !error}
+      <li class="px-4 py-4 md:px-6">
+        <EmptyState bare title={filtering ? t("downloads.none") : t("downloads.empty")}>
+          {#snippet actions()}
+            <Button onclick={() => (pasteOpen = true)}>{t("downloads.addLink")}</Button>
+          {/snippet}
+        </EmptyState>
+      </li>
+    {:else}
+      {#each rows as row (row.id)}
+        {@const playing = player.current?.id === String(row.id)}
+        {@const rowFeedback = flash && flash.id === row.id ? flash : null}
+        <DownloadRow
+          {columns}
+          {row}
+          readings={row.task_id !== null ? queue.readingsFor(row.task_id) : null}
+          {playing}
+          selected={selected.has(row.id)}
+          playLabel={playing ? t("downloads.playing") : t("downloads.play")}
+          onselected={(checked) => toggleRow(row, checked)}
+          onplay={() => playFrom(row)}
+          onretry={() => void retry(row)}
+          onredownload={() => void redownload(row)}
+          oncopy={() => void copyPath(row)}
+        >
+          {#snippet feedback()}
+            {#if rowFeedback}
+              <Note tone={rowFeedback.tone}>{rowFeedback.text}</Note>
+            {/if}
+          {/snippet}
+        </DownloadRow>
+      {/each}
+    {/if}
+  </DataTable>
 </div>
 
 <Dialog bind:open={pasteOpen}>
