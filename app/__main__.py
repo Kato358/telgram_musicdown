@@ -25,6 +25,7 @@ from app.services.preview import PreviewService
 from app.services.source import SearchService, SourceService
 from app.services.sync import SyncRunner
 from app.telegram.manager import TelegramManager
+from app.utils.proactor_patch import silence_proactor_connection_reset
 from app.web import auth as web_auth
 from app.web.routes import create_app
 
@@ -147,6 +148,8 @@ def main() -> None:
     # Docker：TGM_BASE_DIR 指向挂载卷（/data）；默认源码根
     from app.config import app_dirs  # noqa: PLC0415  仅 main 需要
 
+    # Windows Proactor 关连接时对已 RST 的 socket shutdown 报 10054，属 asyncio 已知噪音
+    silence_proactor_connection_reset()
     base_dir = Path(os.environ.get("TGM_BASE_DIR") or Path(__file__).resolve().parent.parent)
     dirs = app_dirs(base_dir)
     setup_logging(dirs["logs"])
