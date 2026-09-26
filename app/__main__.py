@@ -13,16 +13,17 @@ import sys
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any
 
-from app.config import SecretConfig, load_secrets, web_dist_dir
-from app.container import Container, build_container
+from app.config import SecretConfig, app_dirs, load_secrets, web_dist_dir
+from app.container import Container, Overrides, build_container
 from app.errors import SessionLockedError, WebAuthConfigError
 from app.events import EventBus, attach_event_log_bridge
+from app.ports import IStore
 from app.services.download import DownloadService
 from app.services.local_library import LocalLibraryService
 from app.services.preview import PreviewService
-from app.services.source import SearchService, SourceService
+from app.services.search import SearchService
+from app.services.source import SourceService
 from app.telegram.manager import TelegramManager
 from app.utils.proactor_patch import silence_proactor_connection_reset
 from app.web import auth as web_auth
@@ -53,7 +54,7 @@ class AppServices:
     """
 
     secrets: SecretConfig
-    store: Any
+    store: IStore
     events: EventBus
     sources: SourceService
     search: SearchService
@@ -68,30 +69,32 @@ class AppServices:
 def build_services(base_dir: Path) -> AppServices:
     """装配全部服务；返回依赖容器（供 web/tg 与测试共用）。
 
-    组合根：配置与仓储装配走 ``build_container``（DI），TG 生命周期在此收口。
+    组合根：密钥与 TG 生命周期在此收口，服务装配走 ``build_container``（DI）。
+    TG 管理器**先于**容器建出来——容器的客户端就是它的两个代理，于是来源索引与
+    各服务从构造那一刻起就握着真客户端。旧顺序（先建容器、再往服务上回填客户端）
+    漏掉了来源索引，那条链路一直拿 None 打上游（默认的逐源搜索因此整个不可用）。
     """
-    container = build_container(base_dir)
-    dirs = container.dirs
-    store = container.store
     secrets = load_secrets(base_dir)
     web_auth.check_auth_config(
         secrets.web_host, secrets.web_login_secret, secrets.web_login_enabled
     )
-    events = container.extras["events"]
+    dirs = app_dirs(base_dir)
     tg = TelegramManager(secrets, dirs["sessions"])
-    downloads = container.downloads
-    # 依赖注入边界：user_client 未连接时占位 proxy 报 not_connected
-    downloads.client = tg.download_client_proxy
-    container.sources.client = tg.user_client_proxy
-    container.search.client = tg.user_client_proxy
-    container.preview.client = tg.download_client_proxy
+    container = build_container(
+        base_dir,
+        Overrides(
+            user_client=tg.user_client_proxy,
+            media_client=tg.download_client_proxy,
+            secrets=secrets,
+        ),
+    )
     return AppServices(
         secrets=secrets,
-        store=store,
-        events=events,
+        store=container.store,
+        events=container.events,
         sources=container.sources,
         search=container.search,
-        downloads=downloads,
+        downloads=container.downloads,
         preview=container.preview,
         library=container.library,
         tg=tg,

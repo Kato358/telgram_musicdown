@@ -48,7 +48,7 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
             meta = meta_from_dict(ref)
             task_id = await downloads.enqueue(
                 DownloadRequest(
-                    meta=meta, force=req.force, quality=ref.get("quality")  # type: ignore[arg-type]
+                    meta=meta, force=req.force, quality=ref.get("quality")
                 )
             )
             out.append({"chat_id": meta.chat_id, "message_id": meta.message_id, "task_id": task_id})

@@ -18,8 +18,10 @@ from app.errors import SourceUnreachableError, WebAuthConfigError
 from app.events import Event, EventBus
 from app.services.download import DownloadService
 from app.services.preview import PreviewService
-from app.services.source import SearchService, SourceService
+from app.services.search import SearchService
+from app.services.source import SourceService
 from app.telegram.manager import TelegramManager
+from app.telegram.unconnected import UnconnectedTelegramClient
 from app.web import auth as web_auth
 from app.web.routes import create_app
 from app.web.routes import lyrics as lyrics_route
@@ -36,20 +38,18 @@ def client(tmp_path: Path) -> TestClient:
     # 三个服务共用一份来源索引（与容器装配同构），否则在线源那条路在 API 层是死的
     chksz = FakeChkszClient()
     # 在线源默认关着（与生产一致：配了 Key 也要用户显式开），测试按需 apply_chksz
-    registry = fake_registry(store, FakeUserClient([]), chksz)  # type: ignore[arg-type]
-    sources = SourceService(store, None)  # type: ignore[arg-type]
-    search = SearchService(store, None, registry=registry)  # type: ignore[arg-type]
+    registry = fake_registry(store, FakeUserClient([]), chksz)
+    sources = SourceService(store, UnconnectedTelegramClient())
+    search = SearchService(store, UnconnectedTelegramClient(), registry=registry)
     downloads = DownloadService(
         store,
-        None,
+        UnconnectedTelegramClient(),
         events,
         tmp_path / "temp",
-        TemplateConfig(save_path=tmp_path / "library"),  # type: ignore[arg-type]
+        TemplateConfig(save_path=tmp_path / "library"),
         registry=registry,
     )
-    preview = PreviewService(
-        store, registry, events, tmp_path / "temp" / "preview"
-    )
+    preview = PreviewService(store, registry, events, tmp_path / "temp" / "preview")
     tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
     app = create_app(
         store,
@@ -148,16 +148,18 @@ def test_auth_required_with_secret(tmp_path: Path) -> None:
     # 有 secret：无会话 401（验收 #16）
     store = Store(tmp_path / "app.db")
     events = EventBus()
-    sources = SourceService(store, None)  # type: ignore[arg-type]
-    search = SearchService(store, None)  # type: ignore[arg-type]
+    registry = fake_registry(store)
+    sources = SourceService(store, UnconnectedTelegramClient())
+    search = SearchService(store, UnconnectedTelegramClient(), registry=registry)
     downloads = DownloadService(
         store,
-        None,
+        UnconnectedTelegramClient(),
         events,
         tmp_path / "temp",
-        TemplateConfig(save_path=tmp_path / "library"),  # type: ignore[arg-type]
+        TemplateConfig(save_path=tmp_path / "library"),
+        registry=registry,
     )
-    preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    preview = PreviewService(store, registry, events, tmp_path / "temp" / "preview")
     tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
     app = create_app(  # 测试注入 0.0.0.0 验证强制密码路径
         store,
@@ -252,16 +254,18 @@ def test_setup_secrets_writes_to_base_dir(tmp_path: Path) -> None:
     # FR-OPS-02：密钥写入 base_dir/config.yaml；session_directory 可配置到别处也不影响
     store = Store(tmp_path / "app.db")
     events = EventBus()
-    sources = SourceService(store, None)  # type: ignore[arg-type]
-    search = SearchService(store, None)  # type: ignore[arg-type]
+    registry = fake_registry(store)
+    sources = SourceService(store, UnconnectedTelegramClient())
+    search = SearchService(store, UnconnectedTelegramClient(), registry=registry)
     downloads = DownloadService(
         store,
-        None,
+        UnconnectedTelegramClient(),
         events,
         tmp_path / "temp",
-        TemplateConfig(save_path=tmp_path / "downloads"),  # type: ignore[arg-type]
+        TemplateConfig(save_path=tmp_path / "downloads"),
+        registry=registry,
     )
-    preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    preview = PreviewService(store, registry, events, tmp_path / "temp" / "preview")
     tg = TelegramManager(SecretConfig(), tmp_path / "elsewhere" / "sessions")
     app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
     r = TestClient(app).post("/api/setup/secrets", json={"api_id": 1234567, "api_hash": API_HASH})
@@ -282,16 +286,18 @@ def _client_with(
     """带自定密钥的 API 客户端（向导相关用例共用）。"""
     store = Store(tmp_path / "app.db")
     events = EventBus()
-    sources = SourceService(store, None)  # type: ignore[arg-type]
-    search = SearchService(store, None)  # type: ignore[arg-type]
+    registry = fake_registry(store)
+    sources = SourceService(store, UnconnectedTelegramClient())
+    search = SearchService(store, UnconnectedTelegramClient(), registry=registry)
     downloads = DownloadService(
         store,
-        None,
+        UnconnectedTelegramClient(),
         events,
         tmp_path / "temp",
-        TemplateConfig(save_path=tmp_path / "downloads"),  # type: ignore[arg-type]
+        TemplateConfig(save_path=tmp_path / "downloads"),
+        registry=registry,
     )
-    preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    preview = PreviewService(store, registry, events, tmp_path / "temp" / "preview")
     tg = TelegramManager(secrets or SecretConfig(), tmp_path / "sessions")
     app = create_app(
         store,
@@ -501,16 +507,18 @@ def test_add_source_enqueues_nothing(tmp_path: Path) -> None:
     store = Store(tmp_path / "app.db")
     events = EventBus()
     client = FakeUserClient([])
-    sources = SourceService(store, client)  # type: ignore[arg-type]
-    search = SearchService(store, client)  # type: ignore[arg-type]
+    registry = fake_registry(store, client)
+    sources = SourceService(store, client)
+    search = SearchService(store, client, registry=registry)
     downloads = DownloadService(
         store,
         client,
         events,
         tmp_path / "temp",
         TemplateConfig(save_path=tmp_path / "downloads"),
+        registry=registry,
     )
-    preview = PreviewService(store, client, events, tmp_path / "temp" / "preview")
+    preview = PreviewService(store, registry, events, tmp_path / "temp" / "preview")
     tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
     app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
     c = TestClient(app)
@@ -534,16 +542,18 @@ def test_source_row_is_identity_only_and_toggle_round_trips(tmp_path: Path) -> N
     store = Store(tmp_path / "app.db")
     events = EventBus()
     client = FakeUserClient([])
-    sources = SourceService(store, client)  # type: ignore[arg-type]
-    search = SearchService(store, client)  # type: ignore[arg-type]
+    registry = fake_registry(store, client)
+    sources = SourceService(store, client)
+    search = SearchService(store, client, registry=registry)
     downloads = DownloadService(
         store,
-        client,  # type: ignore[arg-type]
+        client,
         events,
         tmp_path / "temp",
         TemplateConfig(save_path=tmp_path / "downloads"),
+        registry=registry,
     )
-    preview = PreviewService(store, client, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    preview = PreviewService(store, registry, events, tmp_path / "temp" / "preview")
     tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
     app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
 
@@ -903,20 +913,22 @@ def test_put_settings_applies_templates_immediately(tmp_path: Path) -> None:
     """设置保存即时生效（FR-CFG-03）：PUT 后下载服务的模板与试听缓存同步刷新，不等重启。"""
     store = Store(tmp_path / "app.db")
     events = EventBus()
+    registry = fake_registry(store)
     downloads = DownloadService(
         store,
-        None,
+        UnconnectedTelegramClient(),
         events,
         tmp_path / "temp",
-        TemplateConfig(save_path=tmp_path / "library"),  # type: ignore[arg-type]
+        TemplateConfig(save_path=tmp_path / "library"),
+        registry=registry,
     )
-    preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    preview = PreviewService(store, registry, events, tmp_path / "temp" / "preview")
     app = create_app(
         store,
         events,
         downloads,
-        SourceService(store, None),  # type: ignore[arg-type]
-        SearchService(store, None),  # type: ignore[arg-type]
+        SourceService(store, UnconnectedTelegramClient()),
+        SearchService(store, UnconnectedTelegramClient(), registry=registry),
         preview,
         TelegramManager(SecretConfig(), tmp_path / "sessions"),
         base_dir=tmp_path,
@@ -972,20 +984,22 @@ def test_preview_path_empty_dir_template_is_flat(tmp_path: Path) -> None:
     """空目录模板的预览：路径 = 落盘根 + 文件名，没有中间子目录。"""
     store = Store(tmp_path / "app.db")
     events = EventBus()
+    registry = fake_registry(store)
     downloads = DownloadService(
         store,
-        None,
+        UnconnectedTelegramClient(),
         events,
         tmp_path / "temp",
-        TemplateConfig(save_path=tmp_path / "library"),  # type: ignore[arg-type]
+        TemplateConfig(save_path=tmp_path / "library"),
+        registry=registry,
     )
-    preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    preview = PreviewService(store, registry, events, tmp_path / "temp" / "preview")
     app = create_app(
         store,
         events,
         downloads,
-        SourceService(store, None),  # type: ignore[arg-type]
-        SearchService(store, None),  # type: ignore[arg-type]
+        SourceService(store, UnconnectedTelegramClient()),
+        SearchService(store, UnconnectedTelegramClient(), registry=registry),
         preview,
         TelegramManager(SecretConfig(), tmp_path / "sessions"),
         base_dir=tmp_path,
@@ -1061,16 +1075,18 @@ def _search_mode_client(tmp_path: Path, client: FakeUserClient) -> TestClient:
     """带假 Telegram 客户端的 API 客户端（搜索链路用例共用）。"""
     store = Store(tmp_path / "app.db")
     events = EventBus()
-    sources = SourceService(store, client)  # type: ignore[arg-type]
-    search = SearchService(store, client)  # type: ignore[arg-type]
+    registry = fake_registry(store, client)
+    sources = SourceService(store, client)
+    search = SearchService(store, client, registry=registry)
     downloads = DownloadService(
         store,
-        client,  # type: ignore[arg-type]
+        client,
         events,
         tmp_path / "temp",
         TemplateConfig(save_path=tmp_path / "downloads"),
+        registry=registry,
     )
-    preview = PreviewService(store, client, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    preview = PreviewService(store, registry, events, tmp_path / "temp" / "preview")
     tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
     app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
     return TestClient(app)
@@ -1139,16 +1155,18 @@ def test_search_endpoint_pages_caches_and_refreshes(tmp_path: Path) -> None:
     store = Store(tmp_path / "app.db")
     events = EventBus()
     client = _CountingClient([make_audio_message(i, title="晴天") for i in range(30)])
-    sources = SourceService(store, client)  # type: ignore[arg-type]
-    search = SearchService(store, client)  # type: ignore[arg-type]
+    registry = fake_registry(store, client)
+    sources = SourceService(store, client)
+    search = SearchService(store, client, registry=registry)
     downloads = DownloadService(
         store,
-        client,  # type: ignore[arg-type]
+        client,
         events,
         tmp_path / "temp",
         TemplateConfig(save_path=tmp_path / "downloads"),
+        registry=registry,
     )
-    preview = PreviewService(store, client, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    preview = PreviewService(store, registry, events, tmp_path / "temp" / "preview")
     tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
     app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
 

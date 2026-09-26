@@ -56,8 +56,22 @@ def _artist_fallback(meta: TrackMeta, cfg: TemplateConfig) -> str:
     return UNKNOWN_ARTIST
 
 
+def _raw_date(meta: TrackMeta) -> str | None:
+    """消息日期的 ISO 形态（``YYYY-MM-DD``）；无日期返回 None。"""
+    return meta.message_date[:10] if meta.message_date else None
+
+
+def _format_date(raw: str, fmt: str) -> str:
+    """ISO 日期 → 全局 ``date_format`` 形态（FR-NAME-06）；认不出就退回原文。"""
+    try:
+        return datetime.fromisoformat(raw).strftime(fmt)
+    except ValueError:
+        return raw
+
+
 def _resolve_field(meta: TrackMeta, field: str, cfg: TemplateConfig) -> str | None:
     """字段取值（FR-NAME-02 回退链表）。None 表示无值。"""
+    raw_date = _raw_date(meta)
     simple: dict[str, str | None] = {
         "album": meta.album,
         "channel": meta.channel_title,
@@ -70,8 +84,10 @@ def _resolve_field(meta: TrackMeta, field: str, cfg: TemplateConfig) -> str | No
         "unique_id": (meta.unique_id or "")[:8] or None,
         "track": str(meta.track) if meta.track is not None else None,
         "duration": str(meta.duration_sec) if meta.duration_sec is not None else None,
-        "year": meta.message_date[:4] if meta.message_date else None,
-        "date": meta.message_date[:10] if meta.message_date else None,
+        "year": raw_date[:4] if raw_date else None,
+        # {date} 的默认形态由全局 date_format 决定（FR-NAME-06，默认 %Y-%m）；
+        # 要别的形态就在模板里显式写 {date:%Y-%m-%d}。
+        "date": _format_date(raw_date, cfg.date_format) if raw_date else None,
     }
     if field in simple:
         return simple[field]
@@ -97,11 +113,17 @@ def _truncate_filter(value: str, spec: str) -> str:
     return value[:n]
 
 
-def _date_filter(value: str, spec: str, meta: TrackMeta, cfg: TemplateConfig) -> str:
-    if (field_date := _resolve_field(meta, "date", cfg)) is None:
+def _date_filter(value: str, spec: str, meta: TrackMeta) -> str:
+    """``{field:%…}`` 显式日期格式：拿**原始**消息日期格式化。
+
+    不能拿 ``_resolve_field`` 的结果——那已经过全局 ``date_format``（FR-NAME-06），
+    再喂给 ``fromisoformat`` 会因不再是 ISO 而失败，显式格式于是悄悄失效。
+    """
+    raw = _raw_date(meta)
+    if raw is None:
         return value
     try:
-        return datetime.fromisoformat(field_date).strftime(spec)
+        return datetime.fromisoformat(raw).strftime(spec)
     except ValueError:
         return value
 
@@ -125,7 +147,7 @@ def _apply_filter(
     if spec.startswith("truncate:"):
         return _truncate_filter(value, spec)
     if spec.startswith("%"):
-        return _date_filter(value, spec, meta, cfg)
+        return _date_filter(value, spec, meta)
     if spec.endswith("d") or spec.isdigit():
         return _pad_filter(value, spec)
     return value

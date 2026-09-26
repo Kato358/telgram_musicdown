@@ -21,8 +21,9 @@ from pyrogram.errors import (
 from app.db.models import Source
 from app.db.store import Store
 from app.errors import SourceUnreachableError
-from app.services.source import SearchService
+from app.services.search import SearchService
 from app.telegram import user_client
+from tests.fakes import fake_registry
 
 
 def test_floodwait_is_reported_as_rate_limit() -> None:
@@ -59,7 +60,8 @@ async def test_search_surfaces_rate_limit_per_source(tmp_path: Path) -> None:
     source_id = store.upsert_source(
         Source(id=None, telegram_chat_id=-100123, title="Music Channel", type="channel")
     )
-    service = SearchService(store, _RateLimitedClient())  # type: ignore[arg-type]
+    client = _RateLimitedClient()
+    service = SearchService(store, client, registry=fake_registry(store, client))
 
     resp = await service.search("晴天")
 

@@ -14,7 +14,7 @@ from app.appsettings import (
     load_template_config,
 )
 from app.container import Overrides, build_container
-from app.db.models import Task
+from app.db.models import Source, Task
 from app.db.store import Store
 from app.domain import TemplateConfig
 from app.ports import IStore
@@ -97,7 +97,7 @@ def test_build_container_wires_services(tmp_path: Path) -> None:
     """DI 容器：按依赖顺序装配，服务互相引用接口而非具体类（DIP）。"""
     container = build_container(
         tmp_path,
-        Overrides(download_client=FakeUserClient([make_audio_message(1)])),
+        Overrides(media_client=FakeUserClient([make_audio_message(1)])),
     )
     try:
         assert container.downloads.store is container.store
@@ -113,7 +113,7 @@ def test_build_container_wires_services(tmp_path: Path) -> None:
 def test_build_container_respects_override(tmp_path: Path) -> None:
     """测试注入假客户端：容器照常装配其余组件，不 mock 被测对象。"""
     fake = FakeUserClient([make_audio_message(1)])
-    container = build_container(tmp_path, Overrides(download_client=fake, source_client=fake))
+    container = build_container(tmp_path, Overrides(media_client=fake, user_client=fake))
     try:
         assert container.downloads.client is fake
         # 搜索、下载、试听必须共用同一份来源索引：同一个来源在三条链路里得是同一个
@@ -134,3 +134,23 @@ def test_build_container_closes_store(tmp_path: Path) -> None:
     container.close()
     with pytest.raises(Exception):  # noqa: B017  sqlite3.ProgrammingError
         container.store.all_settings()
+
+
+async def test_container_registry_searches_with_injected_client(tmp_path: Path) -> None:
+    """来源索引拿到的是注入的客户端，不是 None（回归：逐源搜索曾整条链路打不通）。
+
+    索引是在容器里按客户端构造的；装配若漏掉客户端，症状不是报配置错，而是一次真实
+    搜索才炸出的 ``AttributeError: 'NoneType' object has no attribute 'search_messages'``。
+    这里把「加了一个源 → 搜它 → 命中」这条最短链路走完。
+    """
+    fake = FakeUserClient([make_audio_message(1)])
+    container = build_container(tmp_path, Overrides(user_client=fake, media_client=fake))
+    try:
+        container.store.upsert_source(
+            Source(id=None, telegram_chat_id=-100123, title="chan", type="channel")
+        )
+        window = await container.registry.targets()[0].search("晴天", 5)
+        assert [card.message_id for card in window.items] == [1]
+        assert fake.download_calls == 0  # 搜索不该走下载客户端
+    finally:
+        container.close()

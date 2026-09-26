@@ -20,7 +20,6 @@ from typing import Any
 # 取值是约定不是巧合——改这里等于让历史行与试听缓存撞键。
 PROVIDER_TELEGRAM = "telegram"
 PROVIDER_SCOPES: dict[str, int] = {"163": -1, "qq": -2, "kugo": -3}
-SCOPE_PROVIDERS: dict[int, str] = {v: k for k, v in PROVIDER_SCOPES.items()}
 
 
 UNIQUE_ID_PREFIX = "chksz"
@@ -53,12 +52,6 @@ def ref_of(unique_id: str | None) -> str | None:
     """``file_unique_id`` → 平台曲目 id；不是在线源曲目返回 None。"""
     split = _split_unique_id(unique_id)
     return split[1] or None if split else None
-
-
-def provider_of(unique_id: str | None) -> str:
-    """``file_unique_id`` → 音频来源；Telegram 的裸 id 回落默认源（认不出不当在线源）。"""
-    split = _split_unique_id(unique_id)
-    return split[0] if split else PROVIDER_TELEGRAM
 
 
 @dataclass(slots=True)
@@ -139,8 +132,7 @@ AUDIO_EXTS: frozenset[str] = frozenset(
     }
 )
 
-# 曲库扫描关注的音频扩展名（与 AUDIO_EXTS 同源，含全部可播放容器）
-LIBRARY_AUDIO_EXTS: frozenset[str] = AUDIO_EXTS
+# 曲库扫描认的容器就是全部可播放音频：扩展名的唯一事实源是上面的 AUDIO_EXTS。
 
 
 # ---- 音频消息判定与卡片映射（FR-SEARCH-02，验收 #11）----

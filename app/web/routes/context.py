@@ -9,15 +9,17 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
 from app.events import EventBus
 from app.ports import IStore
+from app.ports.music import MusicSourceIndexProto
 from app.services.download import DownloadService
+from app.services.local_library import LocalLibraryService
 from app.services.preview import PreviewService
-from app.services.source import SearchService, SourceService
+from app.services.search import SearchService
+from app.services.source import SourceService
 from app.services.tags import TagService
 from app.telegram.manager import TelegramManager
 from app.web import auth as web_auth
@@ -28,14 +30,14 @@ class RouteContext:
     """路由共享上下文：服务句柄 + 认证依赖 + 应用级配置。"""
 
     #: 来源索引（SDD §2.7）：搜索/下载/试听共用；设置保存时就地刷新在线源开关与档位。
-    registry: Any
+    registry: MusicSourceIndexProto
     store: IStore
     events: EventBus
     downloads: DownloadService
     sources: SourceService
     search: SearchService
     preview: PreviewService
-    library: Any  # LocalLibraryService（None = 未装配，曲库路由退 503）
+    library: LocalLibraryService
     tg: TelegramManager
     base_dir: Path
     web_host: str

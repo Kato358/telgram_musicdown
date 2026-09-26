@@ -20,6 +20,7 @@ from app.errors import AppError, UnsupportedContainerError
 from app.events import EventBus
 from app.services.preview import PreviewService
 from app.services.tags import TagService, image_media_type
+from app.telegram.unconnected import UnconnectedTelegramClient
 from tests.fakes import FakeUserClient, fake_registry, make_audio_message
 
 JPEG = b"\xff\xd8\xff\xe0FAKEJPEGDATA"
@@ -259,7 +260,9 @@ async def test_cover_cache_evicts_oldest_within_shared_limit(
 ) -> None:
     # FR-PLAY-02：封面不进 preview_cache 表，但算占用：超上限按 mtime 从最旧淘汰
     monkeypatch.setattr(preview_mod, "_fetch_cover", lambda title, artist: b"\xff\xd8jpeg")
-    preview = PreviewService(Store(tmp_path / "app.db"), None, EventBus(), tmp_path, max_bytes=15)  # type: ignore[arg-type]
+    preview = PreviewService(
+        Store(tmp_path / "app.db"), UnconnectedTelegramClient(), EventBus(), tmp_path, max_bytes=15
+    )
     now = time.time()
     first = await preview.cover_path("A", "")
     assert first is not None
@@ -307,7 +310,9 @@ def test_preview_stream_path_only_accepts_id(tmp_path: Path) -> None:
             id=None, chat_id=1, message_id=1, file_path=str(file), file_size=4, last_access_at=""
         )
     )
-    preview = PreviewService(store, None, EventBus(), tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    preview = PreviewService(
+        store, UnconnectedTelegramClient(), EventBus(), tmp_path / "temp" / "preview"
+    )
     assert preview.stream_path(1) == file
     with pytest.raises(AppError):
         preview.stream_path(999)
@@ -325,7 +330,9 @@ async def test_cover_path_caches_query_and_failures(
         return b"\xff\xd8jpeg" if title == "晴天" else None
 
     monkeypatch.setattr(preview_mod, "_fetch_cover", fake_fetch)
-    preview = PreviewService(Store(tmp_path / "app.db"), None, EventBus(), tmp_path)  # type: ignore[arg-type]
+    preview = PreviewService(
+        Store(tmp_path / "app.db"), UnconnectedTelegramClient(), EventBus(), tmp_path
+    )
 
     first = await preview.cover_path("晴天.flac", "周杰伦")
     assert first is not None and first.read_bytes() == b"\xff\xd8jpeg"

@@ -708,7 +708,11 @@
           </Field>
         </div>
 
-        <Field label={t("settings.dateFormat")} for="setting-date-format">
+        <Field
+          label={t("settings.dateFormat")}
+          for="setting-date-format"
+          hint={t("settings.dateFormatHint")}
+        >
           <Input id="setting-date-format" class="tabular w-40" bind:value={dateFormat} />
         </Field>
 

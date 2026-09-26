@@ -34,14 +34,6 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
     store, library = ctx.store, ctx.library
     tags = ctx.tags
 
-    if library is None:  # 兜底装配失败的服务器：曲库整体退 503
-
-        @app.get("/api/local-library", include_in_schema=False)
-        async def _unavailable(_: None = Depends(ctx.check_session)) -> dict[str, Any]:
-            raise HTTPException(status_code=503, detail="library service unavailable")
-
-        return
-
     root = Path(library.save_path)
 
     def _track_or_404(track_id: int) -> LocalTrack:

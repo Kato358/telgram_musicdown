@@ -63,6 +63,26 @@ def test_render_path_artist_caption_fallback(tmp_path: Path) -> None:
     assert p == tmp_path / "周杰伦" / "晴天.mp3"
 
 
+def test_render_template_date_uses_global_date_format() -> None:
+    # FR-NAME-06：{date} 的默认形态由全局 date_format 决定（默认 %Y-%m）
+    meta = TrackMeta(chat_id=-100, message_id=1, message_date="2024-05-17T18:30:00+00:00")
+    assert render_template("{date}", meta, TemplateConfig()) == "2024-05"
+    assert render_template("{date}", meta, TemplateConfig(date_format="%Y-%m-%d")) == "2024-05-17"
+
+
+def test_render_template_explicit_date_filter_ignores_date_format() -> None:
+    # 显式 {date:%…} 是覆盖：即使全局 date_format 换了形态，过滤器仍按原始日期渲染
+    meta = TrackMeta(chat_id=-100, message_id=1, message_date="2024-05-17T18:30:00+00:00")
+    cfg = TemplateConfig(date_format="%Y")
+    assert render_template("{date:%Y-%m-%d}", meta, cfg) == "2024-05-17"
+
+
+def test_render_template_date_missing_omits_segment() -> None:
+    # 没有消息日期时整段省略（FR-NAME-03），不编造日期
+    meta = TrackMeta(chat_id=-100, message_id=1)
+    assert render_template("{date}", meta, TemplateConfig()) == ""
+
+
 def test_render_template_track_zero_pad_and_truncate() -> None:
     meta = TrackMeta(chat_id=-100, message_id=6, track=7, caption="x" * 200)
     assert render_template("{track:02d}", meta, TemplateConfig()) == "07"

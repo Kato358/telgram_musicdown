@@ -1,6 +1,6 @@
 """SQLite 表定义（SDD §3.2）。
 
-行以 dataclass 表示；字段名与 SDD §3.2 一致。全部 SQL 收口 db/store.py（§2.6）。
+行以 dataclass 表示；字段名与 SDD §3.2 一致。全部 SQL 收口 db/store/（§2.6）。
 """
 
 from __future__ import annotations

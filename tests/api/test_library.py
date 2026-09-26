@@ -16,10 +16,13 @@ from app.events import EventBus
 from app.services.download import DownloadService
 from app.services.local_library import LocalLibraryService
 from app.services.preview import PreviewService
-from app.services.source import SearchService, SourceService
+from app.services.search import SearchService
+from app.services.source import SourceService
 from app.services.tags import TagService
 from app.telegram.manager import TelegramManager
+from app.telegram.unconnected import UnconnectedTelegramClient
 from app.web.routes import create_app
+from tests.fakes import fake_registry
 from tests.service.test_tags_preview import make_silent_mp3
 
 API_HASH = "0123456789abcdef0123456789abcdef"
@@ -30,16 +33,18 @@ def make_client(tmp_path: Path) -> tuple[TestClient, Store, LocalLibraryService]
     events = EventBus()
     tags = TagService()
     library = LocalLibraryService(store, tmp_path / "downloads", tags, events)
-    sources = SourceService(store, None)  # type: ignore[arg-type]
-    search = SearchService(store, None)  # type: ignore[arg-type]
+    registry = fake_registry(store)
+    sources = SourceService(store, UnconnectedTelegramClient())
+    search = SearchService(store, UnconnectedTelegramClient(), registry=registry)
     downloads = DownloadService(
         store,
-        None,
+        UnconnectedTelegramClient(),
         events,
         tmp_path / "temp",
-        TemplateConfig(save_path=tmp_path / "downloads"),  # type: ignore[arg-type]
+        TemplateConfig(save_path=tmp_path / "downloads"),
+        registry=registry,
     )
-    preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    preview = PreviewService(store, registry, events, tmp_path / "temp" / "preview")
     tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
     app = create_app(
         store,

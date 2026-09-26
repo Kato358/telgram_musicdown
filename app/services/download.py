@@ -41,8 +41,7 @@ from app.errors import AppError, TaskNotFoundError
 from app.events import Event, EventBus
 from app.ports import IStore
 from app.ports.music import FetchRef, FetchResult, MusicSourceIndexProto
-from app.ports.telegram import TelegramClientProto
-from app.registry import SourceRegistry
+from app.ports.telegram import MediaClientProto
 from app.services.history_writer import HistoryWriter, history_row
 from app.services.path_builder import render_path, resolve_conflict
 from app.services.progress import ProgressReporter, TaskRunState
@@ -80,17 +79,17 @@ class DownloadService:
     def __init__(
         self,
         store: IStore,
-        client: TelegramClientProto | None,
+        client: MediaClientProto,
         events: EventBus,
         temp_dir: Path,
         cfg: TemplateConfig,
         max_concurrent: int = 3,
-        registry: MusicSourceIndexProto | None = None,
+        *,
+        registry: MusicSourceIndexProto,
         default_quality: str | None = None,
     ) -> None:
         self.store = store
-        # 装配期可为 None（容器先建服务、组合根再注入真实代理）；使用前必须已注入
-        self._client = client
+        self.client = client
         self.events = events
         self.temp_dir = temp_dir
         self.cfg = cfg
@@ -102,25 +101,12 @@ class DownloadService:
         self.tags = TagService()
         # 历史行结算（展示字段/读数/终态）独立成协作对象：与队列调度无关
         self._history = HistoryWriter(store, self.tags, cfg)
-        # 来源索引（SDD §2.7）：取音频只认 MusicSourceProto，故本服务不必知道
-        # 「这条是频道里的消息」还是「这条是在线源的曲子」。缺省就地拼一个
-        # 只含 Telegram 的索引，让既有构造点（测试、bot）不必改。
-        self.registry: MusicSourceIndexProto = registry or SourceRegistry(
-            store, client, client  # type: ignore[arg-type]  装配后 client 必非空
-        )
+        # 来源索引（SDD §2.7）由组合根注入：取音频只认 MusicSourceProto，本服务因此
+        # 不必知道「这条是频道里的消息」还是「这条是在线源的曲子」。不自己拼一份——
+        # 拼出来的是「只有 Telegram」的索引，接不上在线源，且会拿错客户端去打上游。
+        self.registry = registry
         # 入队时没指定音质就听这个（设置页的「下载默认音质」）。
         self.default_quality = default_quality
-
-    @property
-    def client(self) -> TelegramClientProto:
-        """Telegram 客户端；未注入即属装配错误（组合根负责先注入再用）。"""
-        if self._client is None:
-            raise AppError("not_connected", "telegram 客户端未注入：请先完成初始化登录")
-        return self._client
-
-    @client.setter
-    def client(self, value: TelegramClientProto | None) -> None:
-        self._client = value
 
     def apply_template(self, cfg: TemplateConfig) -> None:
         """运行中替换落盘模板（FR-CFG-03：设置保存即时生效，不必重启）。

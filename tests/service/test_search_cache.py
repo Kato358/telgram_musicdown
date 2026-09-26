@@ -51,7 +51,7 @@ def _result(
 
 def _cache(tmp_path: Path, **overrides: object) -> tuple[SearchCache, Store]:
     store = Store(tmp_path / "app.db")
-    return SearchCache(store, SearchCacheSettings(**overrides)), store  # type: ignore[arg-type]
+    return SearchCache(store, SearchCacheSettings(**overrides)), store
 
 
 # ---- 键 ----

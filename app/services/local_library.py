@@ -15,14 +15,12 @@ import os
 from pathlib import Path
 
 from app.db.models import LocalTrack
-from app.domain import LIBRARY_AUDIO_EXTS
+from app.domain import AUDIO_EXTS
 from app.events import Event, EventBus
 from app.ports import IStore
 from app.services.tags import TagService
 
 logger = logging.getLogger(__name__)
-
-AUDIO_EXTS = LIBRARY_AUDIO_EXTS
 
 
 class LocalLibraryService:

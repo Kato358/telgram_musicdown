@@ -16,9 +16,9 @@ from app.appsettings import SearchCacheSettings, SearchSettings
 from app.db.models import Source
 from app.db.store import Store
 from app.errors import SourceUnreachableError
+from app.services.search import SearchService
 from app.services.search_cache import SearchCache
-from app.services.source import SearchService
-from tests.fakes import make_audio_message
+from tests.fakes import fake_registry, make_audio_message
 
 
 class RecordingClient:
@@ -102,7 +102,10 @@ def _service(
         sync_window_sec=window,
         mode=mode,
     )
-    return SearchService(store, client, SearchCache(store, settings.cache), settings)
+    registry = fake_registry(store, client)
+    return SearchService(
+        store, client, SearchCache(store, settings.cache), settings, registry=registry
+    )
 
 
 def _tracks(chat_id: int, count: int, *, title: str = "晴天") -> list[dict[str, Any]]:

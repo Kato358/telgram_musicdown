@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any, Protocol
 
 from app.domain import PROVIDER_TELEGRAM, SearchResultCard, is_audio_message, message_to_card
 from app.ports.music import FetchRef, FetchResult, ProgressCb, SearchWindow
+from app.ports.telegram import MediaClientProto, SearchClientProto
 
 # 游离适配器的 scope：它不进任何缓存键，也不进搜索清单，只用来「按 chat/message
 # 把音频取回来」——源行已停用或已删除时的兜底。取一个与所有保留 scope 都不撞的值。
@@ -31,25 +31,6 @@ FETCH_ROUNDS = 5
 def _size_of(path: Path) -> int:
     """落盘字节数（文件不存在算 0，由调用方判定该失败）。"""
     return path.stat().st_size if path.exists() else 0
-
-
-class SearchClientProto(Protocol):
-    """对话内搜索所需协议面（``UserClient`` 与测试假客户端都实现它）。"""
-
-    async def search_messages(
-        self, chat_id: int, query: str, limit: int, offset: int
-    ) -> list[dict[str, Any]]: ...
-
-
-class MediaClientProto(Protocol):
-    """取音频所需协议面。"""
-
-    def download_media(
-        self,
-        message_ref: dict[str, Any],
-        file_name: str,
-        progress: ProgressCb | None = None,
-    ) -> Any: ...
 
 
 class TelegramSource:

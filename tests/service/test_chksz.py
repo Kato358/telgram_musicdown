@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 import pytest
 
+from app.appsettings import OnlineSourceKey
 from app.chksz.client import ChkszClient, ChkszError
 from app.chksz.quality import ladder, native_value, normalize, tier_of
 from app.chksz.source import ChkszSource
@@ -29,9 +30,11 @@ from app.domain import (
 from app.errors import SourceUnreachableError
 from app.events import EventBus
 from app.ports.music import FetchRef
+from app.registry import SourceRegistry
 from app.services.download import DownloadService
 from app.services.preview import PreviewService
-from app.services.source import SearchService
+from app.services.search import SearchService
+from app.telegram.unconnected import UnconnectedTelegramClient
 from tests.fakes import (
     FakeChkszClient,
     FakeUserClient,
@@ -379,6 +382,30 @@ def search_over(store: Store, tg: FakeUserClient, chksz: FakeChkszClient) -> Sea
     registry = fake_registry(store, tg, chksz)
     registry.apply_chksz(True, "hires")
     return SearchService(store, tg, registry=registry)
+
+
+async def test_online_sources_follow_key_written_after_start(tmp_path: Path) -> None:
+    """开关先打开、Key 后补上，也要立刻列出在线源（回归：客户端曾在启动时定死）。
+
+    症状是「设置页打开了启用在线源，搜索页里没有网易云 / QQ / 酷狗」：客户端只在启动时
+    按**当时的**开关+Key 建一次，运行期补上的 Key 永远读不到，标志位开着也只是空开关。
+    这里把 Key 的来源做成可变的：开关开着没 Key 时不给（也不建客户端），补上 Key 立刻给。
+    """
+    store = Store(tmp_path / "app.db")
+    holder = {"key": ""}
+    registry = SourceRegistry(
+        store,
+        UnconnectedTelegramClient(),
+        UnconnectedTelegramClient(),
+        online_key=lambda: OnlineSourceKey(api_key=holder["key"], base_url="https://chksz.test"),
+        chksz_enabled=True,
+    )
+    try:
+        assert registry.online_sources() == []
+        holder["key"] = "chksz_" + "k" * 40  # 向导写 config.yaml 之后（不必重启）
+        assert [source.provider for source in registry.online_sources()] == ["163", "qq", "kugo"]
+    finally:
+        await registry.aclose()
 
 
 async def test_search_fans_out_to_channels_and_online_sources(tmp_path: Path) -> None:

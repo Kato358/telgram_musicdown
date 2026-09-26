@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -16,7 +17,14 @@ from fastapi.staticfiles import StaticFiles
 
 from app.errors import AppError
 from app.events import EventBus
-from app.services.tags import TagService
+from app.ports import IStore
+from app.ports.music import MusicSourceIndexProto
+from app.services.download import DownloadService
+from app.services.local_library import LocalLibraryService
+from app.services.preview import PreviewService
+from app.services.search import SearchService
+from app.services.source import SourceService
+from app.telegram.manager import TelegramManager
 from app.web.routes import schemas  # noqa: F401  兼容旧 import 路径（tests 直接 import）
 from app.web.routes.context import RouteContext, register_all
 
@@ -35,21 +43,21 @@ Docker：镜像构建前要先有 web/dist（Dockerfile 会 COPY web/dist）。
 
 
 def create_app(  # noqa: PLR0915  应用级横切面注册
-    store: object,
+    store: IStore,
     events: EventBus,
-    downloads: object,
-    sources: object,
-    search: object,
-    preview: object,
-    tg: object,
+    downloads: DownloadService,
+    sources: SourceService,
+    search: SearchService,
+    preview: PreviewService,
+    tg: TelegramManager,
     *,
-    library: object | None = None,
-    registry: object | None = None,
-    base_dir: object,
+    library: LocalLibraryService | None = None,
+    registry: MusicSourceIndexProto | None = None,
+    base_dir: Path,
     web_host: str = "127.0.0.1",
     web_login_secret: str = "",
     web_login_enabled: bool = True,
-    static_dir: object = None,
+    static_dir: Path | None = None,
 ) -> FastAPI:
     """装配 FastAPI 应用：错误包络 + SSE + 静态资源 + 按资源注册的路由。
 
@@ -57,37 +65,28 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
     曲库路由因此始终可用；生产由容器传入。
     """
     # 来源索引：显式传入用容器的那份；未传就取下载服务手上那份（三者本来就该同一份）。
-    source_registry = registry or getattr(downloads, "registry", None)
+    source_registry = registry or downloads.registry
     # 音频标签服务：封面/曲库路由与曲库扫描共用同一份（下载服务自持一份，此处复用）
-    tags: TagService = getattr(downloads, "tags", None) or TagService()
+    tags = downloads.tags
     library_service = library
     if library_service is None:
-        from pathlib import Path  # noqa: PLC0415  仅兜底装配需要
-
-        from app.services.local_library import LocalLibraryService  # noqa: PLC0415
-
-        library_service = LocalLibraryService(
-            store,  # type: ignore[arg-type]
-            Path(str(base_dir)) / "downloads",
-            tags,
-            events,
-        )
+        library_service = LocalLibraryService(store, base_dir / "downloads", tags, events)
     ctx = RouteContext(
-        store=store,  # type: ignore[arg-type]  # IStore 协议（duck-type）
+        store=store,
         events=events,
-        downloads=downloads,  # type: ignore[arg-type]
+        downloads=downloads,
         registry=source_registry,
-        sources=sources,  # type: ignore[arg-type]
-        search=search,  # type: ignore[arg-type]
-        preview=preview,  # type: ignore[arg-type]
+        sources=sources,
+        search=search,
+        preview=preview,
         library=library_service,
-        tg=tg,  # type: ignore[arg-type]
+        tg=tg,
         tags=tags,
-        base_dir=base_dir,  # type: ignore[arg-type]
+        base_dir=base_dir,
         web_host=web_host,
         web_login_secret=web_login_secret,
         web_login_enabled=web_login_enabled,
-        static_dir=static_dir,  # type: ignore[arg-type]
+        static_dir=static_dir,
     )
     app = FastAPI(title="telegram-musicdown")
 

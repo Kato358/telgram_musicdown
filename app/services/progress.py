@@ -95,15 +95,21 @@ class ProgressReporter:
         self._last_db_at = 0.0
         self._loop = asyncio.get_running_loop()
 
-    def __call__(self, current: int, total: int) -> None:
+    def __call__(self, current: int, total: int | None) -> None:
         if self._state.is_stopped(self._task_id):
             return
         try:
             current_bytes = max(0, int(current))
-            total_bytes = int(total)
         except (TypeError, ValueError):
             return
-        if total_bytes > 0:
+        # 总字节未知（在线源解析不出大小）是合法输入：进度照报，只是算不出百分比与 ETA。
+        # 早先这里把 None 也走 int() 转换，异常被吞成「直接不报」——未知大小的下载
+        # 于是永远没有进度帧。
+        try:
+            total_bytes = int(total) if total is not None else None
+        except (TypeError, ValueError):
+            total_bytes = None
+        if total_bytes is not None and total_bytes > 0:
             self._total_bytes = total_bytes
         if self._total_bytes is not None:
             current_bytes = min(current_bytes, self._total_bytes)

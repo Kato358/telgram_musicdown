@@ -17,6 +17,7 @@ from typing import Any
 
 from app.ports.repository import IStore
 from app.registry import SourceRegistry
+from app.telegram.unconnected import UnconnectedTelegramClient
 
 
 class FakeFloodWait(Exception):
@@ -174,10 +175,15 @@ class FakeChkszClient:
 
 
 def fake_registry(
-    store: IStore, client: FakeUserClient, chksz: FakeChkszClient | None = None
+    store: IStore, client: FakeUserClient | None = None, chksz: FakeChkszClient | None = None
 ) -> SourceRegistry:
-    """按生产装配方式拼一个来源索引（在线源默认关闭，测试要开就自己 apply_chksz）。"""
-    return SourceRegistry(store, client, client, chksz_client=chksz)
+    """按生产装配方式拼一个来源索引（在线源默认关闭，测试要开就自己 apply_chksz）。
+
+    不给客户端就装未连接占位客户端（与生产组合根缺省一致）：不要 None——那会让
+    「某个链路悄悄拿 None 打上游」，报错退化成 AttributeError。
+    """
+    tg = UnconnectedTelegramClient() if client is None else client
+    return SourceRegistry(store, tg, tg, chksz_client=chksz)
 
 
 def make_audio_message(

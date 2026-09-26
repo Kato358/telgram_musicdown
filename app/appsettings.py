@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.config import SecretConfig, load_secrets
+from app.config import DEFAULT_CHKSZ_BASE_URL, SecretConfig, load_secrets
 from app.domain import TemplateConfig
 from app.ports.repository import SettingsRepo
 
@@ -102,6 +102,25 @@ def load_chksz_settings(store: SettingsRepo) -> ChkszSettings:
             store, "chksz_preview_quality", DEFAULT_CHKSZ_PREVIEW_QUALITY
         ),
     )
+
+
+@dataclass(slots=True, frozen=True)
+class OnlineSourceKey:
+    """在线源密钥（config.yaml 现读；入库即泄，NFR-02）。"""
+
+    api_key: str = ""
+    base_url: str = DEFAULT_CHKSZ_BASE_URL
+
+
+def load_online_source_key(base_dir: Path) -> OnlineSourceKey:
+    """现读在线源密钥：向导写 Key 之后不必重启就能建起客户端（FR-CFG-03）。
+
+    与 ``ChkszSettings`` 刻意分开：那张表的内容 ``GET /api/settings`` 原样回给浏览器，
+    密钥不能进去，只能每次从 config.yaml 现读——「开关开着、Key 也有、搜索里空着」
+    就是把这个文件在启动时读一次定死造成的。
+    """
+    secrets = load_secrets(base_dir)
+    return OnlineSourceKey(api_key=secrets.chksz_api_key, base_url=secrets.chksz_base_url)
 
 
 def load_template_config(store: SettingsRepo, base_dir: Path) -> TemplateConfig:

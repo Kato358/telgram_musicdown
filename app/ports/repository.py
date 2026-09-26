@@ -9,7 +9,7 @@
 - ``SearchCacheRepo``：搜索二级缓存的 L2（TTL + LRU 所需的读写）；
 - ``StatsRepo``：统计聚合。
 
-``Store``（db/store.py）是唯一 SQLite 适配器，实现全部协议；
+``Store``（db/store/ 包，按聚合拆模块）是唯一 SQLite 适配器，实现全部协议；
 服务层与 Web 层的签名一律写 ``IStore``（或对应子协议），不写 ``Store``。
 """
 
@@ -73,6 +73,7 @@ class HistoryRepo(Protocol):
         duration_sec: int | None,
         file_size: int | None,
         bitrate: int | None,
+        ext: str | None = None,
     ) -> None: ...
     def list_history_missing_media(self, limit: int = 500) -> list[History]: ...
 

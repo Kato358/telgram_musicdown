@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 from app.domain import PROVIDER_TELEGRAM, SearchResultCard, TrackMeta
 
@@ -141,12 +141,15 @@ class MusicSourceIndexProto(Protocol):
         """
         ...
 
+    def online_sources(self) -> list[MusicSourceProto]:
+        """清单里的在线源那一段（设置页保存后即时开关，界面据此摆药丸）。"""
+        ...
+
+    def apply_chksz(self, enabled: bool, download_quality: str) -> None:
+        """就地切换在线源开关与默认档位（FR-CFG-03：吃的是设置页保存后的当前值）。"""
+        ...
+
 
 def is_online(provider: str) -> bool:
     """是否在线源平台（供界面与文案分支；判据只此一处）。"""
     return provider != PROVIDER_TELEGRAM
-
-
-def provider_of_any(value: Any, default: str = PROVIDER_TELEGRAM) -> str:
-    """从任意载荷里取 provider；缺省或认不出回默认源。"""
-    return value if isinstance(value, str) and value else default

@@ -25,10 +25,11 @@ from app.services.download import (
     DownloadService,
     backoff_sec,
 )
-from app.services.source import SearchService
+from app.services.progress import ProgressReporter, TaskRunState
+from app.services.search import SearchService
 from app.telegram import flood as flood_mod
 from app.telegram.flood import with_flood_retry
-from tests.fakes import FakeFloodWait, FakeUserClient, make_audio_message
+from tests.fakes import FakeFloodWait, FakeUserClient, fake_registry, make_audio_message
 
 CHAT_ID = -100123
 
@@ -56,7 +57,12 @@ def svc(tmp_path: Path) -> tuple[DownloadService, Store, FakeUserClient]:
     events = EventBus()
     client = FakeUserClient([make_audio_message(1), make_audio_message(2)])
     service = DownloadService(
-        store, client, events, tmp_path / "temp", TemplateConfig(save_path=tmp_path / "library")
+        store,
+        client,
+        events,
+        tmp_path / "temp",
+        TemplateConfig(save_path=tmp_path / "library"),
+        registry=fake_registry(store, client),
     )
     return service, store, client
 
@@ -144,7 +150,7 @@ async def test_failed_history_row_reused_on_retry(
     first = await service.enqueue(req(1, file_size=100))
     assert first is not None
     history_id = store.get_task(first).history_id  # type: ignore[union-attr]
-    store.mark_history_status(int(history_id), "failed", error="boom")  # type: ignore[arg-type]
+    store.mark_history_status(int(history_id), "failed", error="boom")
     again = await service.enqueue(req(1, file_size=100))
     assert again is not None
     assert store.get_task(again).history_id == history_id  # type: ignore[union-attr]
@@ -208,7 +214,7 @@ async def test_voice_message_not_audio(tmp_path: Path) -> None:
     store = Store(tmp_path / "app.db")
     voice_msg = make_audio_message(3, voice=True)
     client = FakeUserClient([voice_msg, make_audio_message(4)])
-    service = SearchService(store, client)  # type: ignore[arg-type]
+    service = SearchService(store, client, registry=fake_registry(store, client))
     resp = await service.search("晴天")
     # voice 被排除，非 voice 的正常入结果
     assert all(r.message_id != 3 for r in resp.results)
@@ -324,6 +330,28 @@ async def test_download_reports_progress_and_persists_snapshot(
     assert row.progress_bytes == 100
     assert row.total_bytes == 100
     assert row.speed is not None
+
+
+async def test_progress_reports_without_known_total(tmp_path: Path) -> None:
+    """总字节未知（在线源不给大小）照样发进度帧，只是没有百分比与 ETA。
+
+    回归：早先 ``__call__`` 把 ``None`` 也喂给 ``int()``，异常被吞成「直接不报」，
+    未知大小的下载因此从头到尾没有一帧进度。
+    """
+    store = Store(tmp_path / "app.db")
+    events = EventBus()
+    queue = await events.subscribe()
+    reporter = ProgressReporter(store, events, TaskRunState(), task_id=7, total_bytes=None)
+
+    reporter(50, None)
+
+    frames = []
+    while not queue.empty():
+        frames.append(queue.get_nowait())
+    progress = [frame for frame in frames if frame.type == "task.progress"]
+    assert progress[-1].payload["progress_bytes"] == 50
+    assert progress[-1].payload["total_bytes"] is None
+    assert progress[-1].payload["eta"] is None
 
 
 async def test_retry_resets_task_history_and_temp_fragment(
