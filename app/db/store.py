@@ -644,12 +644,6 @@ class Store:
         row = self._conn.execute("SELECT * FROM local_tracks WHERE id=?", (track_id,)).fetchone()
         return row_to(LocalTrack, row) if row else None
 
-    def get_local_track_by_path(self, rel_path: str) -> LocalTrack | None:
-        row = self._conn.execute(
-            "SELECT * FROM local_tracks WHERE rel_path=?", (rel_path,)
-        ).fetchone()
-        return row_to(LocalTrack, row) if row else None
-
     def local_track_paths(self) -> dict[str, LocalTrack]:
         """rel_path → 行（扫描时与磁盘清单对账用）。"""
         return {

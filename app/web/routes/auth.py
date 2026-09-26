@@ -1,13 +1,22 @@
-"""认证路由（FR-AUTH-01/02）：send-code / sign-in / logout / me。"""
+"""认证路由（FR-AUTH-01/02、FR-WEB-02）：Web 控制台登录 + Telegram 登录 + me。
+
+两类认证刻意分开：
+- **Web 会话**（``/api/auth/login``、``/api/auth/session``）：口令换 cookie，保护控制台本身；
+- **Telegram 账号**（``send-code``/``sign-in``/``logout``）：登录被下载/搜索使用的账号。
+
+前者是 HTTP 层准入，后者是业务身份；退出 Telegram 账号不动 Web 会话 cookie（SRS §14）。
+"""
 
 from __future__ import annotations
 
+import hmac
 import re
 from typing import Any
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 
 from app.errors import AuthError
+from app.web import auth as web_auth
 from app.web.routes import schemas
 from app.web.routes.context import RouteContext
 
@@ -22,6 +31,44 @@ def _normalize_phone(raw: str) -> str:
 def register(app: FastAPI, ctx: RouteContext) -> None:
     """注册认证路由。"""
     tg = ctx.tg
+
+    @app.post("/api/auth/login")
+    async def web_login(req: schemas.LoginRequest, response: Response) -> schemas.LoginResponse:
+        """Web 控制台登录（FR-WEB-02）：校验 web_login_secret，通过则签发会话 cookie。
+
+        豁免模式（未设口令且仅监听本机）直接放行，不签 cookie——前端据此跳过登录页。
+        """
+        if not web_auth.auth_required(ctx.web_host, ctx.web_login_secret):
+            return schemas.LoginResponse()
+        if not hmac.compare_digest(req.secret, ctx.web_login_secret):
+            # 不区分「口令错」与「不该访问」之外的细节，避免给爆破者额外信息
+            raise HTTPException(status_code=401, detail="invalid credentials")
+        token = web_auth.make_session_token(ctx.web_login_secret)
+        response.set_cookie(
+            web_auth.SESSION_COOKIE,
+            token,
+            httponly=True,
+            samesite="lax",
+            secure=False,  # 本应用常以 http 提供（局域网/反代终止 TLS），故不强制 secure
+            max_age=web_auth.SESSION_MAX_AGE_SEC,
+            path="/",
+        )
+        return schemas.LoginResponse()
+
+    @app.post("/api/auth/session/logout")
+    async def web_logout(response: Response) -> schemas.LoginResponse:
+        """退出 Web 控制台（清 cookie）。与 Telegram 账号登出互不影响。"""
+        response.delete_cookie(web_auth.SESSION_COOKIE, path="/")
+        return schemas.LoginResponse()
+
+    @app.get("/api/auth/session")
+    async def web_session(request: Request) -> dict[str, bool]:
+        """当前 Web 会话是否有效（前端登录闸门用；豁免模式恒 true）。"""
+        if not web_auth.auth_required(ctx.web_host, ctx.web_login_secret):
+            return {"required": False, "authenticated": True}
+        token = request.cookies.get(web_auth.SESSION_COOKIE, "")
+        ok = web_auth.verify_session_token(token, ctx.web_login_secret)
+        return {"required": True, "authenticated": ok}
 
     @app.post("/api/auth/telegram/send-code")
     async def send_code(
@@ -51,7 +98,8 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
         await tg.user.sign_in(req.phone, req.code, req.code_hash, req.password)
         tg.mark_authorized()
         await tg.start_bot_configured()  # bot_token 已配置时按新会话启动 Bot（FR-AUTH-04）
-        return await tg.user.get_me()
+        me: dict[str, Any] = await tg.user.get_me()
+        return me
 
     @app.post("/api/auth/logout")
     async def logout(_: None = Depends(ctx.check_session)) -> schemas.LogoutResponse:

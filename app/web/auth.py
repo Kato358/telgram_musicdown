@@ -15,6 +15,9 @@ from app.errors import WebAuthConfigError
 
 SESSION_COOKIE = "tgm_session"
 
+# 会话有效期：与 cookie max-age 一致（30 天）。口令轮换/登出即失效。
+SESSION_MAX_AGE_SEC = 30 * 24 * 3600
+
 
 def check_auth_config(web_host: str, web_login_secret: str) -> None:
     """0.0.0.0 无密码启动报错退出（FR-WEB-02 验收）。"""

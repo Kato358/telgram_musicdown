@@ -20,7 +20,6 @@ export interface TaskReadings {
 
 class Queue {
   tasks = $state<TaskRow[]>([]);
-  loaded = $state(false);
 
   #timer: number | undefined = undefined;
   #unsubscribe: (() => void) | null = null;
@@ -60,10 +59,6 @@ class Queue {
     return this.tasks.filter((t) => t.status === "downloading");
   }
 
-  get paused(): TaskRow[] {
-    return this.tasks.filter((t) => t.status === "paused");
-  }
-
   /** 进行中 = 等待 + 下载中 + 已暂停；顶栏计数与导航角标用。 */
   get activeCount(): number {
     return this.tasks.filter((t) => ["queued", "downloading", "paused"].includes(t.status)).length;
@@ -75,7 +70,6 @@ class Queue {
 
   async refresh() {
     this.tasks = await api.get<TaskRow[]>("/api/downloads");
-    this.loaded = true;
   }
 
   start() {

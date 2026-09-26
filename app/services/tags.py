@@ -24,7 +24,11 @@ from app.errors import TagWriteError, UnsupportedContainerError
 
 logger = logging.getLogger(__name__)
 
+# 只读/不支持写标签的容器（FR-TAG-02）：.ape/.wma 能被曲库扫描与播放，
+# 但本模块不写它们的标签，故在写入路径上直接拒绝。
 READONLY_EXTS = {".cue", ".ape", ".wma"}
+VORBIS_EXTS = {".flac", ".ogg", ".opus"}  # VorbisComment 容器
+MP4_EXTS = {".m4a", ".mp4", ".aac"}  # MP4 原子容器
 
 
 def image_media_type(data: bytes) -> str | None:
@@ -60,14 +64,19 @@ def _read_cover_from_tags(tags: Any) -> bytes | None:
 
 
 def _container(path: Path) -> str:
+    """扩展名 → 可写标签容器；认不出抛 UnsupportedContainerError。
+
+    这是「能写标签的容器」集合，刻意与 domain.AUDIO_EXTS（认得的音频扩展名）不同：
+    .wav/.aiff/.alac 是音频但本模块不支持写标签，属正常业务拒绝而非遗漏。
+    """
     ext = path.suffix.lower()
     if ext in READONLY_EXTS:
         raise UnsupportedContainerError(f"container {ext} is read-only/unsupported")
     if ext == ".mp3":
         return "id3"
-    if ext in {".flac", ".ogg", ".opus"}:
+    if ext in VORBIS_EXTS:
         return "vorbis"
-    if ext in {".m4a", ".mp4", ".aac"}:
+    if ext in MP4_EXTS:
         return "mp4"
     raise UnsupportedContainerError(f"unsupported container: {ext}")
 

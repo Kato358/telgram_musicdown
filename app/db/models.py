@@ -108,9 +108,6 @@ class LocalTrack:
     scanned_at: str = ""
 
 
-SCHEMA_VERSION = 1
-
-
 def row_to(cls: type[HistoryT], row: Any) -> HistoryT:
     """sqlite3.Row → dataclass 转换（编码规范 §2.2）。"""
     return cls(**{f: row[f] for f in row.keys()})  # noqa: SIM118  sqlite3.Row

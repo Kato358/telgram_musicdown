@@ -7,6 +7,7 @@ downloads/history/preview/settings/search），本文件只负责应用级横切
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -14,6 +15,8 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 
 from app.errors import AppError
+from app.events import EventBus
+from app.services.tags import TagService
 from app.web.routes import schemas  # noqa: F401  兼容旧 import 路径（tests 直接 import）
 from app.web.routes.context import RouteContext, register_all
 
@@ -31,13 +34,9 @@ Docker：镜像构建前要先有 web/dist（Dockerfile 会 COPY web/dist）。
 """
 
 
-def _envelope(code: str, message: str) -> JSONResponse:
-    return JSONResponse(status_code=400, content={"error": {"code": code, "message": message}})
-
-
 def create_app(  # noqa: PLR0915  应用级横切面注册
     store: object,
-    events: object,
+    events: EventBus,
     downloads: object,
     sources: object,
     search: object,
@@ -55,18 +54,19 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
     ``library`` 未给时按默认布局兜底装配（save_path = base_dir/downloads），
     曲库路由因此始终可用；生产由容器传入。
     """
+    # 音频标签服务：封面/曲库路由与曲库扫描共用同一份（下载服务自持一份，此处复用）
+    tags: TagService = getattr(downloads, "tags", None) or TagService()
     library_service = library
     if library_service is None:
         from pathlib import Path  # noqa: PLC0415  仅兜底装配需要
 
         from app.services.local_library import LocalLibraryService  # noqa: PLC0415
 
-        tags = getattr(downloads, "tags", None)
         library_service = LocalLibraryService(
             store,  # type: ignore[arg-type]
-            Path(str(base_dir)) / "downloads",  # type: ignore[arg-type]
-            tags,  # type: ignore[arg-type]
-            events,  # type: ignore[arg-type]
+            Path(str(base_dir)) / "downloads",
+            tags,
+            events,
         )
     ctx = RouteContext(
         store=store,  # type: ignore[arg-type]  # IStore 协议（duck-type）
@@ -75,8 +75,9 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
         sources=sources,  # type: ignore[arg-type]
         search=search,  # type: ignore[arg-type]
         preview=preview,  # type: ignore[arg-type]
-        library=library_service,  # type: ignore[arg-type]
-        tg=tg,
+        library=library_service,
+        tg=tg,  # type: ignore[arg-type]
+        tags=tags,
         base_dir=base_dir,  # type: ignore[arg-type]
         web_host=web_host,
         web_login_secret=web_login_secret,
@@ -105,14 +106,14 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
 
     @app.get("/api/events")
     async def events_sse(request: Request) -> StreamingResponse:
-        async def gen():
-            q = await events.subscribe()  # type: ignore[union-attr]
+        async def gen() -> AsyncIterator[str]:
+            q = await events.subscribe()
             try:
                 while True:
                     ev = await q.get()
                     yield ev.to_sse()
             finally:
-                await events.unsubscribe(q)  # type: ignore[union-attr]
+                await events.unsubscribe(q)
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 

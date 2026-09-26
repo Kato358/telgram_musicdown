@@ -20,10 +20,12 @@ from uuid import uuid4
 
 from app.db.models import PreviewCache
 from app.db.store import utcnow
+from app.domain import AUDIO_EXTS
 from app.errors import AppError
 from app.events import Event, EventBus
 from app.ports import IStore
 from app.ports.telegram import TelegramClientProto
+from app.services.tags import image_media_type
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +38,9 @@ COVER_FAIL_TTL = 600  # 失败负缓存秒数：查不到的查询期间内直�
 COVER_CONCURRENCY = 4  # 与试听槽（并发 1）分开限流：列表页几十行同时要封面
 COVER_MAX_BYTES = 5 * 1024 * 1024
 
+# 去扩展名用的音频后缀正则：由 domain.AUDIO_EXTS 生成，不手写第二份列表
 _AUDIO_EXT_RE = re.compile(
-    r"\.(mp3|flac|m4a|aac|ogg|opus|wav|ape|wma|aiff?|alac)$", re.IGNORECASE
+    r"\.(" + "|".join(sorted(e.lstrip(".") for e in AUDIO_EXTS)) + r")$", re.IGNORECASE
 )
 
 
@@ -47,10 +50,11 @@ def _clean_title(title: str | None) -> str:
 
 
 def _is_image(data: bytes) -> bool:
-    """魔数嗅探（JPEG/PNG/GIF/WEBP），挡住接口偶发返回的错误页文本。"""
-    return data.startswith((b"\xff\xd8", b"\x89PNG", b"GIF8")) or (
-        data[:4] == b"RIFF" and data[8:12] == b"WEBP"
-    )
+    """魔数嗅探（JPEG/PNG/GIF/WEBP），挡住接口偶发返回的错误页文本。
+
+    判据与标签封面读取共用 tags.image_media_type（同一套魔数，避免两处漂移）。
+    """
+    return image_media_type(data) is not None
 
 
 class _SmallCoverRedirect(HTTPRedirectHandler):
@@ -80,32 +84,37 @@ def _fetch_cover(title: str, artist: str) -> bytes | None:
     return data if _is_image(data) else None
 
 
-class PreviewBusyError(AppError):
-    """预览槽被占用（并发 1）。"""
-
-    def __init__(self) -> None:
-        super().__init__("preview_busy", "another preview is running")
-
-
 class PreviewService:
     """试听缓存（LRU）与预览槽（FR-PLAY-02/03）。"""
 
     def __init__(
         self,
         store: IStore,
-        client: TelegramClientProto,
+        client: TelegramClientProto | None,
         events: EventBus,
         preview_dir: Path,
         max_bytes: int = 512 * 1024 * 1024,
     ) -> None:
         self.store = store
-        self.client = client
+        # 装配期可为 None（容器先建服务、组合根再注入真实代理）；使用前必须已注入
+        self._client = client
         self.events = events
         self.preview_dir = preview_dir
         self.max_bytes = max_bytes
         self._sem = asyncio.Semaphore(1)
         self._cover_sem = asyncio.Semaphore(COVER_CONCURRENCY)
         self._cover_failures: dict[str, float] = {}
+
+    @property
+    def client(self) -> TelegramClientProto:
+        """Telegram 客户端；未注入即属装配错误（组合根负责先注入再用）。"""
+        if self._client is None:
+            raise AppError("not_connected", "telegram 客户端未注入：请先完成初始化登录")
+        return self._client
+
+    @client.setter
+    def client(self, value: TelegramClientProto | None) -> None:
+        self._client = value
 
     async def request_preview(
         self, chat_id: int, message_id: int, file_size: int | None = None

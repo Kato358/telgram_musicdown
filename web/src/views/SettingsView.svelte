@@ -664,6 +664,18 @@
             </SelectContent>
           </Select>
         </Field>
+
+        {#if session.web?.required}
+          <div class="flex items-center justify-between gap-3 border-t border-border pt-4">
+            <div class="min-w-0">
+              <p class="text-body font-medium">{t("settings.webLogout")}</p>
+              <p class="text-caption text-muted-foreground">{t("settings.webLogoutHint")}</p>
+            </div>
+            <Button variant="outline" size="sm" onclick={() => void session.webLogout()}>
+              {t("settings.webLogout")}
+            </Button>
+          </div>
+        {/if}
       </div>
     </SectionCard>
   </div>

@@ -29,7 +29,6 @@ export const zhCN: Dict = {
     themeLight: "浅色",
     themeDark: "深色",
     activeTransfers: "在传",
-    throughput: "总速率",
     menu: "打开菜单",
   },
 
@@ -84,7 +83,6 @@ export const zhCN: Dict = {
     title: "标题 / 路径",
     song: "歌曲",
     artist: "歌手",
-    album: "专辑",
     task: "任务",
     status: "状态",
     progress: "进度",
@@ -230,19 +228,14 @@ export const zhCN: Dict = {
     all: "全部",
     play: "播放",
     playing: "播放中",
-    copyPath: "复制路径",
-    copied: "已复制路径",
-    redownload: "重新下载",
     redownloaded: "已加入队列",
     noPath: "文件不在磁盘，无法播放",
-    unknownArtist: "未知歌手",
     bitrate: "码率",
     delete: "删除",
     deleteTitle: "删除这条记录？",
     deleteBody: "「{title}」的下载记录会被删除；已落盘的文件保留在曲库里。",
     deleteConfirm: "删除",
     deleted: "已删除记录",
-    openFolder: "打开所在文件夹",
     found: "共 {n} 首曲目",
     foundSize: "共 {n} 首曲目 · {size}",
     pagePrev: "上一页",
@@ -391,6 +384,8 @@ export const zhCN: Dict = {
     interfaceHint: "这两项存在本机浏览器里，不写入服务端。",
     language: "语言",
     theme: "外观",
+    webLogout: "退出控制台登录",
+    webLogoutHint: "清掉本机会话 cookie，回到登录页；不影响 Telegram 账号与已下载的文件。",
   },
 
   logs: {
@@ -580,6 +575,16 @@ export const zhCN: Dict = {
     unplayable: "无法在浏览器播放这首，可打开本地文件。",
   },
 
+  login: {
+    lede: "这台部署设了控制台口令，先登录再使用。",
+    secret: "控制台口令",
+    secretHint: "config.yaml 里的 web_login_secret。",
+    submit: "登录",
+    submitting: "正在登录…",
+    failed: "登录失败",
+    where: "口令存在服务器的 config.yaml 中；忘记时可在服务器上查看或修改该文件的 web_login_secret。",
+  },
+
   common: {
     error: "出错了",
     loading: "加载中",
@@ -613,7 +618,6 @@ export const en: Dict = {
     themeLight: "Light",
     themeDark: "Dark",
     activeTransfers: "Active",
-    throughput: "Throughput",
     menu: "Open menu",
   },
 
@@ -669,7 +673,6 @@ export const en: Dict = {
     title: "Title / path",
     song: "Song",
     artist: "Artist",
-    album: "Album",
     task: "Task",
     status: "Status",
     progress: "Progress",
@@ -817,12 +820,8 @@ export const en: Dict = {
     all: "All",
     play: "Play",
     playing: "Playing",
-    copyPath: "Copy path",
-    copied: "Path copied",
-    redownload: "Download again",
     redownloaded: "Queued",
     noPath: "File is not on disk; cannot play",
-    unknownArtist: "Unknown artist",
     bitrate: "Bitrate",
     delete: "Delete",
     deleteTitle: "Delete this record?",
@@ -830,7 +829,6 @@ export const en: Dict = {
       "The download record for “{title}” will be removed; downloaded files stay in the library.",
     deleteConfirm: "Delete",
     deleted: "Record deleted",
-    openFolder: "Open folder",
     found: "{n} tracks",
     foundSize: "{n} tracks · {size}",
     pagePrev: "Previous page",
@@ -989,6 +987,8 @@ export const en: Dict = {
     interfaceHint: "Stored in this browser; nothing is sent to the server.",
     language: "Language",
     theme: "Appearance",
+    webLogout: "Sign out of console",
+    webLogoutHint: "Clears this browser's session cookie and returns to the sign-in page; your Telegram account and downloaded files are untouched.",
   },
 
   logs: {
@@ -1188,6 +1188,16 @@ export const en: Dict = {
   player: {
     title: "Music player",
     unplayable: "This track cannot play in the browser; open the local file instead.",
+  },
+
+  login: {
+    lede: "This deployment is password-protected. Sign in to continue.",
+    secret: "Console password",
+    secretHint: "The web_login_secret in config.yaml.",
+    submit: "Sign in",
+    submitting: "Signing in…",
+    failed: "Sign-in failed",
+    where: "The password lives in config.yaml on the server; if you forgot it, read or edit web_login_secret there.",
   },
 
   common: {

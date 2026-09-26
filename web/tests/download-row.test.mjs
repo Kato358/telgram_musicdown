@@ -36,13 +36,18 @@ function run(name, fn) {
   else fail += 1;
 }
 
-// ---- 1. Hover Action 可见性：桌面端不悬浮也可见 ----
+// ---- 1. 动作可见性：桌面端不悬浮也可见 ----
+// v3.11 起次级动作与播放键同规格，公共基类为 ACTION_BASE（原 HOVER_ACTION 已重命名）。
 run("次级动作不再被 opacity-0 藏到 hover 后", () => {
-  const hover = downloadRowSrc.match(/const HOVER_ACTION =\s*"([^"]+)"/);
-  assert.ok(hover, "DownloadRow.svelte 应定义 HOVER_ACTION 类串");
-  const cls = hover[1];
-  assert.ok(!cls.includes("md:opacity-0"), `桌面端不能 opacity-0（得到：${cls}）`);
-  assert.ok(!cls.includes("opacity-0"), "任何端都不该默认隐形（触屏也曾受影响）");
+  const base = downloadRowSrc.match(/const ACTION_BASE =\s*[\s\S]*?"([^"]*)";/);
+  assert.ok(base, "DownloadRow.svelte 应定义 ACTION_BASE 类串");
+  const cls = base[1];
+  assert.ok(!cls.includes("opacity-0"), `任何端都不该默认隐形（得到：${cls}）`);
+  // 三类次级动作都由 ACTION_BASE 派生 → 继承「常驻可见」
+  for (const name of ["RETRY_ACTION", "CANCEL_ACTION", "DELETE_ACTION"]) {
+    const m = downloadRowSrc.match(new RegExp(`const ${name} = \`\\$\\{ACTION_BASE\\}`));
+    assert.ok(m, `${name} 应由 ACTION_BASE 派生（否则可能各自藏回 hover）`);
+  }
 });
 
 run("次级动作按钮存在 aria-label（重试/取消/删除）", () => {
@@ -58,7 +63,7 @@ run("deleteRow 调用 DELETE /api/history/{id}（记录级）", () => {
     "deleteRow 应调用记录级端点",
   );
   const deleteRow = downloadsViewSrc.match(
-    /async function deleteRow[\s\S]*?\n  \}/,
+    /async function deleteRow[\s\S]*?\n {2}\}/,
   );
   assert.ok(deleteRow, "deleteRow 函数存在");
   assert.ok(
@@ -93,11 +98,11 @@ run("弹窗里确认后调用 deleteRow 并关闭弹窗", () => {
 
 run("deleteRow 完成后清空 deleteTarget", () => {
   const fn = downloadsViewSrc.match(
-    /async function deleteRow[\s\S]*?\n  \}\r?\n\r?\n  async function confirmDelete/,
+    /async function deleteRow[\s\S]*?\n {2}\}\r?\n\r?\n {2}async function confirmDelete/,
   );
   assert.ok(fn, "deleteRow 应在 confirmDelete 之前且完整");
   assert.ok(downloadsViewSrc.includes("deleteTarget = null"), "执行后应清空 deleteTarget");
-  const confirm = downloadsViewSrc.match(/async function confirmDelete[\s\S]*?\n  \}/);
+  const confirm = downloadsViewSrc.match(/async function confirmDelete[\s\S]*?\n {2}\}/);
   assert.ok(confirm, "confirmDelete 存在");
   assert.ok(confirm[0].includes("deleteRow(deleteTarget)"), "确认后应作用于 deleteTarget");
 });

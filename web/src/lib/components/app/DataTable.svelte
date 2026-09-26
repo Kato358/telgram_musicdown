@@ -32,21 +32,12 @@
     /** 自定义某个列标签格（如勾选列的表头是「全选」勾选框）；不给就渲染列名。 */
     headerCell?: Snippet<[Column]>;
     children: Snippet;
-    class?: string;
   }
 
-  let {
-    columns,
-    header,
-    toolbar,
-    footer,
-    headerCell,
-    children,
-    class: className = "",
-  }: Props = $props();
+  let { columns, header, toolbar, footer, headerCell, children }: Props = $props();
 </script>
 
-<div class="card overflow-hidden {className}">
+<div class="card overflow-hidden">
   {#if header}
     <div class="flex h-14 items-center gap-3 border-b border-border bg-card px-4 md:px-6">
       {@render header()}

@@ -75,19 +75,19 @@ class LyricsCache:
             if failed_at is not None and time.monotonic() - failed_at < LYRICS_FAIL_TTL:
                 return ""
         async with self._sem:
+            fetched: str | None = None
             try:
-                text = await asyncio.to_thread(_fetch_lyrics, title, artist)
+                fetched = await asyncio.to_thread(_fetch_lyrics, title, artist)
             except Exception as e:  # noqa: BLE001  歌词是装饰，外呼失败按查不到处理
                 logger.info("lyrics fetch skipped title=%r artist=%r: %s", title, artist, e)
-                text = None
         async with self._lock:
-            if text:
-                self._hits[key] = (text, time.monotonic() + LYRICS_TTL)
+            if fetched:
+                self._hits[key] = (fetched, time.monotonic() + LYRICS_TTL)
                 self._hits.move_to_end(key)
                 while len(self._hits) > LYRICS_MAX_ENTRIES:
                     self._hits.popitem(last=False)
                 self._fails.pop(key, None)
-                return text
+                return fetched
             # 上游 404 / 超时 / 返回了没有时间轴的纯文本歌词（APlayer 渲染不了）都会走到这
             logger.info("lyrics not found title=%r artist=%r", title, artist)
             self._fails[key] = time.monotonic()

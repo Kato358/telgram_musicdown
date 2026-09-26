@@ -55,6 +55,14 @@ export interface SendCodeResponse {
   me: MeResponse | null;
 }
 
+/** Web 控制台准入（`GET /api/auth/session`，FR-WEB-02）。
+ *
+ * `required=false` 是「本机免密」模式：不需要登录，前端直接渲染控制台。 */
+export interface WebSessionStatus {
+  required: boolean;
+  authenticated: boolean;
+}
+
 /** 候选源（`GET /api/sources/discover`，FR-SRC-05）。 */
 export interface DiscoverCandidate {
   chat_id: number;
@@ -206,12 +214,6 @@ export interface DownloadItemResult {
   task_id?: number;
   url?: string;
   error?: string;
-}
-
-export interface DownloadRequest {
-  urls?: string[];
-  message_refs?: { chat_id: number; message_id: number; file_size?: number | null }[];
-  force?: boolean;
 }
 
 /** SSE 事件载荷（app/events.py，SDD §1.4）。 */

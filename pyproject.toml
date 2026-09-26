@@ -47,9 +47,11 @@ ignore = ["PLR0913"]
 "run.py" = ["T201", "S603", "UP036"]
 
 [tool.mypy]
+# 全量覆盖 app/（不只 services/db/utils）：web/telegram 层曾因不在 files 里而漏检，
+# 导致 IStore 协议漂移（delete_history/set_history_media）长期无声通过。
 python_version = "3.11"
 strict = true
-files = ["app/services", "app/db", "app/utils"]
+files = ["app"]
 [[tool.mypy.overrides]]
 module = ["app.web.routes.*", "app.web.*"]
 disallow_untyped_defs = false

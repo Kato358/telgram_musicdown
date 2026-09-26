@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from app.db.models import Task
 from app.errors import AppError
 from app.events import Event
+from app.ports import IStore
 from app.services.sync import INITIAL_IMPORT_LIMIT
 from app.utils.linkparse import parse_link
 from app.web.routes import schemas
@@ -17,7 +18,7 @@ from app.web.routes.context import RouteContext
 from app.web.routes.presenters import candidate_dict, src_dict
 
 
-def _enqueue_sync(store: Any, source_id: int, **payload: Any) -> int:
+def _enqueue_sync(store: IStore, source_id: int, **payload: Any) -> int:
     """建一条 sync 任务（FR-SRC-04）：由下载 Worker 池执行，Web 请求不阻塞。"""
     return store.create_task(
         Task(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.utils.sanitize import MAX_PATH_BYTES, is_reserved, sanitize_segment, truncate_to_bytes
+from app.utils.sanitize import MAX_PATH_BYTES, sanitize_segment, truncate_to_bytes
 
 
 @pytest.mark.parametrize(
@@ -27,13 +27,14 @@ def test_sanitize_segment_replaces_illegal_and_reserved(raw: str, expected: str)
 @pytest.mark.parametrize(
     "name", ["CON", "PRN", "AUX", "NUL", "COM1", "COM9", "LPT1", "LPT9", "nul.wav"]
 )
-def test_is_reserved_detects_windows_names(name: str) -> None:
-    assert is_reserved(name)
+def test_reserved_windows_names_get_underscore_prefix(name: str) -> None:
+    """保留名（不分大小写、含带扩展名形式）落盘前必须加前缀，否则 Windows 建不了文件。"""
+    assert sanitize_segment(name) == f"_{name}"
 
 
 @pytest.mark.parametrize("name", ["normal", "conan", "com10", "auxiliary"])
-def test_is_reserved_allows_non_reserved(name: str) -> None:
-    assert not is_reserved(name)
+def test_non_reserved_names_pass_through(name: str) -> None:
+    assert sanitize_segment(name) == name
 
 
 def test_truncate_to_bytes_short_path_unchanged() -> None:

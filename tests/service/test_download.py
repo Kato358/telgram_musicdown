@@ -19,7 +19,12 @@ from app.db.models import Task as TaskModel
 from app.db.store import Store
 from app.domain import TemplateConfig, TrackMeta
 from app.events import EventBus
-from app.services.download import DownloadRequest, DownloadService, backoff_sec
+from app.services.download import (
+    MAX_RETRIES,
+    DownloadRequest,
+    DownloadService,
+    backoff_sec,
+)
 from app.services.source import SearchService
 from app.telegram import flood as flood_mod
 from app.telegram.flood import with_flood_retry
@@ -572,3 +577,63 @@ async def test_backfill_history_media_repairs_old_rows(
     assert by_msg[1].file_size == 4170
     assert by_msg[1].bitrate == 128
     assert by_msg[2].file_size is None
+
+
+async def test_worker_failure_schedules_backoff_retry(
+    svc: tuple[DownloadService, Store, FakeUserClient],
+) -> None:
+    # FR-DL-04：任务崩溃未超上限 → 回队列 + 记退避时间（不是直接终态）
+    service, store, _ = svc
+    task_id = await service.enqueue(req(1))
+    assert task_id is not None
+    row = worker_row(store, task_id)
+    assert row["id"] is not None
+
+    await service._fail_or_retry(row, "boom")
+
+    task = store.get_task(task_id)
+    assert task is not None
+    assert task.status == "queued"
+    assert task.retry_count == 1
+    assert task.next_retry_at is not None  # 退避期间不该被立刻重取
+    assert task.error == "boom"
+    # 历史行跟着回 queued（下载页只认它）
+    assert store.get_history(task.history_id).status == "queued"  # type: ignore[union-attr]
+
+
+async def test_worker_failure_exhausts_retries_to_failed(
+    svc: tuple[DownloadService, Store, FakeUserClient],
+) -> None:
+    # 超过 MAX_RETRIES 后落 failed 终态，不再排重试
+    service, store, _ = svc
+    task_id = await service.enqueue(req(1))
+    assert task_id is not None
+    store.update_task(task_id, retry_count=MAX_RETRIES)
+    row = worker_row(store, task_id)
+    row["retry_count"] = MAX_RETRIES
+
+    await service._fail_or_retry(row, "still broken")
+
+    task = store.get_task(task_id)
+    assert task is not None
+    assert task.status == "failed"
+    assert task.next_retry_at is None
+    assert task.error == "still broken"
+    assert store.get_history(task.history_id).status == "failed"  # type: ignore[union-attr]
+
+
+async def test_backoff_prevents_immediate_requeue(
+    svc: tuple[DownloadService, Store, FakeUserClient],
+) -> None:
+    # 退避生效：排了未来时间的任务不会被 next_queued_task 立刻取走
+    service, store, _ = svc
+    task_id = await service.enqueue(req(1))
+    assert task_id is not None
+    row = worker_row(store, task_id)
+    await service._fail_or_retry(row, "boom")
+
+    assert service._next_queued() is None  # 还在退避窗口内
+    # 时间到（把 next_retry_at 拨到过去）→ 可再次被消费
+    store.update_task(task_id, next_retry_at="2000-01-01T00:00:00+00:00")
+    got = service._next_queued()
+    assert got is not None and got["id"] == task_id

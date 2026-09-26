@@ -10,14 +10,12 @@ import type { StatsResponse } from "$lib/api/types";
 
 class Stats {
   data = $state<StatsResponse | null>(null);
-  error = $state("");
 
   async refresh() {
     try {
       this.data = await api.get<StatsResponse>("/api/stats");
-      this.error = "";
-    } catch (err) {
-      this.error = err instanceof Error ? err.message : String(err);
+    } catch {
+      // 快照取不到就保持上一份：各页面自己有 error 展示，这里不再重复存一份错误
     }
   }
 }

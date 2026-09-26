@@ -57,10 +57,6 @@ class Router {
     return keyOf(this.path) ?? DEFAULT_ROUTE;
   }
 
-  get known(): boolean {
-    return keyOf(this.path) !== null;
-  }
-
   /** 当前 URL 的查询参数（视图读 `?q=` 这类跨页入参用）。 */
   get query(): URLSearchParams {
     return new URLSearchParams(this.search);

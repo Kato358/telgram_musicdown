@@ -22,36 +22,44 @@ import asyncio
 import json
 import logging
 import os
-import re
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from time import monotonic
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
-from app.db.models import History, Task
-from app.domain import TemplateConfig, TrackMeta, card_to_meta, message_to_card, meta_from_dict
+from app.db.models import Task
+from app.domain import (
+    DownloadRequest,
+    TemplateConfig,
+    TrackMeta,
+    card_to_meta,
+    message_to_card,
+    meta_from_dict,
+)
 from app.errors import AppError, TaskNotFoundError
 from app.events import Event, EventBus
 from app.ports import IStore
 from app.ports.telegram import TelegramClientProto
+from app.services.history_writer import HistoryWriter, history_row
 from app.services.path_builder import render_path, resolve_conflict
+from app.services.progress import ProgressReporter, TaskRunState
 from app.services.tags import TagService
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
 RETRY_BASE_SEC = 30
 RETRY_CAP_SEC = 3600
-PROGRESS_SSE_INTERVAL_SEC = 0.5
-PROGRESS_DB_INTERVAL_SEC = 2.0
 
 
 def backoff_sec(retry_count: int) -> int:
     """指数退避 min(2^n * 30s, 1h)。"""
     return int(min(2**retry_count * RETRY_BASE_SEC, RETRY_CAP_SEC))
+
+
+def _utc_after(seconds: int) -> str:
+    """now + seconds 的 UTC ISO-8601 文本（与 store 的时间戳约定一致）。"""
+    return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat(timespec="seconds")
 
 
 class SyncRunnerProto(Protocol):
@@ -69,147 +77,44 @@ class DownloadQueueServiceProto(Protocol):
     async def cancel_task(self, task_id: int) -> None: ...
 
 
-@dataclass(slots=True)
-class DownloadRequest:
-    """单条下载请求（payload_json 的结构化形式）。"""
-
-    meta: TrackMeta
-    source_id: int | None = None
-    force: bool = False
-
-
-class _ProgressReporter:
-    """把 Pyrogram 同步进度回调转换成节流的 SSE 与 DB 更新。"""
-
-    def __init__(self, service: DownloadService, task_id: int, total_bytes: int | None) -> None:
-        self._service = service
-        self._task_id = task_id
-        self._total_bytes = total_bytes
-        self._current_bytes = 0
-        self._speed: float | None = None
-        self._last_sample_at = monotonic()
-        self._last_sample_bytes = 0
-        self._last_emit_at = 0.0
-        self._last_emit_bytes = 0
-        self._last_db_at = 0.0
-        self._loop = asyncio.get_running_loop()
-
-    def __call__(self, current: int, total: int) -> None:
-        if (
-            self._task_id in self._service._paused_tasks
-            or self._task_id in self._service._cancelled_tasks
-        ):
-            return
-        try:
-            current_bytes = max(0, int(current))
-            total_bytes = int(total)
-        except (TypeError, ValueError):
-            return
-        if total_bytes > 0:
-            self._total_bytes = total_bytes
-        if self._total_bytes is not None:
-            current_bytes = min(current_bytes, self._total_bytes)
-
-        now = monotonic()
-        elapsed = now - self._last_sample_at
-        if elapsed > 0:
-            delta = current_bytes - self._last_sample_bytes
-            if delta >= 0:
-                self._speed = delta / elapsed
-            else:
-                self._speed = None
-        self._last_sample_at = now
-        self._last_sample_bytes = current_bytes
-        self._current_bytes = current_bytes
-
-        final = self._total_bytes is not None and current_bytes >= self._total_bytes
-        first = self._last_emit_at == 0.0
-        if (
-            not first
-            and not final
-            and now - self._last_emit_at < PROGRESS_SSE_INTERVAL_SEC
-            and current_bytes - self._last_emit_bytes < 256 * 1024
-        ):
-            return
-        self._last_emit_at = now
-        self._last_emit_bytes = current_bytes
-
-        # 最终帧在 async flush 中 await 发布，保证随后 task.status 的顺序。
-        if not final:
-            self._service.events.publish_nowait(Event("task.progress", self._payload()))
-
-        if final or now - self._last_db_at >= PROGRESS_DB_INTERVAL_SEC:
-            self._last_db_at = now
-            self._schedule_persist()
-
-    def _payload(self) -> dict[str, object]:
-        eta: int | None = None
-        if self._total_bytes is not None and self._speed and self._speed > 0:
-            eta = max(0, int((self._total_bytes - self._current_bytes) / self._speed))
-        return {
-            "task_id": self._task_id,
-            "progress_bytes": self._current_bytes,
-            "total_bytes": self._total_bytes,
-            "speed": self._speed,
-            "eta": eta,
-        }
-
-    def _schedule_persist(self) -> None:
-        def persist() -> None:
-            self._service.store.update_task(
-                self._task_id,
-                progress_bytes=self._current_bytes,
-                total_bytes=self._total_bytes,
-                speed=self._speed or 0.0,
-            )
-
-        try:
-            self._loop.call_soon_threadsafe(persist)
-        except RuntimeError:
-            logger.debug("task %s progress persistence skipped: loop closed", self._task_id)
-
-    async def flush(self) -> None:
-        cancelled = (
-            self._task_id in self._service._paused_tasks
-            or self._task_id in self._service._cancelled_tasks
-        )
-        self._service.store.update_task(
-            self._task_id,
-            progress_bytes=self._current_bytes,
-            total_bytes=self._total_bytes,
-            speed=self._speed or 0.0,
-        )
-        if not cancelled:
-            await self._service.events.publish(Event("task.progress", self._payload()))
-
-
 class DownloadService:
     """下载队列：入队去重、worker 池、状态机、重试（FR-DL-01~06）。"""
 
     def __init__(
         self,
         store: IStore,
-        client: TelegramClientProto,
+        client: TelegramClientProto | None,
         events: EventBus,
         temp_dir: Path,
         cfg: TemplateConfig,
         max_concurrent: int = 3,
     ) -> None:
         self.store = store
-        self.client = client
+        # 装配期可为 None（容器先建服务、组合根再注入真实代理）；使用前必须已注入
+        self._client = client
         self.events = events
         self.temp_dir = temp_dir
         self.cfg = cfg
         self.max_concurrent = max_concurrent
         self._sem = asyncio.Semaphore(max_concurrent)
-        self._paused = asyncio.Event()
-        self._paused.set()
         self._worker_tasks: list[asyncio.Task[None]] = []
-        self._paused_tasks: set[int] = set()
-        self._cancelled_tasks: set[int] = set()
-        self._running_tasks: dict[int, asyncio.Task[Any]] = {}
+        # 运行态（暂停/取消标记 + 在跑协程）：与进度回调共用同一份事实源
+        self._run_state = TaskRunState()
         self.tags = TagService()
+        # 历史行结算（展示字段/读数/终态）独立成协作对象：与队列调度无关
+        self._history = HistoryWriter(store, self.tags, cfg)
         self.sync_runner: SyncRunnerProto | None = None
+
+    @property
+    def client(self) -> TelegramClientProto:
+        """Telegram 客户端；未注入即属装配错误（组合根负责先注入再用）。"""
+        if self._client is None:
+            raise AppError("not_connected", "telegram 客户端未注入：请先完成初始化登录")
+        return self._client
+
+    @client.setter
+    def client(self, value: TelegramClientProto | None) -> None:
+        self._client = value
 
     def set_sync_runner(self, runner: SyncRunnerProto) -> None:
         """装配源同步执行器（FR-SRC-04）：tasks.type='sync' 由本 Worker 池执行。"""
@@ -221,6 +126,7 @@ class DownloadService:
         只覆盖模板与落盘根；下载并发数绑定 worker 池规模，改动仍在下次启动生效。
         """
         self.cfg = cfg
+        self._history.apply_template(cfg)
 
     async def enqueue(self, req: DownloadRequest) -> int | None:
         """入队：去重检查（FR-DL-05）→ 建 history + task（FR-DL-01）；命中返回 None。"""
@@ -229,7 +135,7 @@ class DownloadService:
         if hit and not req.force:
             logger.info("dedupe hit chat=%s msg=%s", meta.chat_id, meta.message_id)
             return None
-        history_id = self.store.upsert_history(_history_row(meta, req.source_id))
+        history_id = self.store.upsert_history(history_row(meta, req.source_id))
         payload = {
             "meta": asdict(meta),
             "source_id": req.source_id,
@@ -243,9 +149,7 @@ class DownloadService:
                 history_id=history_id,
             )
         )
-        await self.events.publish(
-            Event("task.status", {"task_id": task_id, "status": "queued", "error": None})
-        )
+        await self._set_status(task_id, "queued", history_id)
         return task_id
 
     async def start_workers(self, count: int | None = None) -> None:
@@ -264,39 +168,25 @@ class DownloadService:
     async def pause_task(self, task_id: int) -> None:
         """用户暂停：取消当前协程，保留 temp 分片（SDD §2.3）。"""
         task = self._require_task(task_id)
-        self._paused_tasks.add(task_id)
-        self.store.update_task(task_id, status="paused")
-        self._mirror_history_status(task.history_id, "paused")
-        running = self._running_tasks.get(task_id)
+        self._run_state.mark_paused(task_id)
+        running = self._run_state.running_task(task_id)
         if running is not None and running is not asyncio.current_task():
             running.cancel()
-        await self.events.publish(
-            Event("task.status", {"task_id": task_id, "status": "paused", "error": None})
-        )
+        await self._set_status(task_id, "paused", task.history_id)
 
     async def resume_task(self, task_id: int) -> None:
         """恢复：重新入队 queued。"""
         task = self._require_task(task_id)
-        self._paused_tasks.discard(task_id)
-        self._cancelled_tasks.discard(task_id)
-        self.store.update_task(task_id, status="queued")
-        self._mirror_history_status(task.history_id, "queued")
-        await self.events.publish(
-            Event("task.status", {"task_id": task_id, "status": "queued", "error": None})
-        )
+        self._run_state.clear(task_id)
+        await self._set_status(task_id, "queued", task.history_id)
 
     async def cancel_task(self, task_id: int) -> None:
         task = self._require_task(task_id)
-        self._paused_tasks.discard(task_id)
-        self._cancelled_tasks.add(task_id)
-        self.store.update_task(task_id, status="cancelled")
-        self._mirror_history_status(task.history_id, "cancelled")
-        running = self._running_tasks.get(task_id)
+        self._run_state.mark_cancelled(task_id)
+        running = self._run_state.running_task(task_id)
         if running is not None and running is not asyncio.current_task():
             running.cancel()
-        await self.events.publish(
-            Event("task.status", {"task_id": task_id, "status": "cancelled", "error": None})
-        )
+        await self._set_status(task_id, "cancelled", task.history_id)
 
     def _require_task(self, task_id: int) -> Task:
         task = self.store.get_task(task_id)
@@ -312,22 +202,44 @@ class DownloadService:
         if history_id is not None:
             self.store.mark_history_status(history_id, status)
 
+    async def _set_status(
+        self,
+        task_id: int,
+        status: str,
+        history_id: int | None = None,
+        *,
+        error: str | None = None,
+        finished: bool = False,
+    ) -> None:
+        """任务状态变更的唯一出口：写台账 + 镜像历史行 + 发布 task.status 事件。
+
+        这三步原先在 10 处各写一遍（且容易漏掉其中一步——历史行漏更新会让下载页
+        永远显示旧状态），收口后「状态只有一个答案」这条不变量只需要维护一处。
+        """
+        self.store.update_task(task_id, status=status, error=error)
+        if history_id is not None:
+            self.store.mark_history_status(history_id, status, error=error, finished=finished)
+        await self._publish_status(task_id, status, error)
+
+    async def _publish_status(self, task_id: int, status: str, error: str | None = None) -> None:
+        """仅发布 task.status 事件（状态已由别处写库时用，避免重复写）。"""
+        await self.events.publish(
+            Event("task.status", {"task_id": task_id, "status": status, "error": error})
+        )
+
     async def retry_task(self, task_id: int) -> None:
         """把一条失败、取消或跳过的任务重新放回队列。"""
         task = self._require_task(task_id)
         if task.status not in {"failed", "cancelled", "skipped"}:
             raise AppError("invalid_task_state", "任务当前不可重试")
-        self._paused_tasks.discard(task_id)
-        self._cancelled_tasks.discard(task_id)
+        self._run_state.clear(task_id)
         temp_path = self._temp_path_for_task(task)
         if temp_path is not None:
             await asyncio.to_thread(self._discard_temp, temp_path)
         self.store.reset_task_for_retry(task_id)
         if task.history_id is not None:
             self.store.reset_history_for_retry(task.history_id)
-        await self.events.publish(
-            Event("task.status", {"task_id": task_id, "status": "queued", "error": None})
-        )
+        await self._publish_status(task_id, "queued")
 
     async def delete_task(self, task_id: int) -> None:
         """删除任务台账记录和临时分片，保留 history 及已落盘文件。
@@ -376,7 +288,6 @@ class DownloadService:
     async def _worker(self, name: str) -> None:
         logger.info("%s started (concurrency=%d)", name, self.max_concurrent)
         while True:
-            await self._paused.wait()
             task = self._next_queued()
             if task is None:
                 await asyncio.sleep(0.5)
@@ -384,7 +295,7 @@ class DownloadService:
             task_id = int(task["id"])
             current = asyncio.current_task()
             if current is not None:
-                self._running_tasks[task_id] = current
+                self._run_state.register_running(task_id, current)
             try:
                 await self._run_task(task)
             except asyncio.CancelledError:
@@ -392,15 +303,43 @@ class DownloadService:
             except Exception as e:
                 # NFR-08：失败任务写人类可读原因到 tasks/history 再返回
                 reason = f"task crashed: {e}"
-                self.store.update_task(task_id, status="failed", error=reason)
-                history_id = task.get("history_id")
-                if history_id:
-                    self.store.mark_history_status(history_id, "failed", error=reason)
+                await self._fail_or_retry(task, reason)
                 logger.exception("worker %s crashed on task %s", name, task_id)
             finally:
-                if current is not None and self._running_tasks.get(task_id) is current:
-                    self._running_tasks.pop(task_id, None)
-                self._cancelled_tasks.discard(task_id)
+                if current is not None:
+                    self._run_state.unregister_running(task_id, current)
+                self._run_state.forget_cancelled(task_id)
+
+    async def _fail_or_retry(self, task: dict[str, Any], reason: str) -> None:
+        """失败结算（FR-DL-04）：未超上限则排入退避重试，超限则落 failed 终态。
+
+        ``next_queued_task`` 只在 ``next_retry_at`` 到达后才取这条任务，因此退避期间
+        它不会被重复消费；指数退避见 ``backoff_sec``。
+        """
+        task_id = int(task["id"])
+        history_id = task.get("history_id")
+        retry_count = int(task.get("retry_count") or 0)
+        if retry_count < MAX_RETRIES:
+            next_at = _utc_after(backoff_sec(retry_count))
+            self.store.update_task(
+                task_id,
+                status="queued",
+                retry_count=retry_count + 1,
+                next_retry_at=next_at,
+                error=reason,
+            )
+            self._mirror_history_status(history_id, "queued")
+            logger.warning(
+                "task %s failed (attempt %d/%d), retry at %s: %s",
+                task_id,
+                retry_count + 1,
+                MAX_RETRIES,
+                next_at,
+                reason,
+            )
+            await self._publish_status(task_id, "queued", reason)
+            return
+        await self._set_status(task_id, "failed", history_id, error=reason)
 
     def _next_queued(self) -> dict[str, Any] | None:
         """取下一条可执行任务（FR-DL-01）：SQL 在仓储里，本层只补历史镜像。"""
@@ -424,14 +363,16 @@ class DownloadService:
         if meta.ext is None and meta.file_size is None and meta.title is None:
             meta = await self._hydrate_meta(meta)
         if history_id is not None:
-            self._sync_history_display(history_id, meta)
+            self._history.sync_display(history_id, meta)
         chat_id: int = meta.chat_id
         message_id: int = meta.message_id
         expected_size: int | None = meta.file_size
-        reporter = _ProgressReporter(self, task_id, expected_size)
+        reporter = ProgressReporter(
+            self.store, self.events, self._run_state, task_id, expected_size
+        )
 
         async with self._sem:
-            if task_id in self._paused_tasks or task_id in self._cancelled_tasks:
+            if self._run_state.is_stopped(task_id):
                 return
             temp_path = self.temp_dir / f"task_{task_id}_{message_id}"
             self.temp_dir.mkdir(parents=True, exist_ok=True)
@@ -445,7 +386,7 @@ class DownloadService:
                     progress=reporter,
                 )
             except asyncio.CancelledError:
-                if task_id in self._paused_tasks or task_id in self._cancelled_tasks:
+                if self._run_state.is_stopped(task_id):
                     return  # 暂停/取消：不标 failed，保留分片由后续动作处理
                 raise
             finally:
@@ -474,15 +415,7 @@ class DownloadService:
             return True
         await asyncio.to_thread(self._discard_temp, temp_path)
         reason = f"size mismatch: got {actual}, expected {expected_size}"
-        self.store.update_task(task_id, status="failed", error=reason)
-        if history_id:
-            self.store.mark_history_status(history_id, "failed", error=reason)
-        await self.events.publish(
-            Event(
-                "task.status",
-                {"task_id": task_id, "status": "failed", "error": reason},
-            )
-        )
+        await self._set_status(task_id, "failed", history_id, error=reason)
         return False
 
     async def _complete_download(
@@ -498,24 +431,17 @@ class DownloadService:
         rendered = render_path(meta, self.cfg)
         target, dedupe_hit = resolve_conflict(Path(rendered), expected_size=expected_size)
         if dedupe_hit:
-            self.store.update_task(task_id, status="skipped")
-            if history_id:
-                self.store.mark_history_status(history_id, "skipped", finished=True)
             await asyncio.to_thread(self._discard_temp, temp_path)
-            await self.events.publish(
-                Event("task.status", {"task_id": task_id, "status": "skipped", "error": None})
-            )
+            await self._set_status(task_id, "skipped", history_id, finished=True)
             return
         target.parent.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(os.replace, temp_path, target)
 
-        # 写标签（FR-META-01，失败仅日志不影响状态）
+        # 写标签（FR-META-01，失败仅日志不影响状态）；finish 同时把历史行
+        # 结算成 success（带 save_path），故此处传 history_id=None 避免重复写。
         if history_id:
-            await asyncio.to_thread(self._finish_history, history_id, str(target), payload, meta)
-        self.store.update_task(task_id, status="success")
-        await self.events.publish(
-            Event("task.status", {"task_id": task_id, "status": "success", "error": None})
-        )
+            await asyncio.to_thread(self._history.finish, history_id, str(target), payload, meta)
+        await self._set_status(task_id, "success")
 
     @staticmethod
     def _file_size_or_missing(path: Path) -> int:
@@ -545,25 +471,15 @@ class DownloadService:
         """源同步/回溯（FR-SRC-04）：交给 SyncRunner，本处只做状态与错误落库。"""
         task_id: int = task["id"]
         if self.sync_runner is None:
-            reason = "sync runner not wired"
-            self.store.update_task(task_id, status="failed", error=reason)
-            await self.events.publish(
-                Event("task.status", {"task_id": task_id, "status": "failed", "error": reason})
-            )
+            await self._set_status(task_id, "failed", error="sync runner not wired")
             return
         payload = json.loads(task["payload_json"])
         try:
             await self.sync_runner.run(task_id, payload)  # 扫描计数由 SyncRunner 记日志
         except AppError as e:  # 领域错误：写人类可读原因（NFR-08）
-            self.store.update_task(task_id, status="failed", error=e.message)
-            await self.events.publish(
-                Event("task.status", {"task_id": task_id, "status": "failed", "error": e.message})
-            )
+            await self._set_status(task_id, "failed", error=e.message)
             return
-        self.store.update_task(task_id, status="success")
-        await self.events.publish(
-            Event("task.status", {"task_id": task_id, "status": "success", "error": None})
-        )
+        await self._set_status(task_id, "success")
 
     def _discard_temp(self, temp_path: Path) -> None:
         if temp_path.exists():
@@ -587,112 +503,9 @@ class DownloadService:
             return None
         return self.temp_dir / f"task_{task.id}_{message_id}"
 
-    def _sync_history_display(self, history_id: int, meta: TrackMeta) -> None:
-        """把 meta 里的展示与读数字段同步进历史行（下载页各列的事实源）。
-
-        展示字段（标题/歌手/专辑）只在 meta 给得出时写；时长/大小/码率在链接入队的
-        场景要等 hydrate 或落盘实测才有值，有真值就回填（store 层只认非空更新）。
-        """
-        if meta.title or meta.artist or meta.album:
-            history = self.store.get_history(history_id)
-            if history is not None:
-                self.store.set_history_display_tags(
-                    history_id,
-                    meta.title or history.title,
-                    meta.artist or history.artist,
-                    meta.album or history.album,
-                )
-        if meta.duration_sec or meta.file_size or meta.bitrate:
-            self.store.set_history_media(
-                history_id, meta.duration_sec, meta.file_size, meta.bitrate
-            )
-
-    def _display_meta(self, save_path: str, meta: TrackMeta) -> TrackMeta:
-        """完成态的显示元数据（FR-META-01）：落盘文件的内嵌标签是事实源，缺项再补。
-
-        补全顺序：文件标签 → Telegram 原文件名拆「歌手 - 歌名」（caption 正则同一份配置）
-        → 入队时的元数据。下载中的行不动（显示 TG 原文件名），完成后才按文件补全。
-        """
-        title, artist, album = meta.title, meta.artist, meta.album
-        try:
-            tags = self.tags.read_tags(Path(save_path))
-        except Exception:  # noqa: BLE001  只读容器/损坏文件按「无标签」处理，不挡完成流程
-            tags = {}
-        else:
-            title = tags.get("title") or title
-            artist = tags.get("artist") or artist
-            album = tags.get("album") or album
-        # 标题还是 TG 原文件名兜底（带扩展名）：去掉扩展名，并按「歌手 - 歌名」补齐缺失项
-        if title and meta.ext and title.lower().endswith(f".{meta.ext.lower()}"):
-            title = title[: -len(meta.ext) - 1]
-            if not artist:
-                m = re.match(self.cfg.caption_artist_re, title)
-                if m:
-                    artist = m.group("artist").strip() or None
-                    title = m.group("title").strip() or title
-        return replace(meta, title=title, artist=artist, album=album)
-
-    def _finish_history(
-        self, history_id: int, save_path: str, payload: dict[str, Any], meta: TrackMeta
-    ) -> None:
-        self.store.mark_history_status(history_id, "success", save_path=save_path, finished=True)
-        # 时长/大小/码率以落盘文件实测为准（链接入队时这些读数都是空的）
-        path = Path(save_path)
-        facts = self.tags.media_facts(path)
-        measured = replace(
-            meta,
-            duration_sec=facts["duration_sec"] or meta.duration_sec,
-            file_size=facts["file_size"] or meta.file_size,
-            bitrate=facts["bitrate"] or meta.bitrate,
-        )
-        self._sync_history_display(history_id, self._display_meta(save_path, measured))
-        if payload.get("write_tags", True):
-            try:
-                self.tags.write_tags(path, meta)
-            except Exception:
-                logger.exception("tag write failed for %s (task continues)", save_path)
-
     def backfill_history_media(self, limit: int = 500) -> int:
-        """启动回填：旧版本入队的已落盘记录缺时长/大小/码率，按文件补一次。
-
-        文件已被手动移走的行不编造，保持原样留给用户重下。
-        """
-        count = 0
-        for row in self.store.list_history_missing_media(limit=limit):
-            if row.id is None or not row.save_path:
-                continue
-            path = Path(row.save_path)
-            if not path.exists():
-                continue
-            facts = self.tags.media_facts(path)
-            if facts["duration_sec"] or facts["file_size"] or facts["bitrate"]:
-                self.store.set_history_media(
-                    int(row.id), facts["duration_sec"], facts["file_size"], facts["bitrate"]
-                )
-                count += 1
-        return count
-
-
-def _history_row(meta: TrackMeta, source_id: int | None) -> History:
-    """入队即建 history 行（status=queued）：历史页与恢复流程都以它为准。"""
-    return History(
-        id=None,
-        chat_id=meta.chat_id,
-        message_id=meta.message_id,
-        source_id=source_id,
-        file_unique_id=meta.unique_id,
-        title=meta.title,
-        artist=meta.artist,
-        album=meta.album,
-        duration_sec=meta.duration_sec,
-        file_size=meta.file_size,
-        bitrate=meta.bitrate,
-        mime=meta.mime,
-        ext=meta.ext,
-        caption=meta.caption,
-        message_date=meta.message_date,
-        status="queued",
-    )
+        """启动回填（兼容入口）：委托 HistoryWriter。"""
+        return self._history.backfill_media(limit)
 
 
 def _meta_from_payload(payload: dict[str, Any]) -> TrackMeta:

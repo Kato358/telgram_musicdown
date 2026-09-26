@@ -275,7 +275,9 @@ class UserClient:
             if not msgs or msgs[0] is None:
                 return None
             out = await self.client.download_media(
-                msgs[0], file_name=file_name, progress=progress
+                msgs[0],
+                file_name=file_name,
+                progress=progress,  # type: ignore[arg-type]  # pyrogram stub 用 Callable[..., Any]
             )
             return out if isinstance(out, str) else None
 

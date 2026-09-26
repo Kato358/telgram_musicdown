@@ -17,13 +17,13 @@ from typing import Any, Protocol
 
 from app.db.models import Source
 from app.domain import (
+    DownloadRequest,
     SourceFilters,
     card_to_meta,
     message_to_card,
     scope_allows,
 )
 from app.ports import IStore
-from app.services.download import DownloadRequest
 
 logger = logging.getLogger(__name__)
 

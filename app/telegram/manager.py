@@ -170,7 +170,7 @@ class TelegramManager:
         self.bot = BotClient(
             self.secrets,
             self.session_dir,
-            downloads=self._downloads,  # type: ignore[arg-type]  # 装配期已保证非 None
+            downloads=self._downloads,  # 装配期已保证非 None（上方早退）
             search=self._search,
             allowed_user_ids=allowed,
         )

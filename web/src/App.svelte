@@ -21,6 +21,7 @@
   import DashboardView from "@/views/DashboardView.svelte";
   import DownloadsView from "@/views/DownloadsView.svelte";
   import LibraryView from "@/views/LocalLibraryView.svelte";
+  import LoginView from "@/views/LoginView.svelte";
   import LogsView from "@/views/LogsView.svelte";
   import SearchView from "@/views/SearchView.svelte";
   import SettingsView from "@/views/SettingsView.svelte";
@@ -51,6 +52,11 @@
    *  注意「已确认」这一半不能省：`checked` 之前 setup 还是 null，照它跳转会把已完成初始化的
    *  用户也钉在向导里。 */
   const setupGate = $derived(session.checked && !session.setup?.complete);
+
+  /** Web 准入闸门（FR-WEB-02）：受保护部署未登录时先渲染登录页。
+   *  必须排在初始化闸门之前——没有会话 cookie 时 setup 状态本身也是 401，
+   *  先问登录再问初始化，否则会把人误导向向导。 */
+  const loginGate = $derived(session.web?.required === true && !session.web.authenticated);
 
   /** 地址栏与渲染保持一致：强制进向导时用 replace，不留一条控制台历史。 */
   $effect(() => {
@@ -83,10 +89,17 @@
     void stats.refresh();
     void (async () => {
       try {
+        // 先问 Web 准入：受保护部署未登录时其余调用都是 401，先取 setup 只会白拿一个错误
+        await session.loadWebSession();
+        if (session.needsWebLogin) {
+          session.checked = true; // 登录页自身就是首屏，不必再等初始化状态
+          return;
+        }
         await session.loadSetup(); // 失败也会置 checked：闸门据此停在向导并写明原因
         await session.loadMe();
       } catch {
         // 账号信息取不到不影响闸门判断：未完成初始化就留在向导
+        session.checked = true;
       }
     })();
     const onKeydown = (event: KeyboardEvent) => {
@@ -108,6 +121,8 @@
   <div class="grid min-h-dvh place-items-center text-caption text-muted-foreground">
     {t("common.loading")}
   </div>
+{:else if loginGate}
+  <LoginView />
 {:else if setupGate || router.key === "setup"}
   <div class="min-h-dvh bg-background">
     <SetupView />

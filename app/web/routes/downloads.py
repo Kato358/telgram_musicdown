@@ -6,9 +6,8 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
 
-from app.domain import meta_from_dict
+from app.domain import DownloadRequest, meta_from_dict
 from app.errors import AppError
-from app.services.download import DownloadRequest
 from app.utils.linkparse import parse_link
 from app.web.routes import schemas
 from app.web.routes.context import RouteContext

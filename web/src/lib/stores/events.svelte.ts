@@ -8,8 +8,6 @@ class Events {
   connected = $state(false);
   /** 按 task_id 索引的最新进度帧（含 speed/eta）。 */
   progress = $state<Record<number, TaskProgressEvent>>({});
-  /** 按 task_id 索引的最新状态帧。 */
-  statuses = $state<Record<number, TaskStatusEvent>>({});
   /** 连接期间收到的错误事件（日志页消费）。 */
   errors = $state<(LogErrorEvent & { id: number })[]>([]);
   /** 状态事件计数：页面用 $effect 观察它触发重载（DB 才是事实源）。 */
@@ -49,7 +47,6 @@ class Events {
         this.progress[p.task_id] = p;
       } else if (parsed.type === "task.status" && parsed.payload) {
         const s = parsed.payload as unknown as TaskStatusEvent;
-        this.statuses[s.task_id] = s;
         this.revision += 1;
         for (const listener of this.#listeners) listener(s);
       } else if (parsed.type === "log.error" && parsed.payload) {

@@ -16,8 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import SecretConfig, load_secrets, web_dist_dir
-from app.container import build_container
-from app.domain import TemplateConfig
+from app.container import Container, build_container
 from app.errors import SessionLockedError, WebAuthConfigError
 from app.events import EventBus, attach_event_log_bridge
 from app.services.download import DownloadService
@@ -48,19 +47,23 @@ def setup_logging(logs_dir: Path, level: int = logging.INFO) -> None:
 
 @dataclass(slots=True)
 class AppServices:
-    """装配后的服务容器（供 web/tg 与测试共用）。"""
+    """装配后的服务容器（供 web/tg 与测试共用）。
 
-    dirs: dict[str, Path]
+    只放**启动后仍被读**的句柄；``dirs``/``template`` 是装配期中间量（``dirs`` 已用在
+    建 TG 客户端与 save_path，``template`` 已交给 DownloadService），不在此重复持有。
+    """
+
     secrets: SecretConfig
     store: Any
     events: EventBus
-    template: TemplateConfig
     sources: SourceService
     search: SearchService
     downloads: DownloadService
     preview: PreviewService
     library: LocalLibraryService
     tg: TelegramManager
+    # 组合根持有的容器：关停时经它统一释放（Container.close 是生命周期收口点）
+    container: Container
 
 
 def build_services(base_dir: Path) -> AppServices:
@@ -74,12 +77,6 @@ def build_services(base_dir: Path) -> AppServices:
     secrets = load_secrets(base_dir)
     web_auth.check_auth_config(secrets.web_host, secrets.web_login_secret)
     events = container.extras["events"]
-    template = TemplateConfig(
-        dir_template=container.settings.template.dir_template,
-        file_template=container.settings.template.file_template,
-        date_format=container.settings.template.date_format,
-        save_path=dirs["save_path"],
-    )
     tg = TelegramManager(secrets, dirs["sessions"])
     downloads = container.downloads
     # 依赖注入边界：user_client 未连接时占位 proxy 报 not_connected
@@ -90,17 +87,16 @@ def build_services(base_dir: Path) -> AppServices:
     downloads.set_sync_runner(SyncRunner(store, tg.user_client_proxy, downloads))
     container.preview.client = tg.download_client_proxy
     return AppServices(
-        dirs=dirs,
         secrets=secrets,
         store=store,
         events=events,
-        template=template,
         sources=container.sources,
         search=container.search,
         downloads=downloads,
         preview=container.preview,
         library=container.library,
         tg=tg,
+        container=container,
     )
 
 
@@ -161,7 +157,7 @@ async def run(base_dir: Path) -> None:
         await svc.tg.stop()
         await svc.downloads.stop_workers()
         library_scan_task.cancel()
-        store.close()
+        svc.container.close()  # 生命周期收口：不再绕过容器直接 store.close()
 
 
 def main() -> None:

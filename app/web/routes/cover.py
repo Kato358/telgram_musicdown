@@ -44,7 +44,7 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
     """注册全局封面路由。"""
     store = ctx.store
     preview = ctx.preview
-    tags = ctx.downloads.tags
+    tags = ctx.tags
 
     @app.get("/api/cover")
     async def cover_ep(

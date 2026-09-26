@@ -28,13 +28,6 @@ class SourceUnreachableError(AppError):
         self.reason = reason
 
 
-class NotAudioError(AppError):
-    """目标消息不是音频（验收 #11）。"""
-
-    def __init__(self, message: str = "message is not audio") -> None:
-        super().__init__("not_audio", message)
-
-
 class TagWriteError(AppError):
     """标签写失败（NFR-10，文件不受损）。"""
 
@@ -47,13 +40,6 @@ class UnsupportedContainerError(AppError):
 
     def __init__(self, message: str = "unsupported container") -> None:
         super().__init__("unsupported_container", message)
-
-
-class AuthRequiredError(AppError):
-    """无 Web 会话访问受保护资源（验收 #16）。"""
-
-    def __init__(self, message: str = "authentication required") -> None:
-        super().__init__("unauthorized", message)
 
 
 class WebAuthConfigError(AppError):

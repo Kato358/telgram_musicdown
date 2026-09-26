@@ -47,6 +47,47 @@ class TemplateConfig:
     save_path: PurePath = field(default_factory=lambda: Path("./downloads"))
 
 
+@dataclass(slots=True)
+class DownloadRequest:
+    """单条下载请求（tasks.payload_json 的结构化形式）。
+
+    放在 domain 而非 services.download：它是跨服务的**数据契约**，
+    sync 与 bot 都要构造它。若留在 download.py，sync 就得 import 整个下载服务
+    模块（违反「services 之间不互相 import」）；这里谁都不依赖。
+    """
+
+    meta: TrackMeta
+    source_id: int | None = None
+    force: bool = False
+
+
+# ---- 音频扩展名（唯一事实源）----
+# 此前 tags/local_library/preview 各写一份且互不一致（.wav/.wma/.ape 只在曲库、
+# .mp4 只在标签容器映射），导致「扫描得到的曲库文件」与「能写标签的文件」判据漂移。
+# 这里按「本应用认得的音频扩展名」统一，各模块只做自己所需的子集筛选。
+
+AUDIO_EXTS: frozenset[str] = frozenset(
+    {
+        ".mp3",
+        ".flac",
+        ".m4a",
+        ".mp4",
+        ".aac",
+        ".ogg",
+        ".opus",
+        ".wav",
+        ".wma",
+        ".ape",
+        ".aiff",
+        ".aif",
+        ".alac",
+    }
+)
+
+# 曲库扫描关注的音频扩展名（与 AUDIO_EXTS 同源，含全部可播放容器）
+LIBRARY_AUDIO_EXTS: frozenset[str] = AUDIO_EXTS
+
+
 # ---- 音频消息判定与卡片映射（FR-SEARCH-02，验收 #11）----
 
 
@@ -97,6 +138,8 @@ class SearchResultCard:
 
 _DURATION_RE = re.compile(r"Duration:\s*(\d{1,2}):(\d{2})(?::(\d{2}))?", re.IGNORECASE)
 
+_DURATION_PARTS = 3  # 正则三段：H:MM:SS；两段时 MM:SS（小时补 0）
+
 
 def _duration_from_caption(caption: str | None) -> int | None:
     """消息说明里的「Duration: MM:SS / HH:MM:SS」→ 秒；认不出返回 None（不编造）。
@@ -110,7 +153,7 @@ def _duration_from_caption(caption: str | None) -> int | None:
     if match is None:
         return None
     parts = [int(p) for p in match.groups() if p is not None]
-    if len(parts) == 3:
+    if len(parts) == _DURATION_PARTS:
         h, m, s = parts
     else:
         h, m, s = 0, parts[0], parts[1]

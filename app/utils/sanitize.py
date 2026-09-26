@@ -36,12 +36,6 @@ def sanitize_segment(name: str) -> str:
     return cleaned.rstrip(TRAILING_STRIP) or "_"
 
 
-def is_reserved(name: str) -> bool:
-    """判断段是否 Windows 保留名。"""
-    stem = name.partition(".")[0]
-    return stem.upper() in RESERVED_NAMES
-
-
 def truncate_to_bytes(path_str: str, limit: int = MAX_PATH_BYTES) -> str:
     """整路径 ≤limit 字节截断（UTF-8），从最深段向前逐段截，保留扩展名。"""
     raw = path_str.encode("utf-8")

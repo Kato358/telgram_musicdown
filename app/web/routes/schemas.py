@@ -50,11 +50,14 @@ class SetupStatusResponse(BaseModel):
     username: str | None = None
 
 
-class SendCodeResponse(BaseModel):
-    """发码结果：已有有效会话时 authorized=True 且不填 code_hash。"""
+class LoginRequest(BaseModel):
+    """Web 控制台登录（FR-WEB-02）：口令即 config.yaml 的 web_login_secret。"""
 
-    code_hash: str
-    authorized: bool = False
+    secret: str
+
+
+class LoginResponse(BaseModel):
+    ok: bool = True
 
 
 class MeResponse(BaseModel):

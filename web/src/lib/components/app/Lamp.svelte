@@ -8,19 +8,16 @@
   interface Props {
     tone: Tone;
     label?: string;
-    /** 灯在文字之后。 */
-    reverse?: boolean;
     class?: string;
   }
 
-  let { tone, label, reverse = false, class: className = "" }: Props = $props();
+  let { tone, label, class: className = "" }: Props = $props();
 </script>
 
 <span class="inline-flex items-center gap-2 {TONE_TEXT[tone]} {className}">
-  {#if reverse && label}<span class="text-caption">{label}</span>{/if}
   <span
     class="size-2 shrink-0 rounded-full {TONE_DOT[tone]} {tone === 'live' ? 'dot-pulse' : ''}"
     aria-hidden="true"
   ></span>
-  {#if !reverse && label}<span class="text-caption">{label}</span>{/if}
+  {#if label}<span class="text-caption">{label}</span>{/if}
 </span>

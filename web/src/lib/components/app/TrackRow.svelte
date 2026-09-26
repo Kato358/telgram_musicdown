@@ -29,13 +29,6 @@
     columns.push({ key: "actions", label: "", class: COL_ACTIONS });
     return columns;
   }
-
-  export interface RowMenuItem {
-    label: string;
-    onselect: () => void;
-    /** 危险动作（移除记录等）用 --destructive-text，不用红底。 */
-    danger?: boolean;
-  }
 </script>
 
 <script lang="ts">
@@ -46,16 +39,9 @@
    */
   import type { Snippet } from "svelte";
   import DownloadIcon from "@lucide/svelte/icons/download";
-  import EllipsisVerticalIcon from "@lucide/svelte/icons/ellipsis-vertical";
   import MusicIcon from "@lucide/svelte/icons/music";
   import PauseIcon from "@lucide/svelte/icons/pause";
   import PlayIcon from "@lucide/svelte/icons/play";
-  import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-  } from "$lib/components/ui/dropdown-menu";
   import { Checkbox } from "$lib/components/ui/checkbox";
   import { formatDate, formatDuration, formatSize } from "$lib/format";
   import { coverUrl } from "$lib/cover";
@@ -96,7 +82,6 @@
     selectLabel?: string;
     /** 封面查询（title/artist）：给了就按全局封面链路 /api/cover 取（本地标签 > api）。 */
     cover?: { title?: string | null; artist?: string | null } | null;
-    menu?: RowMenuItem[];
     feedback?: Snippet;
     class?: string;
   }
@@ -123,7 +108,6 @@
     onselected,
     selectLabel,
     cover = null,
-    menu,
     feedback,
     class: className = "",
   }: Props = $props();
@@ -227,33 +211,6 @@
           >
             <DownloadIcon class="size-4" aria-hidden="true" />
           </button>
-        {/if}
-
-        {#if menu && menu.length > 0}
-          <DropdownMenu>
-            <DropdownMenuTrigger>
-              {#snippet child({ props })}
-                <button
-                  {...props}
-                  type="button"
-                  class="ui-transition grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-rule hover:text-foreground"
-                  aria-label={t("table.actions")}
-                >
-                  <EllipsisVerticalIcon class="size-4" aria-hidden="true" />
-                </button>
-              {/snippet}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {#each menu as item (item.label)}
-                <DropdownMenuItem
-                  onSelect={item.onselect}
-                  class={item.danger ? "text-destructive-text" : ""}
-                >
-                  {item.label}
-                </DropdownMenuItem>
-              {/each}
-            </DropdownMenuContent>
-          </DropdownMenu>
         {/if}
       </span>
     {/if}

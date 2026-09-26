@@ -19,8 +19,8 @@ from fastapi.responses import FileResponse, Response
 
 from app.db.models import History, LocalTrack
 from app.services.tags import image_media_type
+from app.utils.platform import open_in_file_manager
 from app.web.routes.context import RouteContext
-from app.web.routes.history import _open_in_file_manager
 from app.web.routes.presenters import local_track_dict
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ MAX_LIMIT = 200
 def register(app: FastAPI, ctx: RouteContext) -> None:
     """注册本地曲库路由：列表/扫描归列表组，流/封面/目录/删除归单行组。"""
     store, library = ctx.store, ctx.library
-    tags = ctx.downloads.tags
+    tags = ctx.tags
 
     if library is None:  # 兜底装配失败的服务器：曲库整体退 503
         @app.get("/api/local-library", include_in_schema=False)
@@ -186,7 +186,7 @@ def _register_track_routes(
         """在系统文件管理器里打开这条曲库记录所在的目录。"""
         path = existing_file(track_or_404(track_id))
         try:
-            await asyncio.to_thread(_open_in_file_manager, path.parent)
+            await asyncio.to_thread(open_in_file_manager, path.parent)
         except (OSError, subprocess.SubprocessError) as e:
             raise HTTPException(status_code=500, detail=f"cannot open folder: {e}") from e
         return {"ok": True}

@@ -13,10 +13,13 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
+from app.events import EventBus
 from app.ports import IStore
 from app.services.download import DownloadService
 from app.services.preview import PreviewService
 from app.services.source import SearchService, SourceService
+from app.services.tags import TagService
+from app.telegram.manager import TelegramManager
 from app.web import auth as web_auth
 
 
@@ -25,16 +28,18 @@ class RouteContext:
     """路由共享上下文：服务句柄 + 认证依赖 + 应用级配置。"""
 
     store: IStore
-    events: Any  # EventBus（避免 web 层 import services 之外的实现细节）
+    events: EventBus
     downloads: DownloadService
     sources: SourceService
     search: SearchService
     preview: PreviewService
     library: Any  # LocalLibraryService（None = 未装配，曲库路由退 503）
-    tg: Any  # TelegramManager（协议面：路由只用其生命周期方法）
+    tg: TelegramManager
     base_dir: Path
     web_host: str
     web_login_secret: str
+    # 音频标签读写：封面/曲库路由直接用，不再穿到 downloads.tags 拿服务内部件
+    tags: TagService = field(default_factory=TagService)
     static_dir: Path | None = None
     started_at: float = field(default_factory=time.monotonic)
 

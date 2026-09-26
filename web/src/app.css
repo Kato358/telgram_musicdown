@@ -86,7 +86,6 @@
     color-mix(in oklab, var(--primary) 10%, var(--card)) 48%,
     var(--card) 100%
   );
-  --gradient-brand: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
   --gradient-promo: linear-gradient(
     150deg,
     color-mix(in oklab, var(--primary) 22%, var(--primary-soft)) 0%,
@@ -282,11 +281,6 @@
      页面只挂类名，不写渐变字面量。 */
   .surface-banner {
     background-image: var(--gradient-banner);
-  }
-
-  .surface-brand {
-    background-image: var(--gradient-brand);
-    color: var(--primary-foreground);
   }
 
   /* 侧栏底部卡：与横幅同一族的淡绿渐变，位置固定（导航下方），只做「曲库现在多大」这一件事。 */

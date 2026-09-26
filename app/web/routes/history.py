@@ -4,29 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
+from app.utils.platform import open_in_file_manager
 from app.web.routes.context import RouteContext
 from app.web.routes.presenters import history_dict
 
 logger = logging.getLogger(__name__)
-
-
-def _open_in_file_manager(folder: Path) -> None:
-    """用系统文件管理器打开目录（Windows / macOS / Linux 各自的原生方式）。"""
-    if sys.platform == "win32":
-        os.startfile(folder)  # type: ignore[attr-defined]  # noqa: S606
-    elif sys.platform == "darwin":
-        subprocess.run(["/usr/bin/open", str(folder)], check=True)  # noqa: S603
-    else:
-        subprocess.run(["/usr/bin/xdg-open", str(folder)], check=True)  # noqa: S603
 
 
 def register(app: FastAPI, ctx: RouteContext) -> None:
@@ -74,7 +63,7 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
         if not folder.exists():  # noqa: ASYNC240  路由级存在性检查非热路径
             raise HTTPException(status_code=404, detail="file missing")
         try:
-            await asyncio.to_thread(_open_in_file_manager, folder)
+            await asyncio.to_thread(open_in_file_manager, folder)
         except (OSError, subprocess.SubprocessError) as e:
             raise HTTPException(status_code=500, detail=f"cannot open folder: {e}") from e
         return {"ok": True}

@@ -23,6 +23,7 @@ from app.services.sync import INITIAL_IMPORT_LIMIT
 from app.telegram.manager import TelegramManager
 from app.web import auth as web_auth
 from app.web.routes import create_app
+from app.web.routes import lyrics as lyrics_route
 from tests.fakes import FakeUserClient
 from tests.service.test_tags_preview import JPEG, make_cover_mp3
 
@@ -161,6 +162,45 @@ def test_auth_required_with_secret(tmp_path: Path) -> None:
     token = web_auth.make_session_token("s3cret")
     c.cookies.set(web_auth.SESSION_COOKIE, token)
     assert c.get("/api/me").status_code == 200
+
+
+def test_web_login_issues_session_cookie(tmp_path: Path) -> None:
+    """FR-WEB-02：口令换 cookie——这是受保护部署唯一的进门方式（无它则恒 401）。"""
+    client, _ = _client_with(
+        tmp_path,
+        web_host="0.0.0.0",  # noqa: S104  测试注入的是绑定字符串
+        web_login_secret="s3cret",  # noqa: S106
+    )
+    # 未登录：受保护端点 401，会话自述 required+未认证
+    assert client.get("/api/me").status_code == 401
+    assert client.get("/api/auth/session").json() == {"required": True, "authenticated": False}
+    # 口令错：401 且不发 cookie
+    assert client.post("/api/auth/login", json={"secret": "wrong"}).status_code == 401
+    assert client.get("/api/me").status_code == 401
+    # 口令对：200 且此后放行
+    assert client.post("/api/auth/login", json={"secret": "s3cret"}).status_code == 200
+    assert client.get("/api/auth/session").json() == {"required": True, "authenticated": True}
+    assert client.get("/api/me").status_code == 200
+
+
+def test_web_session_logout_clears_cookie(tmp_path: Path) -> None:
+    """退出 Web 控制台：清 cookie 后重新 401（与 Telegram 账号登出互不影响）。"""
+    client, _ = _client_with(
+        tmp_path,
+        web_host="0.0.0.0",  # noqa: S104
+        web_login_secret="s3cret",  # noqa: S106
+    )
+    client.post("/api/auth/login", json={"secret": "s3cret"})
+    assert client.get("/api/stats").status_code == 200
+    assert client.post("/api/auth/session/logout").status_code == 200
+    assert client.get("/api/stats").status_code == 401
+
+
+def test_web_login_exempt_when_localhost_without_secret(tmp_path: Path) -> None:
+    """本机免密模式：不要求登录，也不签发 cookie（前端据此跳过登录页）。"""
+    client, _ = _client_with(tmp_path, web_host="127.0.0.1", web_login_secret="")
+    assert client.get("/api/auth/session").json() == {"required": False, "authenticated": True}
+    assert client.get("/api/stats").status_code == 200
 
 
 def test_setup_secrets_writes_to_base_dir(tmp_path: Path) -> None:
@@ -594,7 +634,7 @@ def test_history_reveal_opens_folder(
     def record_open(folder: Path) -> None:
         opened.append(folder)
 
-    monkeypatch.setattr("app.web.routes.history._open_in_file_manager", record_open)
+    monkeypatch.setattr("app.web.routes.history.open_in_file_manager", record_open)
     library = tmp_path / "library"
     library.mkdir()
     on_disk = library / "a.mp3"
@@ -648,7 +688,7 @@ def test_history_reveal_reports_open_failure(
         del folder
         raise OSError("no file manager")
 
-    monkeypatch.setattr("app.web.routes.history._open_in_file_manager", boom)
+    monkeypatch.setattr("app.web.routes.history.open_in_file_manager", boom)
     library = tmp_path / "library"
     library.mkdir()
     on_disk = library / "a.mp3"
@@ -868,8 +908,6 @@ def test_lyrics_title_only_no_artist_ok(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """只给 title（artist 缺省）也不 500：查询参数为 None 要安全回退空串。"""
-    from app.web.routes import lyrics as lyrics_route
-
     lrc = "[00:01.00]line\n"
     monkeypatch.setattr(lyrics_route, "_fetch_lyrics", lambda title, artist: lrc)
     r = client.get("/api/lyrics", params={"title": "晴天"})
@@ -879,8 +917,6 @@ def test_lyrics_title_only_no_artist_ok(
 
 def test_lyrics_found_returns_lrc_text(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """命中：原样回 LRC 文本（text/plain），恒 200 是给 APlayer 的约定。"""
-    from app.web.routes import lyrics as lyrics_route
-
     lrc = "[00:01.00]test line\n[00:03.00]another\n"
     monkeypatch.setattr(lyrics_route, "_fetch_lyrics", lambda title, artist: lrc)
     r = client.get("/api/lyrics", params={"title": "晴天", "artist": "周杰伦"})
@@ -893,8 +929,6 @@ def test_lyrics_not_found_returns_empty_200(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """查不到（含超时/出错）：空体而不是 404——APlayer 对非 2xx 会弹英文 notice。"""
-    from app.web.routes import lyrics as lyrics_route
-
     monkeypatch.setattr(lyrics_route, "_fetch_lyrics", lambda title, artist: None)
     r = client.get("/api/lyrics", params={"title": "不存在", "artist": "没有人"})
     assert r.status_code == 200
