@@ -21,7 +21,10 @@ class LinkParseError(AppError):
 
 
 class SourceUnreachableError(AppError):
-    """源不可达；reason: not_joined|banned|invalid_link|not_chat（FR-SRC-01）。"""
+    """源不可达；reason: not_joined|banned|invalid_link|not_chat|flood_wait（FR-SRC-01）。
+
+    `flood_wait` 是限流不是权限：搜索按它把「稍后再搜」如实告诉用户（FR-SEARCH-01）。
+    """
 
     def __init__(self, reason: str, message: str | None = None) -> None:
         super().__init__("source_unreachable", message or f"source unreachable: {reason}")

@@ -1,7 +1,9 @@
 """UserClient：登录、搜索、取消息、下载（FR-AUTH-01/03、FR-SEARCH-01、SDD §2.1）。
 
 services 层不 import pyrogram；本层把底层异常翻译为领域异常（编码规范 §2.4）。
-Pyrogram 调用全部经 ``with_flood_retry()``（编码规范 §2.3）。
+Pyrogram 调用全部经 ``with_flood_retry()``（编码规范 §2.3），唯一例外见
+``search_messages``：交互式只读搜索按 FR-SEARCH-01 把 FloodWait 原样透出
+（``reason="flood_wait"``），不挂起用户。
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from typing import Any
 from pyrogram.client import Client
 from pyrogram.enums import MessagesFilter
 from pyrogram.errors import (  # type: ignore[attr-defined]  # 运行时存在
+    FloodWait,
     PasswordHashInvalid,
     PhoneCodeExpired,
     PhoneCodeInvalid,
@@ -214,7 +217,12 @@ class UserClient:
     async def search_messages(
         self, chat_id: int, query: str, limit: int, offset: int
     ) -> list[dict[str, Any]]:
-        """对话内搜索（FR-SEARCH-01）：服务端 messages.search + Audio filter。"""
+        """对话内搜索（FR-SEARCH-01）：服务端 messages.search + Audio filter。
+
+        故意**不**经 ``with_flood_retry``（编码规范 §2.3 的例外）：这是人在等结果的交互式
+        只读请求，服务器要我们等 30s 就睡 30s（甚至重试 5 次）比直接说「限流了，稍后再搜」
+        更糟——FR-SEARCH-01 要的就是限流可见，故 FloodWait 按 ``reason="flood_wait"`` 透出。
+        """
         try:
             gen = self.client.search_messages(
                 chat_id,
@@ -349,7 +357,13 @@ def _message_dict(m: Message) -> dict[str, Any]:
 
 
 def _translate_rpc(e: RPCError) -> SourceUnreachableError:
-    """底层异常 → 领域异常（编码规范 §2.4）。"""
+    """底层异常 → 领域异常（编码规范 §2.4）。
+
+    FloodWait 单独成一档：它是限流，不是权限。落进兜底的 `not_joined` 会让界面对着一句
+    错的修复指引（「先用该账号加入频道」），而 SRS FR-SEARCH-01 要求的正是**限流可见**。
+    """
+    if isinstance(e, FloodWait):
+        return SourceUnreachableError("flood_wait", f"FloodWait {int(e.value or 0)}s")
     name = type(e).__name__
     if name in ("ChatAdminRequired", "ChannelPrivate", "UserBannedInChannel"):
         return SourceUnreachableError("banned", str(e))
