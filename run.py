@@ -136,8 +136,9 @@ def build_frontend(force: bool = False) -> bool:
 
 
 def start() -> int:
-    os.environ.setdefault("TGM_WEB_HOST", "127.0.0.1")
+    os.environ.setdefault("TGM_WEB_HOST", "0.0.0.0")
     os.environ.setdefault("TGM_WEB_PORT", "8787")
+    os.environ.setdefault("TGM_WEB_LOGIN_SECRET", "123")
     os.environ.setdefault("TGM_BASE_DIR", str(ROOT))
 
     host, port = os.environ["TGM_WEB_HOST"], os.environ["TGM_WEB_PORT"]
