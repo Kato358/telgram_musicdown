@@ -894,6 +894,31 @@ def test_put_settings_applies_templates_immediately(tmp_path: Path) -> None:
     assert preview.max_bytes == 64
 
 
+def test_cache_usage_and_clear(client: TestClient, tmp_path: Path) -> None:
+    """设置页的缓存占用/清理（FR-PLAY-02）：占用按磁盘字节报，清理后文件与占用都归零。"""
+    preview = tmp_path / "temp" / "preview"
+    preview.mkdir(parents=True)
+    (preview / "cover_deadbeef.jpg").write_bytes(b"\xff\xd8jpeg")  # 6 字节
+    (preview / "preview_1_2.bin").write_bytes(b"y" * 90)
+    (preview / "preview_1_2.part").write_bytes(b"z" * 999)  # 中转文件不算占用
+
+    resp = client.get("/api/settings/cache")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "total_bytes": 96,
+        "max_bytes": 512 * 1024 * 1024,
+        "preview_bytes": 90,
+        "preview_count": 1,
+        "cover_bytes": 6,
+        "cover_count": 1,
+    }
+
+    cleared = client.post("/api/settings/cache/clear")
+    assert cleared.status_code == 200
+    assert cleared.json()["total_bytes"] == 0
+    assert list(preview.iterdir()) == []  # 中转文件也一并清掉
+
+
 def test_preview_path_empty_dir_template_is_flat(tmp_path: Path) -> None:
     """空目录模板的预览：路径 = 落盘根 + 文件名，没有中间子目录。"""
     store = Store(tmp_path / "app.db")

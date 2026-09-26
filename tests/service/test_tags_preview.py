@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import struct
+import time
 from pathlib import Path
 
 import pytest
@@ -187,6 +189,109 @@ async def test_preview_lru_eviction(tmp_path: Path) -> None:
     assert cnt <= 1  # 超限淘汰后 ≤1 条
 
 
+async def test_cache_file_is_not_a_stale_temp(tmp_path: Path) -> None:
+    # 缓存文件不能落成 .part/.tmp：那类名字是「崩溃残留」，修剪（启动/下载后/写完封面）会删掉，
+    # 而表里仍留着记录 → 每次试听都重下一遍。顺带确认真残留会被清。
+    store = Store(tmp_path / "app.db")
+    content = b"x" * 100
+    client = FakeUserClient([make_audio_message(1)], content=content)
+    preview_dir = tmp_path / "temp" / "preview"
+    preview = PreviewService(store, client, EventBus(), preview_dir)
+    await preview.request_preview(-100123, 1, file_size=100)
+    hit = store.get_preview(-100123, 1)
+    assert hit is not None
+    cached = Path(hit.file_path)
+
+    stale = preview_dir / "preview_9_9.part"
+    stale.write_bytes(b"half")
+    # 旧版本把试听落成 .tmp：这类文件仍在表里记着，就不能当残留清掉（命名迁移期的自保）
+    legacy = preview_dir / "preview_8_8.tmp"
+    legacy.write_bytes(b"legacy")
+    store.put_preview(
+        PreviewCache(
+            id=None,
+            chat_id=8,
+            message_id=8,
+            file_path=str(legacy),
+            file_size=6,
+            last_access_at="",
+        )
+    )
+    old = time.time() - 2 * preview_mod.STALE_TMP_SEC
+    for path in (cached, stale, legacy):
+        os.utime(path, (old, old))  # 都装成两小时前
+
+    await preview.enforce_limits()
+
+    assert cached.exists()  # noqa: ASYNC240  测试里的存在性检查，非热路径
+    assert not stale.exists()  # noqa: ASYNC240  同上
+    assert legacy.exists()  # noqa: ASYNC240  表里记着 → 留着
+    assert await preview.request_preview(-100123, 1, file_size=100) == hit.id
+
+
+async def test_cache_stats_report_disk_usage(tmp_path: Path) -> None:
+    # FR-PLAY-02：占用 = 试听 + 封面的磁盘实际字节（不取表里记录的 file_size）
+    store = Store(tmp_path / "app.db")
+    content = b"x" * 100
+    client = FakeUserClient([make_audio_message(1)], content=content)
+    preview_dir = tmp_path / "temp" / "preview"
+    preview = PreviewService(store, client, EventBus(), preview_dir)
+    empty = await preview.cache_stats()
+    assert empty == preview_mod.CacheStats(0, empty.max_bytes, 0, 0, 0, 0)
+
+    await preview.request_preview(-100123, 1, file_size=100)
+    (preview_dir / "cover_deadbeef.jpg").write_bytes(b"\xff\xd8jpeg")  # 6 字节
+    preview.max_bytes = 1000
+
+    stats = await preview.cache_stats()
+    assert (stats.preview_bytes, stats.preview_count) == (100, 1)
+    assert (stats.cover_bytes, stats.cover_count) == (6, 1)
+    assert stats.total_bytes == 106
+    assert stats.max_bytes == 1000
+
+
+async def test_cover_cache_evicts_oldest_within_shared_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # FR-PLAY-02：封面不进 preview_cache 表，但算占用：超上限按 mtime 从最旧淘汰
+    monkeypatch.setattr(preview_mod, "_fetch_cover", lambda title, artist: b"\xff\xd8jpeg")
+    preview = PreviewService(Store(tmp_path / "app.db"), None, EventBus(), tmp_path, max_bytes=15)  # type: ignore[arg-type]
+    now = time.time()
+    first = await preview.cover_path("A", "")
+    assert first is not None
+    os.utime(first, (now - 300, now - 300))
+    second = await preview.cover_path("B", "")
+    assert second is not None
+    os.utime(second, (now - 200, now - 200))
+    third = await preview.cover_path("C", "")  # 18 字节 > 15：写完即淘汰最旧的
+    assert third is not None
+
+    assert not first.exists()
+    assert second.exists() and third.exists()
+    stats = await preview.cache_stats()
+    assert (stats.cover_count, stats.total_bytes) == (2, 12)
+
+
+async def test_clear_cache_removes_files_and_records(tmp_path: Path) -> None:
+    # FR-PLAY-02：清理缓存 = 删文件 + 清 preview_cache（试听能重下）；曲库与历史不在这条路径上
+    store = Store(tmp_path / "app.db")
+    content = b"x" * 100
+    client = FakeUserClient([make_audio_message(1)], content=content)
+    preview_dir = tmp_path / "temp" / "preview"
+    preview = PreviewService(store, client, EventBus(), preview_dir)
+    await preview.request_preview(-100123, 1, file_size=100)
+    (preview_dir / "cover_deadbeef.jpg").write_bytes(b"\xff\xd8jpeg")
+
+    stats = await preview.clear_cache()
+
+    assert stats.total_bytes == 0 and stats.preview_count == 0 and stats.cover_count == 0
+    assert list(preview_dir.iterdir()) == []
+    assert store.preview_totals() == (0, 0)
+    # 记录也清了：下一次试听是重新下载，不是返回已删文件的 id
+    await preview.request_preview(-100123, 1, file_size=100)
+    assert client.download_calls == 2
+
+
 def test_preview_stream_path_only_accepts_id(tmp_path: Path) -> None:
     # NFR-02：流接口只接受 id（路径服务端拼装），不接受 ?path=
     store = Store(tmp_path / "app.db")
@@ -216,7 +321,7 @@ async def test_cover_path_caches_query_and_failures(
         return b"\xff\xd8jpeg" if title == "晴天" else None
 
     monkeypatch.setattr(preview_mod, "_fetch_cover", fake_fetch)
-    preview = PreviewService(None, None, EventBus(), tmp_path)  # type: ignore[arg-type]
+    preview = PreviewService(Store(tmp_path / "app.db"), None, EventBus(), tmp_path)  # type: ignore[arg-type]
 
     first = await preview.cover_path("晴天.flac", "周杰伦")
     assert first is not None and first.read_bytes() == b"\xff\xd8jpeg"

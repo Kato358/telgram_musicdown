@@ -15,6 +15,7 @@ from fastapi import Depends, FastAPI
 from app.appsettings import load_template_config, preview_max_bytes
 from app.domain import TemplateConfig, TrackMeta, meta_from_dict
 from app.services.path_builder import render_path, resolve_field
+from app.services.preview import CacheStats
 from app.web.routes import schemas
 from app.web.routes.context import RouteContext
 
@@ -71,6 +72,18 @@ def _stored_save_path(ctx: RouteContext) -> Path:
     return Path(raw) if raw else ctx.base_dir / "downloads"
 
 
+def _cache_response(stats: CacheStats) -> schemas.CacheStatsResponse:
+    """服务层 CacheStats → 响应契约（字段名不靠约定对齐，映射写在一处）。"""
+    return schemas.CacheStatsResponse(
+        total_bytes=stats.total_bytes,
+        max_bytes=stats.max_bytes,
+        preview_bytes=stats.preview_bytes,
+        preview_count=stats.preview_count,
+        cover_bytes=stats.cover_bytes,
+        cover_count=stats.cover_count,
+    )
+
+
 def register(app: FastAPI, ctx: RouteContext) -> None:
     """注册设置路由。"""
     store = ctx.store
@@ -90,6 +103,16 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
         ctx.downloads.apply_template(load_template_config(store, ctx.base_dir))
         ctx.preview.max_bytes = preview_max_bytes(store)
         return store.all_settings()
+
+    @app.get("/api/settings/cache")
+    async def cache_usage(_: None = Depends(ctx.check_session)) -> schemas.CacheStatsResponse:
+        """缓存占用（FR-PLAY-02）：试听按访问时间 LRU、封面按 mtime，共用一个字节上限。"""
+        return _cache_response(await ctx.preview.cache_stats())
+
+    @app.post("/api/settings/cache/clear")
+    async def cache_clear(_: None = Depends(ctx.check_session)) -> schemas.CacheStatsResponse:
+        """清空试听与封面缓存（FR-PLAY-02）：试听可重下、封面可重抓，返回清理后的占用。"""
+        return _cache_response(await ctx.preview.clear_cache())
 
     @app.get("/api/settings/template-fields")
     async def template_fields(_: None = Depends(ctx.check_session)) -> dict[str, Any]:

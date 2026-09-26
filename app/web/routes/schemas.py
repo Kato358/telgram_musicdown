@@ -180,6 +180,21 @@ class SettingsUpdateRequest(BaseModel):
     values: dict[str, Any]
 
 
+class CacheStatsResponse(BaseModel):
+    """缓存占用（`GET /api/settings/cache`，FR-PLAY-02）。
+
+    口径 = 磁盘实际字节：试听（进 preview_cache 表，按访问时间 LRU）+ 封面（同目录、
+    按 mtime 一起进预算）。`POST /api/settings/cache/clear` 返回清理后的同一结构。
+    """
+
+    total_bytes: int
+    max_bytes: int
+    preview_bytes: int
+    preview_count: int
+    cover_bytes: int
+    cover_count: int
+
+
 class LogEntry(BaseModel):
     """一条解析后的日志行（多行 traceback 并入 message）。"""
 

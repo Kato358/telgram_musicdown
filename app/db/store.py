@@ -792,6 +792,11 @@ class Store:
         with self._conn:
             self._conn.execute("DELETE FROM preview_cache WHERE id=?", (preview_id,))
 
+    def delete_all_previews(self) -> None:
+        """清空 preview_cache（设置页「清理缓存」，FR-PLAY-02）：文件由 PreviewService 删。"""
+        with self._conn:
+            self._conn.execute("DELETE FROM preview_cache")
+
     def preview_totals(self) -> tuple[int, int]:
         """返回 (总字节, 条数)，供 LRU 淘汰（SDD §2.4）。"""
         row = self._conn.execute(

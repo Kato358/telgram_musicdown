@@ -2,8 +2,10 @@
 
 - 预览槽独立于下载队列（并发 1，FR-PLAY-03）。
 - 试听不入队、不写 save_path、不写 success 历史（FR-PLAY-02）。
-- LRU 淘汰：总量 > preview_cache_max_bytes（默认 512MB）或条数 > 50。
+- LRU 淘汰：试听按访问时间（总量 > preview_cache_max_bytes，默认 512MB 或条数 > 50）；
+  封面与试听同目录、不进 preview_cache 表，按 mtime 一起进同一个预算（FR-PLAY-02）。
 - 封面按「歌名 + 歌手」从公共封面接口（api.lrc.cx）取，落盘缓存。
+- 占用与清理见 CacheStats：设置页的「缓存占用 / 清理缓存」（路由在 web/routes/settings.py）。
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import hashlib
 import logging
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -30,6 +33,12 @@ from app.services.tags import image_media_type
 logger = logging.getLogger(__name__)
 
 MAX_PREVIEW_FILES = 50
+
+# ---- 缓存目录的文件名约定（扫盘统计与淘汰都按前缀分类）----
+PREVIEW_PREFIX = "preview_"  # 试听音频：进 preview_cache 表，按访问时间 LRU
+COVER_PREFIX = "cover_"  # 封面图：不进表，按 mtime LRU
+TMP_SUFFIXES = (".part", ".tmp")  # 中转文件：不算占用；超过 STALE_TMP_SEC 视为崩溃残留
+STALE_TMP_SEC = 3600  # 秒；比任何一次试听下载都长，不留活着的下载被误删
 
 # ---- 封面（api.lrc.cx：按 title/artist 查 Apple Music 曲库，301 跳到 mzstatic 图）----
 COVER_API = "https://api.lrc.cx/cover"
@@ -65,9 +74,9 @@ class _SmallCoverRedirect(HTTPRedirectHandler):
     """
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
-        return super().redirect_request(req, fp, code, msg, headers, _SMALL_COVER_RE.sub(
-            "/300x300bb.jpg", newurl
-        ))
+        return super().redirect_request(
+            req, fp, code, msg, headers, _SMALL_COVER_RE.sub("/300x300bb.jpg", newurl)
+        )
 
 
 _SMALL_COVER_RE = re.compile(r"/\d+x\d+(?:bb)?\.jpg(?:\?.*)?$")
@@ -84,8 +93,33 @@ def _fetch_cover(title: str, artist: str) -> bytes | None:
     return data if _is_image(data) else None
 
 
+@dataclass(slots=True, frozen=True)
+class CacheStats:
+    """缓存占用（FR-PLAY-02）：与 max_bytes 同一口径——磁盘实际字节，不是表里记的 file_size。
+
+    设置页显示 total_bytes / max_bytes；清理后复用同一结构，值即清理后的现状。
+    """
+
+    total_bytes: int
+    max_bytes: int
+    preview_bytes: int
+    preview_count: int
+    cover_bytes: int
+    cover_count: int
+
+
+@dataclass(slots=True)
+class _Scan:
+    """一次扫盘的结果（内部结构，不出口）：统计口径 + 淘汰/清理候选。"""
+
+    preview_bytes: int
+    preview_count: int
+    covers: list[tuple[float, Path, int]]  # (mtime, 路径, 字节)，最旧在前
+    stale_temps: list[Path]  # 超过 STALE_TMP_SEC 的中转文件（崩在半路的残留）
+
+
 class PreviewService:
-    """试听缓存（LRU）与预览槽（FR-PLAY-02/03）。"""
+    """试听缓存（LRU）、封面缓存与预览槽（FR-PLAY-02/03）。"""
 
     def __init__(
         self,
@@ -140,7 +174,9 @@ class PreviewService:
 
     async def _download_preview(self, chat_id: int, message_id: int, file_size: int | None) -> int:
         self.preview_dir.mkdir(parents=True, exist_ok=True)
-        temp_path = self.preview_dir / f"preview_{chat_id}_{message_id}.tmp"
+        # 中转名与最终名必须不同：取 temp_path.suffix 会得到 ".part"，两者同形就等于
+        # 没有中转（崩在半路会留下一个「看起来像缓存」的半截文件）
+        temp_path = self.preview_dir / f"{PREVIEW_PREFIX}{chat_id}_{message_id}.part"
         try:
             # download_media 是 async 协议方法；直接 await
             await self.client.download_media(
@@ -155,7 +191,8 @@ class PreviewService:
         if file_size is not None and actual != file_size:
             temp_path.unlink()
             raise AppError("preview_failed", f"preview size mismatch: {actual} != {file_size}")
-        final = self.preview_dir / f"preview_{chat_id}_{message_id}{temp_path.suffix}"
+        # .bin：内容按字节流出（application/octet-stream），扩展名不表达容器
+        final = self.preview_dir / f"{PREVIEW_PREFIX}{chat_id}_{message_id}.bin"
         temp_path.replace(final)  # 原子替换（NFR-01 同款 temp → 目标）
         preview_id = self.store.put_preview(
             PreviewCache(
@@ -171,8 +208,38 @@ class PreviewService:
         await asyncio.to_thread(self._evict_lru)
         return preview_id
 
+    async def enforce_limits(self) -> CacheStats:
+        """立即按上限修剪一次并回占用（FR-PLAY-02）：启动装配后调用，让上限不只在下载时生效。"""
+        await asyncio.to_thread(self._evict_lru)
+        return await self.cache_stats()
+
+    async def cache_stats(self) -> CacheStats:
+        """缓存占用（FR-PLAY-02）：设置页显示 total_bytes / max_bytes，编辑上限后即时可见。"""
+        return await asyncio.to_thread(self._cache_stats)
+
+    async def clear_cache(self) -> CacheStats:
+        """清空试听与封面缓存（FR-PLAY-02）：试听能重下、封面能重抓，删了只是下次慢一点。"""
+        await asyncio.to_thread(self._clear_cache)
+        return await self.cache_stats()
+
+    def _cache_stats(self) -> CacheStats:
+        scan = self._scan_cache()
+        cover_bytes = sum(size for _, _, size in scan.covers)
+        return CacheStats(
+            total_bytes=scan.preview_bytes + cover_bytes,
+            max_bytes=self.max_bytes,
+            preview_bytes=scan.preview_bytes,
+            preview_count=scan.preview_count,
+            cover_bytes=cover_bytes,
+            cover_count=len(scan.covers),
+        )
+
     def _evict_lru(self) -> None:
-        """LRU 淘汰：总量超 max_bytes 或条数 > 50，按 last_access_at 删（SDD §2.4）。"""
+        """LRU 淘汰（SDD §2.4）：试听按 last_access_at、封面按 mtime，共用一个字节预算。
+
+        先删试听：体积大、随时能从 Telegram 重下；仍超预算再删最旧的封面（小、要外呼，
+        留到最后）。占用按磁盘实际值算，不信 preview_cache 里记录的 file_size。
+        """
         while True:
             total, cnt = self.store.preview_totals()
             if total <= self.max_bytes and cnt <= MAX_PREVIEW_FILES:
@@ -181,11 +248,76 @@ class PreviewService:
             if not previews:
                 break
             victim = previews[0]
-            p = Path(victim.file_path)
-            if p.exists():
-                p.unlink()
+            self._unlink(Path(victim.file_path))
+            # 文件删不掉（Windows 上正被流占用）也要删记录：否则这条永远是最旧的一条，
+            # 循环退不出去；留下的孤儿文件由「清理缓存」收拾
             self.store.delete_preview(victim.id)  # type: ignore[arg-type]
             logger.info("preview evicted id=%s path=%s", victim.id, victim.file_path)
+
+        scan = self._scan_cache()
+        if scan.stale_temps:
+            # 表里记着的文件就是活缓存：名字像中转文件也不当残留删（旧版本把试听落成 .tmp，
+            # 留在盘上的那批仍是有效缓存；正常只有崩在半路的 .part 会中招）
+            live = {Path(row.file_path).name for row in self.store.list_previews_by_access()}
+            for stale in scan.stale_temps:
+                if stale.name not in live:
+                    self._unlink(stale)
+        used = scan.preview_bytes + sum(size for _, _, size in scan.covers)
+        for _, path, size in scan.covers:
+            if used <= self.max_bytes:
+                break
+            if self._unlink(path):
+                used -= size
+                logger.info("cover evicted path=%s", path)
+
+    def _clear_cache(self) -> None:
+        """清空缓存目录与 preview_cache 记录（FR-PLAY-02）。
+
+        先删文件后清记录：崩在中间留下的是指向空文件的记录，命中校验会判失效并自愈。
+        """
+        if self.preview_dir.is_dir():
+            for p in self.preview_dir.iterdir():
+                if p.is_file():
+                    self._unlink(p)
+        self.store.delete_all_previews()
+        self._cover_failures.clear()  # 负缓存同批作废：清理后封面重新外呼一次
+        logger.info("cache cleared dir=%s", self.preview_dir)
+
+    def _scan_cache(self) -> _Scan:
+        """扫一遍缓存目录（同步；调用方用 to_thread）：统计口径 = 磁盘实际字节。
+
+        中转文件（.part/.tmp）不算占用，只把超过 STALE_TMP_SEC 的残留列出来删。
+        """
+        scan = _Scan(preview_bytes=0, preview_count=0, covers=[], stale_temps=[])
+        if not self.preview_dir.is_dir():
+            return scan
+        now = time.time()
+        for p in self.preview_dir.iterdir():
+            try:
+                if not p.is_file():
+                    continue
+                st = p.stat()
+            except OSError:
+                continue  # 并发清理窗口：文件刚被删/清空
+            if p.name.endswith(TMP_SUFFIXES):
+                if now - st.st_mtime > STALE_TMP_SEC:
+                    scan.stale_temps.append(p)
+            elif p.name.startswith(COVER_PREFIX):
+                scan.covers.append((st.st_mtime, p, st.st_size))
+            elif p.name.startswith(PREVIEW_PREFIX):
+                scan.preview_bytes += st.st_size
+                scan.preview_count += 1
+        scan.covers.sort(key=lambda entry: entry[0])  # 最旧在前
+        return scan
+
+    def _unlink(self, path: Path) -> bool:
+        """删缓存文件；删不掉（Windows 上正被流占用）只记日志，不打断下载或封面流程。"""
+        try:
+            path.unlink(missing_ok=True)
+            return True
+        except OSError:
+            logger.warning("cache file busy, kept path=%s", path)
+            return False
 
     def stream_path(self, preview_id: int) -> Path:
         """返回试听文件路径；路由层只接受 id，禁止 ?path=（NFR-02）。"""
@@ -202,8 +334,8 @@ class PreviewService:
 
         缓存文件名是查询串的 md5——搜索行、播放器、飞片动画对同一首歌共用同一份
         文件；失败的查询负缓存 COVER_FAIL_TTL 秒（接口查不到时会空等超时，不值得
-        反复试）。与试听共用 preview 目录，但不进 preview_cache 表——封面是纯装饰，
-        丢了就重新抓，不值得占一条记录。
+        反复试）。与试听共用 preview 目录与同一个字节预算，但不进 preview_cache 表：
+        封面是纯装饰，丢了重新抓即可，不值得占一条记录，故按文件 mtime 参与 LRU。
         """
         q_title = _clean_title(title)
         q_artist = (artist or "").strip()
@@ -211,7 +343,7 @@ class PreviewService:
             return None
         key = f"{q_title}|{q_artist}"
         digest = hashlib.md5(key.encode()).hexdigest()  # noqa: S324  缓存键，非安全用途
-        final = self.preview_dir / f"cover_{digest}.jpg"
+        final = self.preview_dir / f"{COVER_PREFIX}{digest}.jpg"
         if final.exists():
             return final
         failed_at = self._cover_failures.get(key)
@@ -231,7 +363,8 @@ class PreviewService:
                 return None
             self.preview_dir.mkdir(parents=True, exist_ok=True)
             self._cover_failures.pop(key, None)
-            temp_path = self.preview_dir / f"cover_{digest}_{uuid4().hex[:8]}.tmp"
+            temp_path = self.preview_dir / f"{COVER_PREFIX}{digest}_{uuid4().hex[:8]}.tmp"
             temp_path.write_bytes(data)
             temp_path.replace(final)
+            await asyncio.to_thread(self._evict_lru)  # 封面也算占用：写完就进预算
             return final

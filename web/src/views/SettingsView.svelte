@@ -14,6 +14,9 @@
    * 密钥类改动（bot_token / 代理）走 `POST /api/setup/secrets` 写 config.yaml：留空 = 不改动，
    * 用户名密码不回显（NFR-02）；已连上的客户端由返回的 restart_required 决定提示重启还是即时生效。
    * 「退出登录」与「重新执行初始化」都会清掉登录态，故做完立刻跳回向导（放行判据含登录）。
+   *
+   * 缓存占用（试听 + 封面）与上限同屏：占用取 `GET /api/settings/cache`（磁盘实际字节），
+   * 「清理缓存」走 `POST /api/settings/cache/clear`，两者只碰缓存目录，不动曲库与历史。
    */
   import { onMount } from "svelte";
   import BotIcon from "@lucide/svelte/icons/bot";
@@ -24,7 +27,8 @@
   import PaletteIcon from "@lucide/svelte/icons/palette";
   import RotateCcwIcon from "@lucide/svelte/icons/rotate-ccw";
   import { api, errorText } from "$lib/api/client";
-  import type { SetupProxyInput } from "$lib/api/types";
+  import type { CacheStats, SetupProxyInput } from "$lib/api/types";
+  import { formatSize } from "$lib/format";
   import { i18n, LOCALES, t } from "$lib/i18n/index.svelte";
   import { navigate, pathOf } from "$lib/router.svelte";
   import { BOT_TOKEN_RE, MAX_PORT, PORT_RE } from "$lib/secrets";
@@ -79,6 +83,25 @@
   let dateFormat = $state("");
   let maxTasks = $state("");
   let cacheMb = $state("");
+
+  // ---- 缓存占用（FR-PLAY-02）----
+
+  let cacheStats = $state<CacheStats | null>(null);
+  let cacheNote = $state<Feedback | null>(null);
+  let clearing = $state(false);
+
+  /** 占用文案：空缓存直说「暂无」，有货就报「占用 / 上限 · 各有几份」。 */
+  const cacheDetail = $derived.by(() => {
+    const stats = cacheStats;
+    if (!stats) return null;
+    if (stats.total_bytes === 0) return t("settings.cacheEmpty");
+    return t("settings.cacheDetail", {
+      used: formatSize(stats.total_bytes),
+      max: formatSize(stats.max_bytes),
+      previews: stats.preview_count,
+      covers: stats.cover_count,
+    });
+  });
 
   let loaded = $state(false);
   let loadError = $state("");
@@ -360,6 +383,33 @@
     }
   }
 
+  /** 占用随页面加载、保存后（上限可能变了）各取一次；失败只提示，不阻塞设置页。 */
+  async function loadCacheStats() {
+    try {
+      cacheStats = await api.get<CacheStats>("/api/settings/cache");
+    } catch (err) {
+      cacheNote = { tone: "fail", text: errorText(err, t("common.error")) };
+    }
+  }
+
+  async function clearCache() {
+    if (clearing) return;
+    clearing = true;
+    cacheNote = null;
+    const before = cacheStats?.total_bytes ?? 0;
+    try {
+      cacheStats = await api.post<CacheStats>("/api/settings/cache/clear");
+      cacheNote = {
+        tone: "done",
+        text: t("settings.cacheCleared", { size: formatSize(before) }),
+      };
+    } catch (err) {
+      cacheNote = { tone: "fail", text: errorText(err, t("common.error")) };
+    } finally {
+      clearing = false;
+    }
+  }
+
   async function loadFieldDocs() {
     try {
       const resp = await api.get<{
@@ -433,6 +483,7 @@
       };
       apply(await api.put<Record<string, string>>("/api/settings", { values }));
       savedKey = fingerprint();
+      void loadCacheStats(); // 上限可能刚被改：占用条目的「/ 上限」要跟着走
     } catch (err) {
       saveError = errorText(err, t("common.error"));
     } finally {
@@ -454,6 +505,7 @@
     void load();
     void loadFieldDocs();
     void loadConnection();
+    void loadCacheStats();
   });
 </script>
 
@@ -622,6 +674,29 @@
               bind:value={cacheMb}
             />
           </Field>
+        </div>
+
+        <!-- 占用与上限同屏：改完上限保存即刷新上面那行数字，「清理缓存」只删缓存目录 -->
+        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border pt-4">
+          <div class="min-w-0">
+            <p class="text-body font-medium">{t("settings.cacheUsage")}</p>
+            <p class="min-w-0 text-caption text-muted-foreground">
+              {cacheDetail ?? t("common.loading")}
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={clearing || cacheStats === null || cacheStats.total_bytes === 0}
+              onclick={() => void clearCache()}
+            >
+              {clearing ? t("settings.cacheClearing") : t("settings.cacheClear")}
+            </Button>
+            {#if cacheNote}
+              <Note tone={cacheNote.tone}>{cacheNote.text}</Note>
+            {/if}
+          </div>
         </div>
 
         <p class="text-caption text-muted-foreground">{t("settings.restartHint")}</p>

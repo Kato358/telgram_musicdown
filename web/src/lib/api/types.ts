@@ -190,6 +190,19 @@ export interface LocalLibraryResponse {
   bytes: number;
 }
 
+/** 试听 / 封面缓存占用（`GET /api/settings/cache`，FR-PLAY-02）。
+ *
+ * 口径是磁盘实际字节：`preview_*`（LRU，受 `max_bytes` 与 50 条约束）与 `cover_*`
+ * （同目录、按 mtime 一起进同一预算）。清理接口返回清理后的同一结构。 */
+export interface CacheStats {
+  total_bytes: number;
+  max_bytes: number;
+  preview_bytes: number;
+  preview_count: number;
+  cover_bytes: number;
+  cover_count: number;
+}
+
 export interface SearchResult {  chat_id: number;
   message_id: number;
   title: string | null;
