@@ -19,12 +19,6 @@ class Source:
     type: str  # channel|group|user
     username: str | None = None
     enabled: int = 1
-    media_scope: str = '["audio","audio_document"]'
-    filters_json: str | None = None
-    save_path_override: str | None = None
-    dir_template_override: str | None = None
-    file_template_override: str | None = None
-    note: str | None = None
     created_at: str = ""
     updated_at: str = ""
 

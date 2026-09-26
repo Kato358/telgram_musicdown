@@ -512,6 +512,41 @@ def test_add_source_enqueues_nothing(tmp_path: Path) -> None:
     )
 
 
+def test_source_row_is_identity_only_and_toggle_round_trips(tmp_path: Path) -> None:
+    """源上只有身份 + 启用开关（v0.15 删掉无执行者的配置列）。
+
+    删列的真正风险在存储层（INSERT/UPDATE 的列必须与表结构同步），所以这里走一次真库往返：
+    加源 → 关掉 → 重新读回；顺带把契约面钉成 6 个键——多出字段就说明有人把死配置加回来了。
+    """
+    store = Store(tmp_path / "app.db")
+    events = EventBus()
+    client = FakeUserClient([])
+    sources = SourceService(store, client)  # type: ignore[arg-type]
+    search = SearchService(store, client)  # type: ignore[arg-type]
+    downloads = DownloadService(
+        store,
+        client,  # type: ignore[arg-type]
+        events,
+        tmp_path / "temp",
+        TemplateConfig(save_path=tmp_path / "downloads"),
+    )
+    preview = PreviewService(store, client, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
+    app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
+
+    with TestClient(app) as c:
+        row = c.post("/api/sources", json={"link": "@music_library"}).json()
+        assert set(row) == {"id", "telegram_chat_id", "username", "title", "type", "enabled"}
+
+        disabled = c.put(f"/api/sources/{row['id']}", json={"enabled": False}).json()
+        assert disabled["enabled"] is False
+
+        listed = c.get("/api/sources").json()
+        assert len(listed) == 1
+        assert listed[0]["enabled"] is False
+        assert set(listed[0]) == set(row)
+
+
 def test_sse_event_bus_delivers_event() -> None:
     # SSE /api/events 依赖的 EventBus 投递行为（SDD §1.4）。
     # SSE 流是无限流，不用 TestClient 阻塞读取验证；直接验证投递语义。

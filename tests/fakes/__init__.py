@@ -153,7 +153,7 @@ def make_audio_document_message(message_id: int, *, title: str = "夜的第七�
 
 
 def make_video_message(message_id: int) -> dict[str, Any]:
-    """视频消息：任何范围都不该入队（验收 #11）。"""
+    """视频消息：不是音频，任何链路都不该把它当歌（验收 #11）。"""
     return {
         "chat_id": -100123,
         "message_id": message_id,

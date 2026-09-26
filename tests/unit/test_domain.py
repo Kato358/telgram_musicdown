@@ -5,21 +5,13 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from app.domain import (
-    SourceFilters,
     card_to_meta,
     is_audio_message,
     message_to_card,
     meta_from_dict,
-    scope_allows,
     source_tags,
 )
-from tests.fakes import (
-    make_audio_document_message,
-    make_audio_message,
-    make_video_message,
-)
-
-SCOPE = ["audio", "audio_document"]
+from tests.fakes import make_audio_document_message, make_audio_message, make_video_message
 
 
 def test_source_tags_ascii_keyword_needs_word_boundary() -> None:
@@ -39,19 +31,20 @@ def test_source_tags_misses_unrelated_title() -> None:
     assert source_tags("家庭相册", "family_photos") == []
 
 
-def test_scope_allows_audio_and_document_separately() -> None:
-    # FR-SRC-02 媒体范围：audio 与 audio_document 各自开关
-    assert scope_allows(["audio"], make_audio_message(1))
-    assert not scope_allows(["audio_document"], make_audio_message(1))
-    assert scope_allows(["audio_document"], make_audio_document_message(2))
-    assert not scope_allows(SCOPE, make_video_message(3))
+def test_voice_is_never_an_audio_message() -> None:
+    # 验收 #11：voice 不算音频消息（也就不可能被搜到或下载）
+    assert not is_audio_message(make_audio_message(4, voice=True))
 
 
-def test_voice_never_passes_scope_or_audio_check() -> None:
-    # 验收 #11：voice 既不算音频消息，也不在任何媒体范围内
-    voice = make_audio_message(4, voice=True)
-    assert not is_audio_message(voice)
-    assert not scope_allows(SCOPE, voice)
+def test_audio_document_counts_as_audio() -> None:
+    # document 音频（MIME audio/*）与 audio 同等对待：两者都进结果
+    assert is_audio_message(make_audio_message(5))
+    assert is_audio_message(make_audio_document_message(6))
+
+
+def test_video_message_is_not_audio() -> None:
+    # 视频消息（MIME video/*）不是音频：判定只认 audio 与 audio/* 的 document（验收 #11）
+    assert not is_audio_message(make_video_message(3))
 
 
 def test_card_to_meta_roundtrips_through_dict() -> None:
@@ -62,15 +55,6 @@ def test_card_to_meta_roundtrips_through_dict() -> None:
     assert meta.mime == "audio/mpeg"
     assert meta.ext == "mp3"
     assert meta.channel_title == "Music Channel"
-
-
-def test_source_filters_duration_and_extension() -> None:
-    card = message_to_card(make_audio_message(8), "Music Channel")  # 269s, mp3
-    assert SourceFilters.matches(None, card)
-    assert SourceFilters.matches('{"min_duration": 60}', card)
-    assert not SourceFilters.matches('{"max_duration": 60}', card)
-    assert SourceFilters.matches('{"ext_whitelist": ["mp3"]}', card)
-    assert not SourceFilters.matches('{"ext_whitelist": ["flac"]}', card)
 
 
 def test_duration_from_caption_for_document_audio() -> None:
@@ -102,8 +86,3 @@ def test_duration_from_caption_supports_hours() -> None:
     msg = make_audio_document_message(14)
     msg["caption"] = "Duration: 1:02:03"
     assert message_to_card(msg, None).duration_sec == 3723
-
-
-def test_source_filters_broken_json_is_ignored() -> None:
-    card = message_to_card(make_audio_message(9), None)
-    assert SourceFilters.matches("{not json", card)

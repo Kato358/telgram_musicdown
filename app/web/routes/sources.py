@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -34,19 +33,12 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
     async def update_source(
         source_id: int, req: schemas.SourceUpdateRequest, _: None = Depends(ctx.check_session)
     ) -> dict[str, Any]:
+        """编辑源（FR-SRC-03）：今天只有启用开关。"""
         existing = store.get_source(source_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="source not found")
         if req.enabled is not None:
             existing.enabled = int(req.enabled)
-        if req.media_scope is not None:
-            existing.media_scope = json.dumps(req.media_scope, ensure_ascii=False)
-        if req.filters is not None:
-            existing.filters_json = json.dumps(req.filters, ensure_ascii=False)
-        existing.save_path_override = req.save_path_override
-        existing.dir_template_override = req.dir_template_override
-        existing.file_template_override = req.file_template_override
-        existing.note = req.note
         return src_dict(sources.update_source(existing))
 
     @app.delete("/api/sources/{source_id}")

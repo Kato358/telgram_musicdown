@@ -81,6 +81,7 @@ export interface DiscoverResponse {
   items: DiscoverCandidate[];
 }
 
+/** `GET /api/sources` 的行（FR-SRC-01）：只有身份与启用开关，没有别的配置。 */
 export interface SourceRow {
   id: number;
   telegram_chat_id: number;
@@ -88,8 +89,6 @@ export interface SourceRow {
   title: string;
   type: string;
   enabled: boolean;
-  media_scope: string[];
-  note: string | null;
 }
 
 export interface TaskRow {

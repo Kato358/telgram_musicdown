@@ -127,24 +127,15 @@ class ResetResponse(BaseModel):
 
 
 class SourceUpsertRequest(BaseModel):
+    """添加源（FR-SRC-01）：只认链接——源上只有身份与启用开关，没有别的配置。"""
+
     link: str
-    enabled: bool = True
-    media_scope: list[str] = Field(default_factory=lambda: ["audio", "audio_document"])
-    filters: dict[str, Any] | None = None
-    save_path_override: str | None = None
-    dir_template_override: str | None = None
-    file_template_override: str | None = None
-    note: str | None = None
 
 
 class SourceUpdateRequest(BaseModel):
+    """编辑源（FR-SRC-03）：今天只有启用开关；没给的字段保持原值。"""
+
     enabled: bool | None = None
-    media_scope: list[str] | None = None
-    filters: dict[str, Any] | None = None
-    save_path_override: str | None = None
-    dir_template_override: str | None = None
-    file_template_override: str | None = None
-    note: str | None = None
 
 
 class SearchRequest(BaseModel):

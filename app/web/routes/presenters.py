@@ -7,7 +7,10 @@ from typing import Any
 
 
 def src_dict(s: Any) -> dict[str, Any]:
-    """音乐源行 → API dict（FR-SRC-01）。"""
+    """音乐源行 → API dict（FR-SRC-01）。
+
+    只有搜索真正用得到的事实：身份（id/chat_id/username/title/type）与启用开关。
+    """
     return {
         "id": s.id,
         "telegram_chat_id": s.telegram_chat_id,
@@ -15,8 +18,6 @@ def src_dict(s: Any) -> dict[str, Any]:
         "title": s.title,
         "type": s.type,
         "enabled": bool(s.enabled),
-        "media_scope": json.loads(s.media_scope),
-        "note": s.note,
     }
 
 

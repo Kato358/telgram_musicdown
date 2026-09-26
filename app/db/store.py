@@ -71,21 +71,13 @@ class Store:
             if src.id is None:
                 cur = self._conn.execute(
                     "INSERT INTO sources (telegram_chat_id, username, title, type, enabled,"
-                    " media_scope, filters_json, save_path_override, dir_template_override,"
-                    " file_template_override, note, created_at, updated_at)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
                     (
                         src.telegram_chat_id,
                         src.username,
                         src.title,
                         src.type,
                         src.enabled,
-                        src.media_scope,
-                        src.filters_json,
-                        src.save_path_override,
-                        src.dir_template_override,
-                        src.file_template_override,
-                        src.note,
                         now,
                         now,
                     ),
@@ -93,21 +85,13 @@ class Store:
                 return int(cur.lastrowid)  # type: ignore[arg-type]  # sqlite3 lastrowid 运行时必为 int
             self._conn.execute(
                 "UPDATE sources SET telegram_chat_id=?, username=?, title=?, type=?,"
-                " enabled=?, media_scope=?, filters_json=?, save_path_override=?,"
-                " dir_template_override=?, file_template_override=?, note=?, updated_at=?"
-                " WHERE id=?",
+                " enabled=?, updated_at=? WHERE id=?",
                 (
                     src.telegram_chat_id,
                     src.username,
                     src.title,
                     src.type,
                     src.enabled,
-                    src.media_scope,
-                    src.filters_json,
-                    src.save_path_override,
-                    src.dir_template_override,
-                    src.file_template_override,
-                    src.note,
                     now,
                     src.id,
                 ),

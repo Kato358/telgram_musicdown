@@ -1,4 +1,4 @@
-"""核心域类型与纯规则：TrackMeta、TemplateConfig、音频判定、源级过滤、候选源标签。
+"""核心域类型与纯规则：TrackMeta、TemplateConfig、音频判定、搜索筛选/排序、候选源标签。
 
 path_builder 是纯函数层，本模块为其提供唯一数据契约（SDD §2.2）。
 两个以上服务（搜索、同步、下载、路由）共用的纯规则收在这里，避免 services 之间互相
@@ -8,7 +8,6 @@ import（编码规范 §1.2 依赖方向）。本模块不 import Kurigram（导
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path, PurePath
@@ -103,19 +102,6 @@ def is_audio_message(msg: dict[str, Any]) -> bool:
         return True
     doc = msg.get("document")
     return bool(doc and str(doc.get("mime_type", "")).startswith("audio/"))
-
-
-def scope_allows(media_scope: list[str], msg: dict[str, Any]) -> bool:
-    """源级媒体范围（FR-SRC-02）：``audio`` 指 ``Message.audio``，
-    ``audio_document`` 指 MIME 为 ``audio/*`` 的 document；voice 两者都不含。"""
-    if msg.get("voice"):
-        return False
-    if msg.get("audio"):
-        return "audio" in media_scope
-    doc = msg.get("document")
-    if doc and str(doc.get("mime_type", "")).startswith("audio/"):
-        return "audio_document" in media_scope
-    return False
 
 
 @dataclass(slots=True)
@@ -230,50 +216,6 @@ def card_to_meta(card: SearchResultCard) -> TrackMeta:
         channel_title=card.channel_title,
         unique_id=card.file_unique_id,
     )
-
-
-# ---- 源级过滤（FR-SRC-02）----
-
-
-class SourceFilters:
-    """源级过滤：``sources.filters_json`` 的结构化形式，同步与回溯按它筛音频。"""
-
-    @staticmethod
-    def parse(filters_json: str | None) -> dict[str, Any]:
-        if not filters_json:
-            return {}
-        try:
-            data = json.loads(filters_json)
-            return data if isinstance(data, dict) else {}
-        except json.JSONDecodeError:
-            return {}
-
-    @staticmethod
-    def _out_of_duration(f: dict[str, Any], dur: int | None) -> bool:
-        min_d, max_d = f.get("min_duration"), f.get("max_duration")
-        if dur is None:
-            return min_d is not None or max_d is not None
-        return (min_d is not None and dur < min_d) or (max_d is not None and dur > max_d)
-
-    @staticmethod
-    def _caption_blocked(f: dict[str, Any], caption: str | None) -> bool:
-        cap = caption or ""
-        contains = f.get("caption_contains") or []
-        excludes = f.get("caption_exclude") or []
-        has_all = all(k in cap for k in contains) if contains else True
-        has_none = not any(k in cap for k in excludes)
-        return not (has_all and has_none)
-
-    @staticmethod
-    def matches(filters_json: str | None, card: SearchResultCard) -> bool:
-        f = SourceFilters.parse(filters_json)
-        if not f:
-            return True
-        if SourceFilters._out_of_duration(f, card.duration_sec):
-            return False
-        if (exts := f.get("ext_whitelist")) and card.ext not in exts:
-            return False
-        return not SourceFilters._caption_blocked(f, card.caption)
 
 
 # ---- 候选源标签（FR-SRC-05）----
