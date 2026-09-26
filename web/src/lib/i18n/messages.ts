@@ -139,6 +139,13 @@ export const zhCN: Dict = {
     running: "搜索中",
     filterSources: "搜索范围",
     allSources: "全部启用源",
+    sortLabel: "排序",
+    sort: {
+      relevance: "相关度",
+      date: "日期",
+      duration: "时长",
+      size: "大小",
+    },
     idleHint: "输入关键词回车搜索。结果可直接试听，或加入下载队列。",
     resultsCount: "找到 {n} 首",
     resultsNone: "没找到匹配的曲目。换个关键词，或换一个已启用的音乐源。",
@@ -155,6 +162,11 @@ export const zhCN: Dict = {
     selectRow: "选择「{title}」",
     downloadSelected: "下载所选",
     floodwait: "Telegram 限流：稍后再搜，或减少并发源。",
+    partial: "部分源还在检索，先显示已回来的结果；稍后再搜一次可拿到完整结果。",
+    listSep: "、",
+    loadMore: "加载更多",
+    loadingMore: "加载中",
+    moreHint: "已载入 {n} 首",
   },
 
   /** 任务行词汇（状态词 / 类型词 / 行内动作）：`TaskRow` 与下载页的行共用一份，不各写一遍。 */
@@ -723,6 +735,13 @@ export const en: Dict = {
     running: "Searching",
     filterSources: "Scope",
     allSources: "All enabled",
+    sortLabel: "Sort",
+    sort: {
+      relevance: "Relevance",
+      date: "Date",
+      duration: "Duration",
+      size: "Size",
+    },
     idleHint: "Type a keyword and press Enter. Results can be previewed or queued for download.",
     resultsCount: "{n} tracks found",
     resultsNone: "No matching tracks. Try another keyword, or enable another source.",
@@ -739,6 +758,11 @@ export const en: Dict = {
     selectRow: "Select “{title}”",
     downloadSelected: "Download selected",
     floodwait: "Telegram rate limit: search again later, or use fewer sources.",
+    partial: "Some sources are still being searched; showing what is back so far. Search again shortly for the complete set.",
+    listSep: ", ",
+    loadMore: "Load more",
+    loadingMore: "Loading",
+    moreHint: "{n} loaded",
   },
 
   /** Task-row vocabulary (status words / type words / row actions): shared by `TaskRow` and the downloads page. */

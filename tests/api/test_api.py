@@ -23,7 +23,7 @@ from app.telegram.manager import TelegramManager
 from app.web import auth as web_auth
 from app.web.routes import create_app
 from app.web.routes import lyrics as lyrics_route
-from tests.fakes import FakeUserClient
+from tests.fakes import FakeUserClient, make_audio_message
 from tests.service.test_tags_preview import JPEG, make_cover_mp3
 
 API_HASH = "0123456789abcdef0123456789abcdef"
@@ -910,6 +910,8 @@ def test_cache_usage_and_clear(client: TestClient, tmp_path: Path) -> None:
         "preview_count": 1,
         "cover_bytes": 6,
         "cover_count": 1,
+        "search_entries": 0,
+        "search_bytes": 0,
     }
 
     cleared = client.post("/api/settings/cache/clear")
@@ -991,3 +993,64 @@ def test_lyrics_not_found_returns_empty_200(
     r = client.get("/api/lyrics", params={"title": "不存在", "artist": "没有人"})
     assert r.status_code == 200
     assert r.text == ""
+
+
+class _CountingClient(FakeUserClient):
+    """记账的假客户端：断言「第二次同词没再打上游」这种链路级事实。"""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self.search_calls = 0
+
+    async def search_messages(
+        self, chat_id: int, query: str, limit: int, offset: int
+    ) -> list[dict[str, object]]:
+        self.search_calls += 1
+        return await super().search_messages(chat_id, query, limit, offset)
+
+
+def test_search_endpoint_pages_caches_and_refreshes(tmp_path: Path) -> None:
+    """`POST /api/search`（FR-SEARCH-01~03）：分页在完整结果集上做、同词命中缓存、refresh 绕缓存。
+
+    旧实现把上游 offset 与本地切片各减一次，page>0 恒空——这里就是那条回归。
+    """
+    store = Store(tmp_path / "app.db")
+    events = EventBus()
+    client = _CountingClient([make_audio_message(i, title="晴天") for i in range(30)])
+    sources = SourceService(store, client)  # type: ignore[arg-type]
+    search = SearchService(store, client)  # type: ignore[arg-type]
+    downloads = DownloadService(
+        store,
+        client,  # type: ignore[arg-type]
+        events,
+        tmp_path / "temp",
+        TemplateConfig(save_path=tmp_path / "downloads"),
+    )
+    preview = PreviewService(store, client, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
+    app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
+
+    with TestClient(app) as c:  # 单个 portal/loop：搜索缓存的后台补齐任务不跨 loop
+        assert c.post("/api/sources", json={"link": "@music_library"}).status_code == 200
+
+        first = c.post("/api/search", json={"q": "晴天", "page": 0, "page_size": 20}).json()
+        assert len(first["results"]) == 20
+        assert first["meta"]["has_more"] is True
+        assert first["meta"]["cache"] == {"hits": 0, "misses": 1}
+        calls = client.search_calls
+
+        second = c.post("/api/search", json={"q": "晴天", "page": 1, "page_size": 20}).json()
+        assert len(second["results"]) == 10
+        assert second["meta"]["has_more"] is False
+        assert client.search_calls == calls + 1  # 缓存里只有 20 条，续取一次
+
+        again = c.post("/api/search", json={"q": "晴天", "page": 0, "page_size": 20}).json()
+        assert len(again["results"]) == 20
+        assert again["meta"]["cache"] == {"hits": 1, "misses": 0}
+        assert client.search_calls == calls + 1  # 同词第二次：零外呼
+
+        refreshed = c.post(
+            "/api/search", json={"q": "晴天", "page": 0, "page_size": 20, "refresh": True}
+        ).json()
+        assert refreshed["meta"]["cache"] == {"hits": 0, "misses": 1}
+        assert client.search_calls == calls + 2

@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.config import SecretConfig, load_secrets
@@ -25,6 +25,20 @@ DEFAULT_FILE_TEMPLATE = "{track:02d} {title}"
 DEFAULT_DATE_FORMAT = "%Y-%m"
 DEFAULT_MAX_DOWNLOAD_TASK = 3
 DEFAULT_PREVIEW_CACHE_MAX_BYTES = 512 * 1024 * 1024
+
+# ---- 搜索（FR-SEARCH-01/03，SDD §2.6）----
+# TTL 按「频道里新歌入库不频繁」定：15 分钟内同词同源直接命中，避免重复打 Telegram。
+DEFAULT_SEARCH_CACHE_TTL_SEC = 900
+# 空结果只留 L1 短负缓存（不落 L2）：挡同词突发重打，又不至于让「刚发的歌」长期查不到。
+DEFAULT_SEARCH_CACHE_NEGATIVE_TTL_SEC = 60
+DEFAULT_SEARCH_CACHE_MAX_ENTRIES = 512
+DEFAULT_SEARCH_CACHE_MAX_BYTES = 32 * 1024 * 1024
+# 并发扇出上限：交互式搜索要的是「别把账号打进 FloodWait」，不是吞吐越大越好。
+DEFAULT_SEARCH_FANOUT = 4
+# 同步窗口：窗口内回来的源直接进响应，超窗的转后台补齐（下次同词命中完整结果）。
+DEFAULT_SEARCH_SYNC_WINDOW_MS = 4000
+DEFAULT_SEARCH_PAGE_SIZE = 20
+SEARCH_MAX_PAGE_SIZE = 100
 
 
 def _int_setting(store: SettingsRepo, key: str, default: int) -> int:
@@ -78,6 +92,56 @@ class PreviewSettings:
 
 
 @dataclass(slots=True, frozen=True)
+class SearchCacheSettings:
+    """搜索二级缓存的调参（SDD §2.6）：TTL、负缓存与容量。"""
+
+    ttl_sec: int = DEFAULT_SEARCH_CACHE_TTL_SEC
+    negative_ttl_sec: int = DEFAULT_SEARCH_CACHE_NEGATIVE_TTL_SEC
+    max_entries: int = DEFAULT_SEARCH_CACHE_MAX_ENTRIES
+    max_bytes: int = DEFAULT_SEARCH_CACHE_MAX_BYTES
+
+
+@dataclass(slots=True, frozen=True)
+class SearchSettings:
+    """搜索运行配置（FR-SEARCH-01/03）：缓存 + 扇出 + 同步窗口 + 分页。
+
+    字段都有缺省值：测试与「无 store 场景」直接 ``SearchSettings()`` 即可，
+    装配路径走 ``load_search_settings(store)`` 让 settings 表覆盖。
+    """
+
+    cache: SearchCacheSettings = field(default_factory=SearchCacheSettings)
+    fanout: int = DEFAULT_SEARCH_FANOUT
+    sync_window_sec: float = DEFAULT_SEARCH_SYNC_WINDOW_MS / 1000
+    page_size: int = DEFAULT_SEARCH_PAGE_SIZE
+    max_page_size: int = SEARCH_MAX_PAGE_SIZE
+
+
+def load_search_settings(store: SettingsRepo) -> SearchSettings:
+    """搜索配置（settings 表现读）；装配时用缺省值，保存设置后由容器刷新。"""
+    return SearchSettings(
+        cache=SearchCacheSettings(
+            ttl_sec=_int_setting(store, "search_cache_ttl_sec", DEFAULT_SEARCH_CACHE_TTL_SEC),
+            negative_ttl_sec=_int_setting(
+                store, "search_cache_negative_ttl_sec", DEFAULT_SEARCH_CACHE_NEGATIVE_TTL_SEC
+            ),
+            max_entries=_int_setting(
+                store, "search_cache_max_entries", DEFAULT_SEARCH_CACHE_MAX_ENTRIES
+            ),
+            max_bytes=_int_setting(
+                store, "search_cache_max_bytes", DEFAULT_SEARCH_CACHE_MAX_BYTES
+            ),
+        ),
+        fanout=max(1, _int_setting(store, "search_fanout", DEFAULT_SEARCH_FANOUT)),
+        sync_window_sec=max(
+            0, _int_setting(store, "search_sync_window_ms", DEFAULT_SEARCH_SYNC_WINDOW_MS)
+        )
+        / 1000,
+        page_size=max(1, _int_setting(store, "search_page_size", DEFAULT_SEARCH_PAGE_SIZE)),
+        max_page_size=SEARCH_MAX_PAGE_SIZE,
+    )
+
+
+@dataclass(slots=True, frozen=True)
 class AppSettings:
     """应用装配配置聚合（不可变）。"""
 
@@ -85,6 +149,7 @@ class AppSettings:
     template: TemplateConfig
     download: DownloadSettings
     preview: PreviewSettings
+    search: SearchSettings
 
 
 def load_app_settings(
@@ -99,4 +164,5 @@ def load_app_settings(
             max_concurrent=_int_setting(store, "max_download_task", DEFAULT_MAX_DOWNLOAD_TASK),
         ),
         preview=PreviewSettings(max_bytes=preview_max_bytes(store)),
+        search=load_search_settings(store),
     )

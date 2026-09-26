@@ -54,6 +54,8 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
         source_id: int, with_history: bool = False, _: None = Depends(ctx.check_session)
     ) -> dict[str, bool]:
         sources.delete_source(source_id, with_history)
+        # 源没了，它名下的搜索缓存条目也跟着没了意义（键里带 source_id）
+        await ctx.search.invalidate_source(source_id)
         return {"ok": True}
 
     @app.get("/api/sources/discover")

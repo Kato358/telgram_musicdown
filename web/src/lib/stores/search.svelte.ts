@@ -17,6 +17,10 @@ interface UnreachableSource {
   reason: string;
 }
 
+/** 排序口径（FR-SEARCH-03）：与后端 `sort` 入参一一对应，列表只此一份。 */
+export const SORT_OPTIONS = ["relevance", "date", "duration", "size"] as const;
+export type SearchSort = (typeof SORT_OPTIONS)[number];
+
 /** 飞片用的封面：走全局封面链路（与行内封面同源），没有可查字段就飞音符占位。 */
 function coverOf(item: SearchResult): string | null {
   return coverUrl(item.title, item.artist);
@@ -27,8 +31,19 @@ class SearchStore {
   sources = $state<SourceRow[]>([]);
   /** 选中源 id；空数组 = 全部启用源（与后端 source_ids 语义一致）。 */
   selected = $state<number[]>([]);
+  /** 排序口径（服务端在合并后的窗口上排序，见 SDD §2.6）。 */
+  sort = $state<SearchSort>("relevance");
   results = $state<SearchResult[]>([]);
   meta = $state<Record<string, unknown>>({});
+  /** 已载入到第几页（0 起）；「加载更多」逐页追加，分页由服务端在完整结果集上切。 */
+  page = $state(0);
+  /** 服务端还有更深的页（`meta.has_more`）：决定「加载更多」是否出现。 */
+  hasMore = $state(false);
+  /** 本次结果不全（`meta.partial`）：有源超了同步窗口，仍在后台补齐。 */
+  partial = $state(false);
+  /** 仍在后台补齐的源 id（`meta.pending_sources`），提示里点名。 */
+  pendingSources = $state<number[]>([]);
+  loadingMore = $state(false);
   searched = $state(false);
   searching = $state(false);
   error = $state("");
@@ -52,6 +67,13 @@ class SearchStore {
 
   get enabledSources(): SourceRow[] {
     return this.sources.filter((source) => source.enabled);
+  }
+
+  /** 后台补齐中的源名（提示里点名，缺标题回退 #id）。 */
+  get pendingTitles(): string[] {
+    return this.pendingSources.map(
+      (id) => this.sources.find((source) => source.id === id)?.title ?? `#${id}`,
+    );
   }
 
   keyOf(item: SearchResult): string {
@@ -78,10 +100,11 @@ class SearchStore {
       const resp = await api.post<SearchResponse>("/api/search", {
         q: keyword,
         source_ids: this.selected.length > 0 ? this.selected : undefined,
+        sort: this.sort,
         page: 0,
       });
       this.results = resp.results;
-      this.meta = resp.meta;
+      this.applyMeta(resp, 0);
       this.previews = {};
       this.pending = {};
       this.rowError = {};
@@ -89,15 +112,69 @@ class SearchStore {
       this.searched = true;
     } catch (err) {
       this.error = errorText(err, t("common.error"));
+      // 结果没换成新的：别让「加载更多」按旧页码续取
+      this.page = 0;
+      this.hasMore = false;
+      this.partial = false;
+      this.pendingSources = [];
     } finally {
       this.searching = false;
     }
+  }
+
+  /** 追加下一页（FR-SEARCH-04 跨页）：服务端在完整结果集上切片，续页不重不漏。 */
+  async loadMore() {
+    if (!this.hasMore || this.loadingMore || this.searching) return;
+    const keyword = this.query.trim();
+    if (!keyword) return;
+    this.loadingMore = true;
+    try {
+      const next = this.page + 1;
+      const resp = await api.post<SearchResponse>("/api/search", {
+        q: keyword,
+        source_ids: this.selected.length > 0 ? this.selected : undefined,
+        sort: this.sort,
+        page: next,
+      });
+      // 后台补齐会让同一页重排，按行键去重后再追加
+      const seen = new Set(this.results.map((item) => this.keyOf(item)));
+      this.results = [
+        ...this.results,
+        ...resp.results.filter((item) => !seen.has(this.keyOf(item))),
+      ];
+      this.applyMeta(resp, next);
+    } catch (err) {
+      this.error = errorText(err, t("common.error"));
+    } finally {
+      this.loadingMore = false;
+    }
+  }
+
+  private applyMeta(resp: SearchResponse, page: number) {
+    this.meta = resp.meta;
+    this.page = page;
+    this.hasMore = resp.meta.has_more === true;
+    this.partial = resp.meta.partial === true;
+    this.pendingSources = Array.isArray(resp.meta.pending_sources)
+      ? (resp.meta.pending_sources as number[])
+      : [];
   }
 
   toggleSource(id: number) {
     this.selected = this.selected.includes(id)
       ? this.selected.filter((value) => value !== id)
       : [...this.selected, id];
+  }
+
+  /** 换排序口径：已有结果就立即从第 0 页重取。
+   *
+   * 源多选是「下一轮搜索的条件」，改完要按搜索；排序不同——它只是把**已有结果**
+   * 换个排法看，等用户再点一次搜索就是个看起来没反应的控件。窗口已缓存，重取不重打上游。
+   */
+  setSort(sort: SearchSort) {
+    if (sort === this.sort) return;
+    this.sort = sort;
+    if (this.searched && !this.searching && this.query.trim().length > 0) void this.runSearch();
   }
 
   toggleSelectMode() {

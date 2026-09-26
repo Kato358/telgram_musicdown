@@ -9,7 +9,7 @@
   import SearchIcon from "@lucide/svelte/icons/search";
   import { t } from "$lib/i18n/index.svelte";
   import { navigate, pathOf, router } from "$lib/router.svelte";
-  import { search } from "$lib/stores/search.svelte";
+  import { search, SORT_OPTIONS } from "$lib/stores/search.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Checkbox } from "$lib/components/ui/checkbox";
@@ -103,29 +103,41 @@
     </form>
 
     {#if search.enabledSources.length > 0}
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="text-caption text-muted-foreground">{t("search.filterSources")}</span>
+      {#snippet pill(active: boolean, label: string, onclick: () => void)}
         <button
           type="button"
-          class="ui-transition rounded-full px-3 py-1 text-caption {search.selected.length === 0
+          class="ui-transition rounded-full px-3 py-1 text-caption {active
             ? 'bg-primary-soft text-primary'
             : 'border border-border text-muted-foreground hover:bg-rule hover:text-foreground'}"
-          onclick={() => (search.selected = [])}
+          aria-pressed={active}
+          {onclick}
         >
-          {t("search.allSources")}
+          {label}
         </button>
+      {/snippet}
+
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-caption text-muted-foreground">{t("search.filterSources")}</span>
+        {@render pill(
+          search.selected.length === 0,
+          t("search.allSources"),
+          () => (search.selected = []),
+        )}
         {#each search.enabledSources as source (source.id)}
-          <button
-            type="button"
-            class="ui-transition rounded-full px-3 py-1 text-caption {search.selected.includes(
-              source.id,
-            )
-              ? 'bg-primary-soft text-primary'
-              : 'border border-border text-muted-foreground hover:bg-rule hover:text-foreground'}"
-            onclick={() => search.toggleSource(source.id)}
-          >
-            {source.title}
-          </button>
+          {@render pill(
+            search.selected.includes(source.id),
+            source.title,
+            () => search.toggleSource(source.id),
+          )}
+        {/each}
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-caption text-muted-foreground">{t("search.sortLabel")}</span>
+        {#each SORT_OPTIONS as option (option)}
+          {@render pill(search.sort === option, t(`search.sort.${option}`), () =>
+            search.setSort(option),
+          )}
         {/each}
       </div>
     {/if}
@@ -146,6 +158,17 @@
     </span>
   </Note>
 {/each}
+
+{#if search.partial}
+  <Note tone="wait">
+    <span class="block">{t("search.partial")}</span>
+    {#if search.pendingTitles.length > 0}
+      <span class="block text-caption text-muted-foreground">
+        {search.pendingTitles.join(t("search.listSep"))}
+      </span>
+    {/if}
+  </Note>
+{/if}
 
 {#if search.needSources}
   <Note tone="wait">{t("search.needSources")}</Note>
@@ -185,9 +208,28 @@
     {/if}
   {/snippet}
 
+  {#snippet footerBar()}
+    <span class="tabular text-caption text-muted-foreground">
+      {t("search.moreHint", { n: search.results.length })}
+    </span>
+    {#if search.hasMore}
+      <div class="ml-auto">
+        <Button
+          variant="outline"
+          size="xs"
+          disabled={search.loadingMore}
+          onclick={() => void search.loadMore()}
+        >
+          {search.loadingMore ? t("search.loadingMore") : t("search.loadMore")}
+        </Button>
+      </div>
+    {/if}
+  {/snippet}
+
   <DataTable
     {columns}
     {headerCell}
+    footer={footerBar}
     toolbar={search.selectMode ? selectBar : undefined}
   >
     {#each search.results as item, index (search.keyOf(item))}

@@ -81,6 +81,25 @@ class PreviewCache:
 
 
 @dataclass(slots=True)
+class SearchCacheEntry:
+    """搜索二级缓存的 L2 行（SDD §2.6）：一条 = 某个源上某个关键词的取数窗口。
+
+    ``payload_json`` 是 ``{items, covered, has_more}`` 的序列化（卡片事实不落列，
+    免得每加一个卡片字段都要改表）。TTL 认 ``expires_at``，容量淘汰认 ``last_access_at``。
+    """
+
+    cache_key: str
+    source_id: int
+    keyword: str
+    payload_json: str
+    item_count: int
+    byte_size: int
+    fetched_at: str
+    expires_at: str
+    last_access_at: str
+
+
+@dataclass(slots=True)
 class LocalTrack:
     """本地曲库台账行（FR-LIB）：save_path 下音频文件的扫描索引。
 

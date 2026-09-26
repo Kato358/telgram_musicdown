@@ -151,6 +151,8 @@ class SearchRequest(BaseModel):
     filters: dict[str, Any] | None = None
     sort: str = "relevance"
     page: int = 0
+    page_size: int | None = None
+    refresh: bool = False
 
 
 class DownloadsRequest(BaseModel):
@@ -170,10 +172,11 @@ class SettingsUpdateRequest(BaseModel):
 
 
 class CacheStatsResponse(BaseModel):
-    """缓存占用（`GET /api/settings/cache`，FR-PLAY-02）。
+    """缓存占用（`GET /api/settings/cache`，FR-PLAY-02 + SDD §2.6）。
 
-    口径 = 磁盘实际字节：试听（进 preview_cache 表，按访问时间 LRU）+ 封面（同目录、
-    按 mtime 一起进预算）。`POST /api/settings/cache/clear` 返回清理后的同一结构。
+    试听/封面按磁盘实际字节算；搜索缓存是 L2 表里的元数据（口径是 payload 字节），
+    三者一起显示，但搜索缓存不参与试听/封面的字节预算。
+    `POST /api/settings/cache/clear` 返回清理后的同一结构。
     """
 
     total_bytes: int
@@ -182,6 +185,8 @@ class CacheStatsResponse(BaseModel):
     preview_count: int
     cover_bytes: int
     cover_count: int
+    search_entries: int
+    search_bytes: int
 
 
 class LogEntry(BaseModel):

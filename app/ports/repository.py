@@ -6,6 +6,7 @@
 - ``TaskRepo``：任务台账（创建、状态推进、重试复位、恢复）;
 - ``SettingsRepo``：键值设置；
 - ``PreviewRepo``：试听缓存（LRU 所需的读写）；
+- ``SearchCacheRepo``：搜索二级缓存的 L2（TTL + LRU 所需的读写）；
 - ``StatsRepo``：统计聚合。
 
 ``Store``（db/store.py）是唯一 SQLite 适配器，实现全部协议；
@@ -16,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from app.db.models import History, LocalTrack, PreviewCache, Source, Task
+from app.db.models import History, LocalTrack, PreviewCache, SearchCacheEntry, Source, Task
 
 
 @runtime_checkable
@@ -167,6 +168,21 @@ class LocalLibraryRepo(Protocol):
     def delete_local_track(self, track_id: int) -> bool: ...
 
 
+@runtime_checkable
+class SearchCacheRepo(Protocol):
+    """搜索二级缓存的 L2 仓储协议（SDD §2.6）。"""
+
+    def get_search_cache(self, cache_key: str) -> SearchCacheEntry | None: ...
+    def put_search_cache_many(self, entries: list[SearchCacheEntry]) -> None: ...
+    def touch_search_cache(self, cache_key: str) -> None: ...
+    def delete_search_cache(self, cache_key: str) -> None: ...
+    def delete_search_cache_by_source(self, source_id: int) -> int: ...
+    def purge_search_cache(self, now: str) -> int: ...
+    def list_search_cache_by_access(self, limit: int = 200) -> list[SearchCacheEntry]: ...
+    def search_cache_totals(self) -> tuple[int, int]: ...
+    def delete_all_search_cache(self) -> None: ...
+
+
 class IStore(
     SourceRepo,
     HistoryRepo,
@@ -175,6 +191,7 @@ class IStore(
     PreviewRepo,
     StatsRepo,
     LocalLibraryRepo,
+    SearchCacheRepo,
     Protocol,
 ):
     """统一仓储端口：全部子协议的聚合（服务层依赖它，不依赖 ``Store``）。"""

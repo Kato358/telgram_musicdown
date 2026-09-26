@@ -19,7 +19,16 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
     async def search_ep(
         req: schemas.SearchRequest, _: None = Depends(ctx.check_session)
     ) -> dict[str, Any]:
-        resp = await search.search(req.q, req.source_ids, page=req.page)
+        resp = await search.search(
+            req.q,
+            req.source_ids,
+            page=req.page,
+            page_size=req.page_size,
+            fields=req.fields,
+            filters=req.filters,
+            sort=req.sort,
+            refresh=req.refresh,
+        )
         return {
             "results": [card_to_dict(c) for c in resp.results],
             "meta": resp.meta,

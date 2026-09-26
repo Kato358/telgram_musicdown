@@ -121,6 +121,14 @@ async def run(base_dir: Path) -> None:
     except Exception:  # noqa: BLE001  缓存修剪失败不该拦住启动
         logging.getLogger(__name__).exception("startup cache trim failed")
 
+    # 搜索缓存同理：起进程先把过期条目与超上限的部分清掉，TTL/容量不只在写入时生效
+    try:
+        purged = svc.search.purge_cache()
+        if purged:
+            logging.getLogger(__name__).info("purged %d search cache entries", purged)
+    except Exception:  # noqa: BLE001  同上：清缓存失败不是启动失败
+        logging.getLogger(__name__).exception("startup search cache purge failed")
+
     # 本地曲库台账随启动后台扫一次（不阻塞 web/tg 启动；扫描结果经 SSE 推给前端）
     async def _startup_library_scan() -> None:
         try:
@@ -163,6 +171,8 @@ async def run(base_dir: Path) -> None:
         await svc.tg.stop()
         await svc.downloads.stop_workers()
         library_scan_task.cancel()
+        # 搜索：停掉后台补齐的取数任务并把延迟写队列落盘（缓存尽力落，不阻塞退出）
+        await svc.search.aclose()
         svc.container.close()  # 生命周期收口：不再绕过容器直接 store.close()
 
 

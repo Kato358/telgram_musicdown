@@ -21,6 +21,7 @@ from app.ports.telegram import TelegramClientProto
 from app.services.download import DownloadService
 from app.services.local_library import LocalLibraryService
 from app.services.preview import PreviewService
+from app.services.search_cache import SearchCache
 from app.services.source import SearchService, SourceService
 
 
@@ -84,7 +85,12 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
         max_concurrent=settings.download.max_concurrent,
     )
     sources = SourceService(store, source_client)
-    search = SearchService(store, source_client)
+    search = SearchService(
+        store,
+        source_client,
+        SearchCache(store, settings.search.cache),
+        settings.search,
+    )
     preview = PreviewService(
         store,
         download_client,

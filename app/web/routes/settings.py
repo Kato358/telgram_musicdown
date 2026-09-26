@@ -16,6 +16,7 @@ from app.appsettings import load_template_config, preview_max_bytes
 from app.domain import TemplateConfig, TrackMeta, meta_from_dict
 from app.services.path_builder import render_path, resolve_field
 from app.services.preview import CacheStats
+from app.services.search_cache import SearchCacheStats
 from app.web.routes import schemas
 from app.web.routes.context import RouteContext
 
@@ -72,8 +73,8 @@ def _stored_save_path(ctx: RouteContext) -> Path:
     return Path(raw) if raw else ctx.base_dir / "downloads"
 
 
-def _cache_response(stats: CacheStats) -> schemas.CacheStatsResponse:
-    """服务层 CacheStats → 响应契约（字段名不靠约定对齐，映射写在一处）。"""
+def _cache_response(stats: CacheStats, cache: SearchCacheStats) -> schemas.CacheStatsResponse:
+    """服务层 stats → 响应契约（字段名不靠约定对齐，映射写在一处）。"""
     return schemas.CacheStatsResponse(
         total_bytes=stats.total_bytes,
         max_bytes=stats.max_bytes,
@@ -81,6 +82,8 @@ def _cache_response(stats: CacheStats) -> schemas.CacheStatsResponse:
         preview_count=stats.preview_count,
         cover_bytes=stats.cover_bytes,
         cover_count=stats.cover_count,
+        search_entries=cache.entries,
+        search_bytes=cache.bytes,
     )
 
 
@@ -106,13 +109,18 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
 
     @app.get("/api/settings/cache")
     async def cache_usage(_: None = Depends(ctx.check_session)) -> schemas.CacheStatsResponse:
-        """缓存占用（FR-PLAY-02）：试听按访问时间 LRU、封面按 mtime，共用一个字节上限。"""
-        return _cache_response(await ctx.preview.cache_stats())
+        """缓存占用（FR-PLAY-02）：试听按访问时间 LRU、封面按 mtime，共用一个字节上限；
+        另附搜索缓存（FR-SEARCH-01 的 L2）条数与字节。"""
+        return _cache_response(
+            await ctx.preview.cache_stats(), ctx.search.cache_stats()
+        )
 
     @app.post("/api/settings/cache/clear")
     async def cache_clear(_: None = Depends(ctx.check_session)) -> schemas.CacheStatsResponse:
-        """清空试听与封面缓存（FR-PLAY-02）：试听可重下、封面可重抓，返回清理后的占用。"""
-        return _cache_response(await ctx.preview.clear_cache())
+        """清空试听/封面与搜索缓存（FR-PLAY-02）：都能重下重查，返回清理后的占用。"""
+        stats = await ctx.preview.clear_cache()
+        ctx.search.clear_cache()
+        return _cache_response(stats, ctx.search.cache_stats())
 
     @app.get("/api/settings/template-fields")
     async def template_fields(_: None = Depends(ctx.check_session)) -> dict[str, Any]:
