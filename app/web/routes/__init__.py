@@ -47,6 +47,7 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
     base_dir: object,
     web_host: str = "127.0.0.1",
     web_login_secret: str = "",
+    web_login_enabled: bool = True,
     static_dir: object = None,
 ) -> FastAPI:
     """装配 FastAPI 应用：错误包络 + SSE + 静态资源 + 按资源注册的路由。
@@ -81,6 +82,7 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
         base_dir=base_dir,  # type: ignore[arg-type]
         web_host=web_host,
         web_login_secret=web_login_secret,
+        web_login_enabled=web_login_enabled,
         static_dir=static_dir,  # type: ignore[arg-type]
     )
     app = FastAPI(title="telegram-musicdown")

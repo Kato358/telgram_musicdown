@@ -38,6 +38,8 @@ class RouteContext:
     base_dir: Path
     web_host: str
     web_login_secret: str
+    # 控制台登录总开关（FR-WEB-02）：False = 全放行（含 check_session）
+    web_login_enabled: bool = True
     # 音频标签读写：封面/曲库路由直接用，不再穿到 downloads.tags 拿服务内部件
     tags: TagService = field(default_factory=TagService)
     static_dir: Path | None = None
@@ -45,7 +47,9 @@ class RouteContext:
 
     def check_session(self, request: Request) -> None:
         """认证依赖（FR-WEB-01/02）：豁免判定 + 会话 cookie 校验。"""
-        if not web_auth.auth_required(self.web_host, self.web_login_secret):
+        if not web_auth.auth_required(
+            self.web_host, self.web_login_secret, self.web_login_enabled
+        ):
             return
         token = request.cookies.get(web_auth.SESSION_COOKIE, "")
         if not web_auth.verify_session_token(token, self.web_login_secret):

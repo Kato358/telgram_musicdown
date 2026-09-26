@@ -57,7 +57,8 @@ export interface SendCodeResponse {
 
 /** Web 控制台准入（`GET /api/auth/session`，FR-WEB-02）。
  *
- * `required=false` 是「本机免密」模式：不需要登录，前端直接渲染控制台。 */
+ * `required=false` 是免登录模式：本机免密，或 `web_login_enabled` 显式关闭登录。
+ * 前端据此直接渲染控制台，不出现登录页。 */
 export interface WebSessionStatus {
   required: boolean;
   authenticated: boolean;

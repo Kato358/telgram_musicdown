@@ -1,4 +1,4 @@
-"""config.py 路径布局（FR-CFG-02）：相对展开、绝对路径、Windows 盘根写法与 env 覆盖。"""
+"""config.py 路径布局（FR-CFG-02）与密钥装配：相对展开、绝对路径、Windows 盘根写法与 env 覆盖。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from app import config as app_config
-from app.config import app_dirs, load_path_config, resolve_dir, web_dist_dir
+from app.config import app_dirs, load_path_config, load_secrets, resolve_dir, web_dist_dir
 
 
 def _write_config(base: Path, text: str) -> None:
@@ -53,6 +53,29 @@ def test_env_overrides_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     _write_config(tmp_path, "save_directory: from-file\n")
     monkeypatch.setenv("TGM_SAVE_DIRECTORY", "from-env")
     assert load_path_config(tmp_path).save_directory == "from-env"
+
+
+def test_web_login_enabled_parsing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """登录开关（FR-WEB-02）：yaml/env 双入口；解析不出按开启处理，别把保护静默关掉。"""
+    monkeypatch.delenv("TGM_WEB_LOGIN_ENABLED", raising=False)
+    # yaml 布尔字面量与带引号字符串写法都要认
+    _write_config(tmp_path, "web_login_enabled: false\n")
+    assert load_secrets(tmp_path).web_login_enabled is False
+    _write_config(tmp_path, 'web_login_enabled: "0"\n')
+    assert load_secrets(tmp_path).web_login_enabled is False
+    # 未配置 = 默认开启；拼写错误（如 flase）也按开启处理（安全向）
+    _write_config(tmp_path, "api_hash: x\n")
+    assert load_secrets(tmp_path).web_login_enabled is True
+    _write_config(tmp_path, "web_login_enabled: flase\n")
+    assert load_secrets(tmp_path).web_login_enabled is True
+    # env 覆盖配置文件；留空 = 不覆盖
+    _write_config(tmp_path, "web_login_enabled: true\n")
+    monkeypatch.setenv("TGM_WEB_LOGIN_ENABLED", "false")
+    assert load_secrets(tmp_path).web_login_enabled is False
+    monkeypatch.setenv("TGM_WEB_LOGIN_ENABLED", "")
+    assert load_secrets(tmp_path).web_login_enabled is True
 
 
 def test_web_dist_dir_follows_code_not_data_dir(

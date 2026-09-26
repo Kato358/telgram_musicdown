@@ -203,6 +203,23 @@ def test_web_login_exempt_when_localhost_without_secret(tmp_path: Path) -> None:
     assert client.get("/api/stats").status_code == 200
 
 
+def test_web_login_switch_disabled(tmp_path: Path) -> None:
+    """web_login_enabled=False：显式关闭登录——有口令、绑 0.0.0.0 也全放行。"""
+    # 启动校验也不再拦「0.0.0.0 无密码」：开关关了还拦，公网部署就永远开不起来
+    web_auth.check_auth_config("0.0.0.0", "", web_login_enabled=False)  # noqa: S104
+    client, _ = _client_with(
+        tmp_path,
+        web_host="0.0.0.0",  # noqa: S104  测试注入的是绑定字符串
+        web_login_secret="s3cret",  # noqa: S106
+        web_login_enabled=False,
+    )
+    assert client.get("/api/auth/session").json() == {"required": False, "authenticated": True}
+    assert client.get("/api/me").status_code == 200
+    # 登录端点同样放行且不签 cookie（与免密模式同语义，前端不会出现登录页）
+    assert client.post("/api/auth/login", json={"secret": "whatever"}).status_code == 200
+    assert not client.cookies.get(web_auth.SESSION_COOKIE)
+
+
 def test_setup_secrets_writes_to_base_dir(tmp_path: Path) -> None:
     # FR-OPS-02：密钥写入 base_dir/config.yaml；session_directory 可配置到别处也不影响
     store = Store(tmp_path / "app.db")
@@ -231,6 +248,7 @@ def _client_with(
     *,
     web_host: str = "127.0.0.1",
     web_login_secret: str = "",
+    web_login_enabled: bool = True,
     static_dir: Path | None = None,
 ) -> tuple[TestClient, TelegramManager]:
     """带自定密钥的 API 客户端（向导相关用例共用）。"""
@@ -258,6 +276,7 @@ def _client_with(
         base_dir=tmp_path,
         web_host=web_host,
         web_login_secret=web_login_secret,
+        web_login_enabled=web_login_enabled,
         static_dir=static_dir,
     )
     return TestClient(app), tg

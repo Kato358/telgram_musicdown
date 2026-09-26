@@ -8,7 +8,7 @@ class Session {
   setup = $state<SetupStatus | null>(null);
   /** 初始化状态已确认；未确认前不渲染控制台，避免闪进再跳走。 */
   checked = $state(false);
-  /** Web 控制台准入：受保护部署需先登录（免密模式 required=false）。 */
+  /** Web 控制台准入：受保护部署需先登录（本机免密或登录开关关闭时 required=false）。 */
   web = $state<WebSessionStatus | null>(null);
 
   get connected(): boolean {

@@ -21,6 +21,34 @@ def _env(key: str) -> str | None:
     return os.environ.get(f"{ENV_PREFIX}{key.upper()}")
 
 
+# 布尔开关（web_login_enabled）认得的写法；表里没有的值一律按 default 处理
+# （安全向：拼写错误解析失败时宁可保持开启登录，也不能把保护静默关掉）。
+_BOOL_MAP = {
+    "1": True, "true": True, "yes": True, "on": True,
+    "0": False, "false": False, "no": False, "off": False,
+}
+
+
+def _as_bool(value: Any, default: bool) -> bool:
+    """宽松布尔解析：bool/0-1 原生收下，字符串认常见写法，认不出按 default。"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if value is None:
+        return default
+    mapped = _BOOL_MAP.get(str(value).strip().lower())
+    return default if mapped is None else mapped
+
+
+def _env_bool(key: str) -> bool | None:
+    """环境变量里的布尔开关；未设/留空返回 None（= 不覆盖，沿用配置文件值）。"""
+    raw = _env(key)
+    if raw is None or not raw.strip():
+        return None
+    return _BOOL_MAP.get(raw.strip().lower())
+
+
 @dataclass(slots=True)
 class ProxyConfig:
     """SOCKS5/HTTP 代理（FR-AUTH-03），User 与 Bot 共用。"""
@@ -42,6 +70,9 @@ class SecretConfig:
     web_host: str = "127.0.0.1"
     web_port: int = 8787
     web_login_secret: str = ""
+    # 控制台登录总开关（FR-WEB-02）：False = 显式关闭登录（含 0.0.0.0 部署），
+    # 用户自行承担暴露面；缺省 True 保持「有口令或非本机绑定即要求登录」的原判据。
+    web_login_enabled: bool = True
     proxy: ProxyConfig | None = None
 
     @property
@@ -71,6 +102,7 @@ def secrets_from_data(data: dict[str, Any]) -> SecretConfig:
     cfg.web_host = str(data.get("web_host") or "127.0.0.1")
     cfg.web_port = int(data.get("web_port") or 8787)
     cfg.web_login_secret = str(data.get("web_login_secret") or "")
+    cfg.web_login_enabled = _as_bool(data.get("web_login_enabled"), True)
     proxy_raw = data.get("proxy")
     if isinstance(proxy_raw, dict):
         cfg.proxy = ProxyConfig(
@@ -92,6 +124,9 @@ def load_secrets(base_dir: Path) -> SecretConfig:
     cfg.web_host = _env("web_host") or cfg.web_host
     cfg.web_port = int(_env("web_port") or cfg.web_port)
     cfg.web_login_secret = _env("web_login_secret") or cfg.web_login_secret
+    enabled_env = _env_bool("web_login_enabled")
+    if enabled_env is not None:
+        cfg.web_login_enabled = enabled_env
     if _env("proxy_host"):
         cfg.proxy = ProxyConfig(
             hostname=_env("proxy_host") or "127.0.0.1",

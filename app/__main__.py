@@ -75,7 +75,9 @@ def build_services(base_dir: Path) -> AppServices:
     dirs = container.dirs
     store = container.store
     secrets = load_secrets(base_dir)
-    web_auth.check_auth_config(secrets.web_host, secrets.web_login_secret)
+    web_auth.check_auth_config(
+        secrets.web_host, secrets.web_login_secret, secrets.web_login_enabled
+    )
     events = container.extras["events"]
     tg = TelegramManager(secrets, dirs["sessions"])
     downloads = container.downloads
@@ -137,6 +139,7 @@ async def run(base_dir: Path) -> None:
         base_dir=base_dir,
         web_host=svc.secrets.web_host,
         web_login_secret=svc.secrets.web_login_secret,
+        web_login_enabled=svc.secrets.web_login_enabled,
         static_dir=web_dist_dir(),
     )
     svc.tg.set_services(svc.downloads, svc.search)
