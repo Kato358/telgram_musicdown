@@ -11,6 +11,8 @@ dependencies = [
     "kurigram>=2.2",
     "mutagen>=1.47",
     "pyyaml>=6.0",
+    # 在线源（app/chksz）：搜索/解析走 JSON，请求，取音频要流式下载
+    "httpx>=0.27",
 ]
 
 [dependency-groups]
@@ -18,7 +20,6 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "mypy>=1.8",
-    "httpx>=0.27",
     "ruff>=0.4",
 ]
 
@@ -46,6 +47,8 @@ ignore = ["PLR0913"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR2004"]
 "run.py" = ["T201", "S603", "UP036"]
+# 冒烟脚本：要真 Key 与真网络，按脚本读法豁免 print/assert
+"smoke_chksz.py" = ["T201", "S101", "PLR0915", "PLR2004", "BLE001", "SLF001", "ANN204", "PLC0415"]
 
 [tool.mypy]
 # 全量覆盖 app/（不只 services/db/utils）：web/telegram 层曾因不在 files 里而漏检，

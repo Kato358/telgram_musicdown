@@ -20,7 +20,7 @@ from app.errors import AppError, UnsupportedContainerError
 from app.events import EventBus
 from app.services.preview import PreviewService
 from app.services.tags import TagService, image_media_type
-from tests.fakes import FakeUserClient, make_audio_message
+from tests.fakes import FakeUserClient, fake_registry, make_audio_message
 
 JPEG = b"\xff\xd8\xff\xe0FAKEJPEGDATA"
 PNG = b"\x89PNG\r\n\x1a\nFAKEPNGDATA"
@@ -166,7 +166,9 @@ async def test_preview_cache_roundtrip(tmp_path: Path) -> None:
     events = EventBus()
     content = b"x" * 100
     client = FakeUserClient([make_audio_message(1)], content=content)
-    preview = PreviewService(store, client, events, tmp_path / "temp" / "preview")
+    preview = PreviewService(
+        store, fake_registry(store, client), events, tmp_path / "temp" / "preview"
+    )
     pid = await preview.request_preview(-100123, 1, file_size=100)
     assert pid is not None
     hit = store.get_preview(-100123, 1)
@@ -183,7 +185,9 @@ async def test_preview_lru_eviction(tmp_path: Path) -> None:
     events = EventBus()
     content = b"x" * 100
     client = FakeUserClient([make_audio_message(1), make_audio_message(2)], content=content)
-    preview = PreviewService(store, client, events, tmp_path / "temp" / "preview", max_bytes=50)
+    preview = PreviewService(
+        store, fake_registry(store, client), events, tmp_path / "temp" / "preview", max_bytes=50
+    )
     await preview.request_preview(-100123, 1, file_size=100)
     total, cnt = store.preview_totals()
     assert cnt <= 1  # 超限淘汰后 ≤1 条
@@ -196,7 +200,7 @@ async def test_cache_file_is_not_a_stale_temp(tmp_path: Path) -> None:
     content = b"x" * 100
     client = FakeUserClient([make_audio_message(1)], content=content)
     preview_dir = tmp_path / "temp" / "preview"
-    preview = PreviewService(store, client, EventBus(), preview_dir)
+    preview = PreviewService(store, fake_registry(store, client), EventBus(), preview_dir)
     await preview.request_preview(-100123, 1, file_size=100)
     hit = store.get_preview(-100123, 1)
     assert hit is not None
@@ -235,7 +239,7 @@ async def test_cache_stats_report_disk_usage(tmp_path: Path) -> None:
     content = b"x" * 100
     client = FakeUserClient([make_audio_message(1)], content=content)
     preview_dir = tmp_path / "temp" / "preview"
-    preview = PreviewService(store, client, EventBus(), preview_dir)
+    preview = PreviewService(store, fake_registry(store, client), EventBus(), preview_dir)
     empty = await preview.cache_stats()
     assert empty == preview_mod.CacheStats(0, empty.max_bytes, 0, 0, 0, 0)
 
@@ -278,7 +282,7 @@ async def test_clear_cache_removes_files_and_records(tmp_path: Path) -> None:
     content = b"x" * 100
     client = FakeUserClient([make_audio_message(1)], content=content)
     preview_dir = tmp_path / "temp" / "preview"
-    preview = PreviewService(store, client, EventBus(), preview_dir)
+    preview = PreviewService(store, fake_registry(store, client), EventBus(), preview_dir)
     await preview.request_preview(-100123, 1, file_size=100)
     (preview_dir / "cover_deadbeef.jpg").write_bytes(b"\xff\xd8jpeg")
 

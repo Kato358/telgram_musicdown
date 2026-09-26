@@ -24,9 +24,10 @@ API_HASH_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 BOT_TOKEN_RE = re.compile(r"^\d{6,12}:[A-Za-z0-9_-]{30,}$")
 PROXY_SCHEMES = ("socks5", "http")
 MAX_PORT = 65535
+CHKSZ_KEY_RE = re.compile(r"^chksz_[A-Za-z0-9_-]{8,}$")
 
 # 允许写入 config.yaml 的密钥类字段（FR-CFG-01）
-SECRET_KEYS = ("api_id", "api_hash", "bot_token", "web_login_secret")
+SECRET_KEYS = ("api_id", "api_hash", "bot_token", "web_login_secret", "chksz_api_key")
 
 
 def _load(base_dir: Path) -> dict[str, Any]:
@@ -77,6 +78,8 @@ def validate_secrets(cfg: SecretConfig) -> list[str]:
         problems.append("api_hash 是 32 位十六进制")
     if cfg.bot_token and not BOT_TOKEN_RE.match(cfg.bot_token):
         problems.append("bot_token 形如 123456:ABC-DEF…（从 @BotFather 复制）")
+    if cfg.chksz_api_key and not CHKSZ_KEY_RE.match(cfg.chksz_api_key):
+        problems.append("ChKSz API Key 形如 chksz_…（在 api.chksz.com 账户页复制）")
     proxy = cfg.proxy
     if proxy is not None:
         if not proxy.hostname:
@@ -91,8 +94,10 @@ def validate_secrets(cfg: SecretConfig) -> list[str]:
 def save_secrets(base_dir: Path, values: dict[str, Any]) -> SecretConfig:
     """合并 → 校验 → 写入 config.yaml；校验不过抛 SetupError（文件不动）。
 
-    允许的键：api_id, api_hash, bot_token, web_login_secret,
+    允许的键：api_id, api_hash, bot_token, web_login_secret, chksz_api_key,
     proxy: {scheme, hostname, port, username?, password?}（null 表示清除代理）。
+
+    ``chksz_api_key`` 是可选的：留空即「不改动」，不写也不影响 Telegram 侧的校验。
     """
     merged = merge_values(_load(base_dir), values)
     problems = validate_secrets(secrets_from_data(merged))

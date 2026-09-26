@@ -23,11 +23,11 @@ from uuid import uuid4
 
 from app.db.models import PreviewCache
 from app.db.store import utcnow
-from app.domain import AUDIO_EXTS
+from app.domain import AUDIO_EXTS, PROVIDER_TELEGRAM, TrackMeta
 from app.errors import AppError
 from app.events import Event, EventBus
 from app.ports import IStore
-from app.ports.telegram import TelegramClientProto
+from app.ports.music import FetchRef, MusicSourceIndexProto
 from app.services.tags import image_media_type
 
 logger = logging.getLogger(__name__)
@@ -124,46 +124,49 @@ class PreviewService:
     def __init__(
         self,
         store: IStore,
-        client: TelegramClientProto | None,
+        registry: MusicSourceIndexProto,
         events: EventBus,
         preview_dir: Path,
         max_bytes: int = 512 * 1024 * 1024,
+        preview_quality: str | None = None,
     ) -> None:
         self.store = store
-        # 装配期可为 None（容器先建服务、组合根再注入真实代理）；使用前必须已注入
-        self._client = client
+        self.registry = registry
         self.events = events
         self.preview_dir = preview_dir
         self.max_bytes = max_bytes
+        # 试听档位（设置页可改，缺省 320k）：试听只为判断「是不是这首歌」，
+        # 不该替用户把额度烧在母带上。
+        self.preview_quality = preview_quality
         self._sem = asyncio.Semaphore(1)
         self._cover_sem = asyncio.Semaphore(COVER_CONCURRENCY)
         self._cover_failures: dict[str, float] = {}
 
-    @property
-    def client(self) -> TelegramClientProto:
-        """Telegram 客户端；未注入即属装配错误（组合根负责先注入再用）。"""
-        if self._client is None:
-            raise AppError("not_connected", "telegram 客户端未注入：请先完成初始化登录")
-        return self._client
-
-    @client.setter
-    def client(self, value: TelegramClientProto | None) -> None:
-        self._client = value
-
     async def request_preview(
-        self, chat_id: int, message_id: int, file_size: int | None = None
+        self,
+        chat_id: int,
+        message_id: int,
+        file_size: int | None = None,
+        *,
+        provider: str = PROVIDER_TELEGRAM,
+        ref: str | None = None,
     ) -> int:
-        """请求试听：缓存命中直接返回 preview_id；未命中占预览槽下载（SDD §2.4）。"""
+        """请求试听：缓存命中直接返回 preview_id；未命中占预览槽下载（SDD §2.4）。
+
+        缓存键是 ``(chat_id, message_id)``——在线源用保留负号 chat_id 加曲目 id 的
+        哈希，与 Telegram 消息天然不撞。``provider``/``ref`` 只影响怎么取，不影响键。
+        """
         hit = self.store.get_preview(chat_id, message_id)
         if hit is not None and await asyncio.to_thread(self._cache_valid, hit, file_size):
             preview_id = hit.id
             if preview_id is not None:
                 self.store.touch_preview(preview_id)
                 return preview_id
-            return await self._download_preview(chat_id, message_id, file_size)
+            return await self._download_preview(chat_id, message_id, file_size, provider, ref)
 
         async with self._sem:
-            return await self._download_preview(chat_id, message_id, file_size)
+            return await self._download_preview(chat_id, message_id, file_size, provider, ref)
+
 
     def _cache_valid(self, hit: PreviewCache, file_size: int | None) -> bool:
         """缓存记录命中且文件完整（SDD §2.4）。"""
@@ -172,20 +175,28 @@ class PreviewService:
             return False
         return p.stat().st_size == (file_size or hit.file_size)
 
-    async def _download_preview(self, chat_id: int, message_id: int, file_size: int | None) -> int:
+    async def _download_preview(
+        self,
+        chat_id: int,
+        message_id: int,
+        file_size: int | None,
+        provider: str,
+        ref: str | None,
+    ) -> int:
+        target = self.registry.by_meta(provider, None)
+        if target is None:
+            raise AppError("preview_failed", f"没有可用的试听来源：{provider}")
         self.preview_dir.mkdir(parents=True, exist_ok=True)
         # 中转名与最终名必须不同：取 temp_path.suffix 会得到 ".part"，两者同形就等于
         # 没有中转（崩在半路会留下一个「看起来像缓存」的半截文件）
         temp_path = self.preview_dir / f"{PREVIEW_PREFIX}{chat_id}_{message_id}.part"
+        meta = TrackMeta(chat_id=chat_id, message_id=message_id, provider=provider, ref=ref)
         try:
-            # download_media 是 async 协议方法；直接 await
-            await self.client.download_media(
-                {"chat_id": chat_id, "message_id": message_id},
-                str(temp_path),
-            )
+            await target.fetch(FetchRef.of(meta, target.scope_id, self.preview_quality), temp_path)
+        except AppError:
+            raise
         except Exception as e:
-            if temp_path.exists():
-                temp_path.unlink()
+            temp_path.unlink(missing_ok=True)
             raise AppError("preview_failed", f"preview download failed: {e}") from e
         actual = temp_path.stat().st_size
         if file_size is not None and actual != file_size:

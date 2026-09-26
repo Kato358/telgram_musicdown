@@ -22,13 +22,14 @@ import asyncio
 import json
 import logging
 import os
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
 from app.db.models import Task
 from app.domain import (
+    PROVIDER_TELEGRAM,
     DownloadRequest,
     TemplateConfig,
     TrackMeta,
@@ -39,7 +40,9 @@ from app.domain import (
 from app.errors import AppError, TaskNotFoundError
 from app.events import Event, EventBus
 from app.ports import IStore
+from app.ports.music import FetchRef, FetchResult, MusicSourceIndexProto
 from app.ports.telegram import TelegramClientProto
+from app.registry import SourceRegistry
 from app.services.history_writer import HistoryWriter, history_row
 from app.services.path_builder import render_path, resolve_conflict
 from app.services.progress import ProgressReporter, TaskRunState
@@ -82,6 +85,8 @@ class DownloadService:
         temp_dir: Path,
         cfg: TemplateConfig,
         max_concurrent: int = 3,
+        registry: MusicSourceIndexProto | None = None,
+        default_quality: str | None = None,
     ) -> None:
         self.store = store
         # 装配期可为 None（容器先建服务、组合根再注入真实代理）；使用前必须已注入
@@ -97,6 +102,14 @@ class DownloadService:
         self.tags = TagService()
         # 历史行结算（展示字段/读数/终态）独立成协作对象：与队列调度无关
         self._history = HistoryWriter(store, self.tags, cfg)
+        # 来源索引（SDD §2.7）：取音频只认 MusicSourceProto，故本服务不必知道
+        # 「这条是频道里的消息」还是「这条是在线源的曲子」。缺省就地拼一个
+        # 只含 Telegram 的索引，让既有构造点（测试、bot）不必改。
+        self.registry: MusicSourceIndexProto = registry or SourceRegistry(
+            store, client, client  # type: ignore[arg-type]  装配后 client 必非空
+        )
+        # 入队时没指定音质就听这个（设置页的「下载默认音质」）。
+        self.default_quality = default_quality
 
     @property
     def client(self) -> TelegramClientProto:
@@ -129,6 +142,7 @@ class DownloadService:
             "meta": asdict(meta),
             "source_id": req.source_id,
             "force": req.force,
+            "quality": req.quality,
         }
         task_id = self.store.create_task(
             Task(
@@ -356,12 +370,18 @@ class DownloadService:
         meta = _meta_from_payload(payload)
         # bot 链接/转发入队只有 chat_id/message_id：下载前取一次消息补全 meta
         # （ext 决定落盘扩展名与标签容器，file_size 决定完整性校验）。
-        if meta.ext is None and meta.file_size is None and meta.title is None:
+        if meta.provider == PROVIDER_TELEGRAM and meta.ext is None and meta.file_size is None:
             meta = await self._hydrate_meta(meta)
-        if history_id is not None:
-            self._history.sync_display(history_id, meta)
-        chat_id: int = meta.chat_id
-        message_id: int = meta.message_id
+        target = self.registry.by_meta(meta.provider, payload.get("source_id"))
+        if target is None:
+            await self._set_status(
+                task_id,
+                "failed",
+                history_id,
+                error=f"没有可用的取数来源：{meta.provider}",
+            )
+            return
+        quality = payload.get("quality") or self.default_quality
         expected_size: int | None = meta.file_size
         reporter = ProgressReporter(
             self.store, self.events, self._run_state, task_id, expected_size
@@ -370,30 +390,40 @@ class DownloadService:
         async with self._sem:
             if self._run_state.is_stopped(task_id):
                 return
-            temp_path = self.temp_dir / f"task_{task_id}_{message_id}"
+            temp_path = self.temp_dir / f"task_{task_id}_{meta.message_id}"
             self.temp_dir.mkdir(parents=True, exist_ok=True)
-            temp_str = str(temp_path)
             await reporter.flush()
             try:
-                # download_media 是 async 协议方法；同步 progress 回调由客户端线程池调用。
-                await self.client.download_media(
-                    {"chat_id": chat_id, "message_id": message_id},
-                    temp_str,
-                    progress=reporter,
+                # 取音频交给来源自己：本服务只管队列、进度与落盘，不认 Telegram
+                # 也不认 ChKSz。progress 是同步回调，由适配器在合适的时机调用。
+                result = await target.fetch(
+                    FetchRef.of(meta, target.scope_id, quality), temp_path, reporter
                 )
             except asyncio.CancelledError:
                 if self._run_state.is_stopped(task_id):
                     return  # 暂停/取消：不标 failed，保留分片由后续动作处理
                 raise
+            except AppError as e:
+                await self._fail_or_retry(task, e.message)
+                return
             finally:
                 await reporter.flush()
 
+            # 实际拿到的容器/码率只有解析之后才知道：在线源对没有的音质会静默降级，
+            # 落盘与展示都得用实测值而不是用户请求的那一档。
+            meta = _apply_fetched(meta, result)
+            if history_id is not None:
+                self._history.sync_display(history_id, meta)
+
+            # 校验对账的是**声明**大小（meta.file_size），不是刚落盘的字节数——
+            # 拿实测值当期望值等于自己跟自己对账，损坏文件会一路进 save_path。
+            # 在线源声明不出大小，那一档由适配器自己按 Content-Length 兜住。
             if not await self._validate_download_size(
                 task_id, history_id, temp_path, expected_size
             ):
                 return  # NFR-01：损坏文件不落 save_path
             await self._complete_download(
-                task_id, history_id, temp_path, expected_size, payload, meta
+                task_id, history_id, temp_path, result.file_size or expected_size, payload, meta
             )
 
     async def _validate_download_size(
@@ -488,6 +518,25 @@ class DownloadService:
     def backfill_history_media(self, limit: int = 500) -> int:
         """启动回填（兼容入口）：委托 HistoryWriter。"""
         return self._history.backfill_media(limit)
+
+
+def _apply_fetched(meta: TrackMeta, result: FetchResult) -> TrackMeta:
+    """把取音频的实测事实并回 meta。
+
+    搜索卡片上的容器/码率是「这个平台大概是什么样」，解析之后才知道确切值：
+    在线源对没有的音质会静默降级（母带歌多半只有无损），拿请求的档位去渲染文件名
+    与标签就是把没下到的东西说成下到了。缺项保留原值，不覆盖成 None。
+    """
+    updates: dict[str, Any] = {}
+    if result.ext:
+        updates["ext"] = result.ext
+    if result.mime:
+        updates["mime"] = result.mime
+    if result.bitrate:
+        updates["bitrate"] = result.bitrate
+    if result.file_size:
+        updates["file_size"] = result.file_size
+    return replace(meta, **updates) if updates else meta
 
 
 def _meta_from_payload(payload: dict[str, Any]) -> TrackMeta:

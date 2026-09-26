@@ -27,6 +27,8 @@ from app.web import auth as web_auth
 class RouteContext:
     """路由共享上下文：服务句柄 + 认证依赖 + 应用级配置。"""
 
+    #: 来源索引（SDD §2.7）：搜索/下载/试听共用；设置保存时就地刷新在线源开关与档位。
+    registry: Any
     store: IStore
     events: EventBus
     downloads: DownloadService

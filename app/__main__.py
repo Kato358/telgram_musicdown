@@ -147,6 +147,7 @@ async def run(base_dir: Path) -> None:
         preview=svc.preview,
         tg=svc.tg,
         library=svc.library,
+        registry=svc.container.registry,
         base_dir=base_dir,
         web_host=svc.secrets.web_host,
         web_login_secret=svc.secrets.web_login_secret,
@@ -173,7 +174,9 @@ async def run(base_dir: Path) -> None:
         library_scan_task.cancel()
         # 搜索：停掉后台补齐的取数任务并把延迟写队列落盘（缓存尽力落，不阻塞退出）
         await svc.search.aclose()
-        svc.container.close()  # 生命周期收口：不再绕过容器直接 store.close()
+        # 生命周期收口：不再绕过容器直接 store.close()。aclose 顺带关掉在线源的
+        # HTTP 连接池——它是在线的 loop 资源，close() 这个同步口关不掉。
+        await svc.container.aclose()
 
 
 def main() -> None:

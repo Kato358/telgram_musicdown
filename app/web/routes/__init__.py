@@ -44,6 +44,7 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
     tg: object,
     *,
     library: object | None = None,
+    registry: object | None = None,
     base_dir: object,
     web_host: str = "127.0.0.1",
     web_login_secret: str = "",
@@ -55,6 +56,8 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
     ``library`` 未给时按默认布局兜底装配（save_path = base_dir/downloads），
     曲库路由因此始终可用；生产由容器传入。
     """
+    # 来源索引：显式传入用容器的那份；未传就取下载服务手上那份（三者本来就该同一份）。
+    source_registry = registry or getattr(downloads, "registry", None)
     # 音频标签服务：封面/曲库路由与曲库扫描共用同一份（下载服务自持一份，此处复用）
     tags: TagService = getattr(downloads, "tags", None) or TagService()
     library_service = library
@@ -73,6 +76,7 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
         store=store,  # type: ignore[arg-type]  # IStore 协议（duck-type）
         events=events,
         downloads=downloads,  # type: ignore[arg-type]
+        registry=source_registry,
         sources=sources,  # type: ignore[arg-type]
         search=search,  # type: ignore[arg-type]
         preview=preview,  # type: ignore[arg-type]

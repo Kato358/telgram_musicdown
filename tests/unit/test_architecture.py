@@ -113,10 +113,17 @@ def test_build_container_wires_services(tmp_path: Path) -> None:
 def test_build_container_respects_override(tmp_path: Path) -> None:
     """测试注入假客户端：容器照常装配其余组件，不 mock 被测对象。"""
     fake = FakeUserClient([make_audio_message(1)])
-    container = build_container(tmp_path, Overrides(download_client=fake))
+    container = build_container(tmp_path, Overrides(download_client=fake, source_client=fake))
     try:
         assert container.downloads.client is fake
-        assert container.preview.client is fake
+        # 搜索、下载、试听必须共用同一份来源索引：同一个来源在三条链路里得是同一个
+        # 东西，否则搜索里点的和下载时取的不是一路。
+        assert (
+            container.search.registry
+            is container.downloads.registry
+            is container.preview.registry
+            is container.registry
+        )
     finally:
         container.close()
 

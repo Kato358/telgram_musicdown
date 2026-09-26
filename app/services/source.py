@@ -48,6 +48,8 @@ from app.domain import (
 )
 from app.errors import SourceUnreachableError
 from app.ports import IStore
+from app.ports.music import MusicSourceIndexProto, MusicSourceProto
+from app.registry import SourceRegistry
 from app.services.search_cache import (
     CachedSourceResult,
     QuerySnapshotCache,
@@ -61,7 +63,6 @@ logger = logging.getLogger(__name__)
 
 DISCOVER_LIMIT = 60  # 候选源上限：列表本身是「挑几个加入」，不做全量呈现（FR-SRC-05）
 
-SEARCH_FETCH_ROUNDS = 5  # 单源为凑够一页卡片最多往返几次（上游已按 Audio 过滤，通常一次就够）
 
 # searchGlobal 的缓存/快照 scope 标记（FR-SEARCH-01 global 模式）。
 # 全局结果不依赖任何源行，但复用同一套「关键词 × 取数窗口」缓存与翻页前缀：
@@ -229,7 +230,12 @@ class SearchResponse:
 
 
 class SearchService:
-    """已启用源内关键词搜索（FR-SEARCH-01~04）：二级缓存 + 并发扇出 + 同步窗口。"""
+    """关键词搜索（FR-SEARCH-01~04）：二级缓存 + 并发扇出 + 同步窗口。
+
+    扇出的对象是 ``MusicSourceProto``——音乐源频道与在线源平台在同一层，合并、
+    筛选、排序、去重、切页对两者一视同仁。``client`` 仍留在本类里，但只服务
+    searchGlobal 与全局模式的分页，那是 Telegram 独有能力（SDD §2.7）。
+    """
 
     def __init__(
         self,
@@ -237,9 +243,13 @@ class SearchService:
         client: SourceClientProto,
         cache: SearchCache | None = None,
         settings: SearchSettings | None = None,
+        registry: MusicSourceIndexProto | None = None,
     ) -> None:
         self.store = store
         self.client = client
+        # registry 缺省就地拼一个「只有音乐源」的：测试与一次性脚本不必为在线源
+        # 操心，而装配路径（容器）显式注入带在线源的那个。
+        self.registry: MusicSourceIndexProto = registry or SourceRegistry(store, client, client)
         self.settings = settings or SearchSettings()
         # 缓存是搜索的实现细节，装配路径（容器）显式传 settings 驱动的实例；
         # 其余构造点（测试、一次性脚本）拿缺省缓存即可，不必各自拼一个。
@@ -287,19 +297,19 @@ class SearchService:
                 sort=sort,
                 refresh=refresh,
             )
-        sources = [
-            (s.id, s)
-            for s in self.store.list_sources(enabled_only=True)
-            if s.id is not None and (source_ids is None or s.id in source_ids)
+        targets = [
+            target
+            for target in self.registry.targets()
+            if source_ids is None or target.scope_id in source_ids
         ]
-        if not sources:
+        if not targets:
             return SearchResponse(
                 results=[], meta={"reason": "no_enabled_sources", "mode": SEARCH_MODE_SOURCES}
             )
         need = (page + 1) * size
         snapshot_key = _snapshot_key(
             keyword,
-            ",".join(str(source_id) for source_id, _ in sources),
+            ",".join(str(target.scope_id) for target in targets),
             sort,
             page_size=size,
             fields=fields,
@@ -310,30 +320,30 @@ class SearchService:
             self._snapshots.drop(snapshot_key)
 
         tasks = {
-            source_id: asyncio.create_task(
-                self._source_result(source_id, src, keyword, need, refresh=refresh)
+            target.scope_id: asyncio.create_task(
+                self._source_result(target, keyword, need, refresh=refresh)
             )
-            for source_id, src in sources
+            for target in targets
         }
         done, _ = await asyncio.wait(set(tasks.values()), timeout=self.settings.sync_window_sec)
 
         per_source: list[CachedSourceResult] = []
         unreachable: list[dict[str, Any]] = []
         pending_sources: list[int] = []
-        for source_id, _src in sources:
-            task = tasks[source_id]
+        for target in targets:
+            task = tasks[target.scope_id]
             if task not in done:
                 # 超窗：不取消、不等待——它继续跑并自己写缓存，下次同词直接命中完整结果。
-                pending_sources.append(source_id)
+                pending_sources.append(target.scope_id)
                 self._track_background(task)
                 continue
             try:
                 per_source.append(task.result())
             except SourceUnreachableError as e:
-                unreachable.append({"source_id": source_id, "reason": e.reason})
+                unreachable.append({"source_id": target.scope_id, "reason": e.reason})
             except Exception:  # noqa: BLE001  单源崩掉只该让它缺席，不该废掉整次搜索
-                logger.exception("search failed source_id=%s", source_id)
-                unreachable.append({"source_id": source_id, "reason": "error"})
+                logger.exception("search failed source_id=%s", target.scope_id)
+                unreachable.append({"source_id": target.scope_id, "reason": "error"})
 
         tokens = keyword_tokens(keyword)
         parsed = SearchFilters.parse(filters)
@@ -526,14 +536,14 @@ class SearchService:
 
     async def _source_result(
         self,
-        source_id: int,
-        src: Source,
+        target: MusicSourceProto,
         keyword: str,
         need: int,
         *,
         refresh: bool,
     ) -> CachedSourceResult:
-        """一个源的取数窗口：缓存够用就直接回，否则合并一次上游调用并写回缓存。"""
+        """一个来源的取数窗口：缓存够用就直接回，否则合并一次上游调用并写回缓存。"""
+        source_id = target.scope_id
         base: CachedSourceResult | None = None
         if not refresh:
             base = self.cache.get(source_id, keyword)
@@ -553,45 +563,34 @@ class SearchService:
         key = f"{search_cache_key(source_id, keyword)}#{need}"
         task = self._inflight.get(key)
         if task is None:
-            task = asyncio.create_task(self._fetch_extend(source_id, src, keyword, need, base))
+            task = asyncio.create_task(self._fetch_extend(target, keyword, need, base))
             self._inflight[key] = task
             task.add_done_callback(partial(self._release_inflight, key))
         return await task
 
     async def _fetch_extend(
         self,
-        source_id: int,
-        src: Source,
+        target: MusicSourceProto,
         keyword: str,
         need: int,
         base: CachedSourceResult | None,
     ) -> CachedSourceResult:
-        """从 ``base.covered`` 续取到凑够 ``need`` 张卡片（上游已按 Audio 过滤，通常一轮即够）。"""
+        """从 ``base.covered`` 续取到凑够 ``need`` 张卡片。
+
+        「续取几轮才够」是各来源自己的事：Telegram 上游混着非音频消息，要多翻；
+        在线源一轮就是纯音乐。协议把这件事收在 ``MusicSourceProto.search`` 里，
+        本层只管把窗口接到缓存上。
+        """
         items = list(base.items) if base else []
-        covered = base.covered if base else 0
-        has_more = True
-        for _ in range(SEARCH_FETCH_ROUNDS):
-            if len(items) >= need or not has_more:
-                break
-            limit = need - len(items)
-            async with self._sem:
-                raw = await self.client.search_messages(
-                    src.telegram_chat_id, keyword, limit=limit, offset=covered
-                )
-            if not raw:
-                has_more = False
-                break
-            covered += len(raw)
-            has_more = len(raw) >= limit
-            items.extend(
-                message_to_card(m, src.title) for m in raw if is_audio_message(m)
-            )
+        async with self._sem:
+            window = await target.search(keyword, need - len(items), base.covered if base else 0)
+        items.extend(window.items)
         result = CachedSourceResult(
-            source_id=source_id,
+            source_id=target.scope_id,
             keyword=keyword,
             items=items,
-            covered=covered,
-            has_more=has_more,
+            covered=window.consumed,
+            has_more=window.has_more,
             fetched_at=time.time(),
         )
         self.cache.put(result)

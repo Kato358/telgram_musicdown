@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app.config import SecretConfig, load_secrets
 from app.db.models import History, Task
 from app.db.store import Store
+from app.registry import SourceRegistry
 from app.domain import TemplateConfig
 from app.errors import SourceUnreachableError, WebAuthConfigError
 from app.events import Event, EventBus
@@ -33,16 +34,21 @@ API_HASH = "0123456789abcdef0123456789abcdef"
 def client(tmp_path: Path) -> TestClient:
     store = Store(tmp_path / "app.db")
     events = EventBus()
+    # 三个服务共用一份来源索引（与容器装配同构），否则在线源那条路在 API 层是死的
+    registry = SourceRegistry(store, FakeUserClient([]), FakeUserClient([]))  # type: ignore[arg-type]
     sources = SourceService(store, None)  # type: ignore[arg-type]
-    search = SearchService(store, None)  # type: ignore[arg-type]
+    search = SearchService(store, None, registry=registry)  # type: ignore[arg-type]
     downloads = DownloadService(
         store,
         None,
         events,
         tmp_path / "temp",
         TemplateConfig(save_path=tmp_path / "library"),  # type: ignore[arg-type]
+        registry=registry,
     )
-    preview = PreviewService(store, None, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    preview = PreviewService(
+        store, registry, events, tmp_path / "temp" / "preview"
+    )
     tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
     app = create_app(
         store,
@@ -56,6 +62,12 @@ def client(tmp_path: Path) -> TestClient:
         web_host="127.0.0.1",
         web_login_secret="",
     )
+    # 测试用句柄：断言要摸到装配出来的服务（app.state 只是命名空间，挂这里不碰生产代码）
+    app.state.store = store
+    app.state.registry = registry
+    app.state.downloads = downloads
+    app.state.preview = preview
+    app.state.chksz = chksz
     return TestClient(app)
 
 
@@ -1163,3 +1175,25 @@ def test_search_endpoint_pages_caches_and_refreshes(tmp_path: Path) -> None:
         ).json()
         assert refreshed["meta"]["cache"] == {"hits": 0, "misses": 1}
         assert client.search_calls == calls + 2
+
+
+# ---- 在线源（SDD §2.7）----
+
+
+def test_saving_settings_refreshes_online_source_toggles(client: TestClient) -> None:
+    # 保存即生效（FR-CFG-03）：开关与两档音质不必重启
+    r = client.put(
+        "/api/settings",
+        json={
+            "values": {
+                "chksz_enabled": True,
+                "chksz_download_quality": "master",
+                "chksz_preview_quality": "128k",
+            }
+        },
+    )
+    assert r.status_code == 200
+    assert client.app.state.registry._chksz_enabled is True  # noqa: SLF001
+    assert client.app.state.downloads.default_quality == "master"
+    assert client.app.state.preview.preview_quality == "128k"
+

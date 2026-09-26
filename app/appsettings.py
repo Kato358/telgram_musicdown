@@ -64,6 +64,46 @@ def _str_setting(store: SettingsRepo, key: str, default: str) -> str:
     return store.get_setting(key) or default
 
 
+def _bool_setting(store: SettingsRepo, key: str, default: bool) -> bool:
+    """布尔取值：认 ``true/false/1/0/on/off/yes/no``（不区分大小写），认不出按 default。"""
+    raw = (store.get_setting(key) or "").strip().lower()
+    if raw in ("true", "1", "on", "yes"):
+        return True
+    if raw in ("false", "0", "off", "no"):
+        return False
+    return default
+
+
+# ---- 在线源 ChKSz（SDD §2.7）----
+# 开关与两档音质进 settings 表（热更新、不涉密）；API Key 只在 config.yaml（NFR-02）。
+# 试听默认 320k 是有意选的：试听只为判断「是不是这首歌、能不能听」，母带流又大又
+# 慢，试听位不该替用户把额度烧在最高档上；真要存就点下载，那时再选档。
+DEFAULT_CHKSZ_DOWNLOAD_QUALITY = "hires"
+DEFAULT_CHKSZ_PREVIEW_QUALITY = "320k"
+
+
+@dataclass(slots=True, frozen=True)
+class ChkszSettings:
+    """在线源运行配置：开关 + 下载/试听默认档。"""
+
+    enabled: bool = False
+    download_quality: str = DEFAULT_CHKSZ_DOWNLOAD_QUALITY
+    preview_quality: str = DEFAULT_CHKSZ_PREVIEW_QUALITY
+
+
+def load_chksz_settings(store: SettingsRepo) -> ChkszSettings:
+    """在线源配置（settings 表现读）；装配时用缺省值，保存设置后由容器刷新。"""
+    return ChkszSettings(
+        enabled=_bool_setting(store, "chksz_enabled", False),
+        download_quality=_str_setting(
+            store, "chksz_download_quality", DEFAULT_CHKSZ_DOWNLOAD_QUALITY
+        ),
+        preview_quality=_str_setting(
+            store, "chksz_preview_quality", DEFAULT_CHKSZ_PREVIEW_QUALITY
+        ),
+    )
+
+
 def load_template_config(store: SettingsRepo, base_dir: Path) -> TemplateConfig:
     """落盘模板配置（FR-NAME-01）：settings 表现读，容器装配与保存后即时刷新共用。
 
@@ -173,6 +213,7 @@ class AppSettings:
     download: DownloadSettings
     preview: PreviewSettings
     search: SearchSettings
+    chksz: ChkszSettings
 
 
 def load_app_settings(
@@ -188,4 +229,5 @@ def load_app_settings(
         ),
         preview=PreviewSettings(max_bytes=preview_max_bytes(store)),
         search=load_search_settings(store),
+        chksz=load_chksz_settings(store),
     )

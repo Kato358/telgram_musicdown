@@ -13,6 +13,53 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path, PurePath
 from typing import Any
 
+# ---- 音频来源（SDD §2.7）----
+# 「在线源」不是 sources 表的行（那张表是 Telegram 对话的 CRUD，telegram_chat_id 唯一），
+# 而是保留的一段负号 chat_id：history 与 preview_cache 都以 UNIQUE(chat_id, message_id)
+# 定位一条音频，provider 编码进 chat_id 就让这个约束天然隔离各平台，不必改表。
+# 取值是约定不是巧合——改这里等于让历史行与试听缓存撞键。
+PROVIDER_TELEGRAM = "telegram"
+PROVIDER_SCOPES: dict[str, int] = {"163": -1, "qq": -2, "kugo": -3}
+SCOPE_PROVIDERS: dict[int, str] = {v: k for k, v in PROVIDER_SCOPES.items()}
+
+
+UNIQUE_ID_PREFIX = "chksz"
+
+
+def chksz_unique_id(provider: str, ref: str) -> str:
+    """在线源曲目的 ``file_unique_id``。
+
+    有了它就不必给 history/preview_cache 加列：历史行的「重新下载」从这一串
+    反解回平台与曲目 id，``history`` 表结构与去重索引（``idx_history_unique``）都原样。
+    """
+    return f"{UNIQUE_ID_PREFIX}:{provider}:{ref}"
+
+_UNIQUE_ID_PARTS = 3
+
+
+def _split_unique_id(unique_id: str | None) -> tuple[str, str] | None:
+    """``chksz:<provider>:<ref>`` → ``(provider, ref)``；其余（含 Telegram 的裸 id）→ None。"""
+    parts = (unique_id or "").split(":", 2)
+    if (
+        len(parts) != _UNIQUE_ID_PARTS
+        or parts[0] != UNIQUE_ID_PREFIX
+        or parts[1] not in PROVIDER_SCOPES
+    ):
+        return None
+    return parts[1], parts[2]
+
+
+def ref_of(unique_id: str | None) -> str | None:
+    """``file_unique_id`` → 平台曲目 id；不是在线源曲目返回 None。"""
+    split = _split_unique_id(unique_id)
+    return split[1] or None if split else None
+
+
+def provider_of(unique_id: str | None) -> str:
+    """``file_unique_id`` → 音频来源；Telegram 的裸 id 回落默认源（认不出不当在线源）。"""
+    split = _split_unique_id(unique_id)
+    return split[0] if split else PROVIDER_TELEGRAM
+
 
 @dataclass(slots=True)
 class TrackMeta:
@@ -34,6 +81,11 @@ class TrackMeta:
     channel_title: str | None = None
     ext: str | None = None
     unique_id: str | None = None
+
+    # 音频来源（默认 telegram：chat_id/message_id 即音频消息的身份）。
+    # 非 telegram 时（在线源）这两列是保留负号与哈希，ref 存平台曲目 id、provider 存平台名。
+    provider: str = PROVIDER_TELEGRAM
+    ref: str | None = None
 
 
 @dataclass(slots=True)
@@ -59,6 +111,9 @@ class DownloadRequest:
     meta: TrackMeta
     source_id: int | None = None
     force: bool = False
+    #: 目标音质（在线源的原生档位名，如 ``flac``/``hires``）。None = 用设置页默认值。
+    #: Telegram 源忽略它——频道里的文件就是它本身。
+    quality: str | None = None
 
 
 # ---- 音频扩展名（唯一事实源）----
@@ -121,6 +176,13 @@ class SearchResultCard:
     caption: str | None
     file_unique_id: str | None = None
     bitrate: int | None = None
+
+    #: 卡片来源：telegram = 音乐源频道；其余为在线源平台（``PROVIDER_SCOPES`` 的键）。
+    provider: str = PROVIDER_TELEGRAM
+
+    #: 在线源曲目的平台 id（Telegram 卡片为 None）。随卡片下发给前端，下载时原样回传：
+    #: message_id 是哈希，反解不回平台 id，前端没有它就没法组装下载请求。
+    ref: str | None = None
 
 
 _DURATION_RE = re.compile(r"Duration:\s*(\d{1,2}):(\d{2})(?::(\d{2}))?", re.IGNORECASE)
@@ -215,6 +277,8 @@ def card_to_meta(card: SearchResultCard) -> TrackMeta:
         message_date=card.message_date,
         channel_title=card.channel_title,
         unique_id=card.file_unique_id,
+        provider=card.provider,
+        ref=card.ref or ref_of(card.file_unique_id),
     )
 
 

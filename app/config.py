@@ -17,6 +17,10 @@ import yaml
 ENV_PREFIX = "TGM_"
 
 
+# ChKSz 在线源的默认服务地址（可自建部署，用 TGM_CHKSZ_BASE_URL 或 config.yaml 覆盖）。
+DEFAULT_CHKSZ_BASE_URL = "https://api.chksz.com"
+
+
 def _env(key: str) -> str | None:
     return os.environ.get(f"{ENV_PREFIX}{key.upper()}")
 
@@ -81,6 +85,11 @@ class SecretConfig:
     web_login_enabled: bool = True
     proxy: ProxyConfig | None = None
 
+    # ChKSz 在线源密钥（SDD §2.7）：与 Telegram 密钥同段——只进 config.yaml/.env，
+    # 不入 settings 表（那张表的内容 GET /api/settings 原样返回给浏览器）。
+    chksz_api_key: str = ""
+    chksz_base_url: str = DEFAULT_CHKSZ_BASE_URL
+
     @property
     def has_credentials(self) -> bool:
         return self.api_id != 0 and bool(self.api_hash)
@@ -109,6 +118,8 @@ def secrets_from_data(data: dict[str, Any]) -> SecretConfig:
     cfg.web_port = int(data.get("web_port") or 8787)
     cfg.web_login_secret = str(data.get("web_login_secret") or "")
     cfg.web_login_enabled = _as_bool(data.get("web_login_enabled"), True)
+    cfg.chksz_api_key = str(data.get("chksz_api_key") or "")
+    cfg.chksz_base_url = str(data.get("chksz_base_url") or DEFAULT_CHKSZ_BASE_URL).rstrip("/")
     proxy_raw = data.get("proxy")
     if isinstance(proxy_raw, dict):
         cfg.proxy = ProxyConfig(
@@ -130,6 +141,8 @@ def load_secrets(base_dir: Path) -> SecretConfig:
     cfg.web_host = _env("web_host") or cfg.web_host
     cfg.web_port = int(_env("web_port") or cfg.web_port)
     cfg.web_login_secret = _env("web_login_secret") or cfg.web_login_secret
+    cfg.chksz_api_key = _env("chksz_api_key") or cfg.chksz_api_key
+    cfg.chksz_base_url = (_env("chksz_base_url") or cfg.chksz_base_url).rstrip("/")
     enabled_env = _env_bool("web_login_enabled")
     if enabled_env is not None:
         cfg.web_login_enabled = enabled_env

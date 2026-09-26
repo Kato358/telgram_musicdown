@@ -335,19 +335,23 @@ class Store:
         duration_sec: int | None,
         file_size: int | None,
         bitrate: int | None,
+        ext: str | None = None,
     ) -> None:
-        """回填时长 / 大小 / 码率（链接入队时未知，落盘实测后才拿得到）。
+        """回填时长 / 大小 / 码率 / 容器（链接入队时未知，落盘实测后才拿得到）。
 
-        只认有真值的更新：传 NULL 的字段保持原样，不把已有读数冲掉。
+        只认有真值的更新：传 NULL 的字段保持原样，不把已有读数冲掉。``ext`` 是
+        在线源解析之后才知道的容器（母带歌多半只能拿到无损），不记下来下载页显示的
+        格式就永远停在入队时的空白。
         """
         with self._conn:
             self._conn.execute(
                 "UPDATE history SET"
                 " duration_sec=COALESCE(?, duration_sec),"
                 " file_size=COALESCE(?, file_size),"
-                " bitrate=COALESCE(?, bitrate)"
+                " bitrate=COALESCE(?, bitrate),"
+                " ext=COALESCE(?, ext)"
                 " WHERE id=?",
-                (duration_sec, file_size, bitrate, history_id),
+                (duration_sec, file_size, bitrate, ext, history_id),
             )
 
     def list_history_missing_media(self, limit: int = 500) -> list[History]:

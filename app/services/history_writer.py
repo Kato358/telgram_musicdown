@@ -75,9 +75,9 @@ class HistoryWriter:
                     meta.artist or history.artist,
                     meta.album or history.album,
                 )
-        if meta.duration_sec or meta.file_size or meta.bitrate:
+        if meta.duration_sec or meta.file_size or meta.bitrate or meta.ext:
             self._store.set_history_media(
-                history_id, meta.duration_sec, meta.file_size, meta.bitrate
+                history_id, meta.duration_sec, meta.file_size, meta.bitrate, meta.ext
             )
 
     def display_meta(self, save_path: str, meta: TrackMeta) -> TrackMeta:

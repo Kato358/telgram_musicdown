@@ -18,6 +18,7 @@ from app.appsettings import AppSettings, load_app_settings
 from app.config import SecretConfig, app_dirs
 from app.ports import IStore
 from app.ports.telegram import TelegramClientProto
+from app.registry import SourceRegistry
 from app.services.download import DownloadService
 from app.services.local_library import LocalLibraryService
 from app.services.preview import PreviewService
@@ -44,6 +45,8 @@ class Container:
     dirs: dict[str, Path]
     settings: AppSettings
     store: IStore
+    #: 来源索引：搜索、下载、试听共用同一个实例（SDD §2.7）。设置保存时就地刷新它。
+    registry: SourceRegistry
     downloads: DownloadService
     sources: SourceService
     search: SearchService
@@ -76,6 +79,13 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
     download_client = ov.download_client
     source_client = ov.source_client
 
+    # 三个服务共用一份来源索引：同一个来源在搜索里叫 A、在下载里必须还是 A。
+    registry = SourceRegistry(
+        store,
+        source_client,
+        download_client,  # type: ignore[arg-type]  装配后必非空
+    )
+
     downloads = DownloadService(
         store,
         download_client,
@@ -83,6 +93,7 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
         dirs["temp"],
         settings.template,
         max_concurrent=settings.download.max_concurrent,
+        registry=registry,
     )
     sources = SourceService(store, source_client)
     search = SearchService(
@@ -90,10 +101,11 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
         source_client,
         SearchCache(store, settings.search.cache),
         settings.search,
+        registry=registry,
     )
     preview = PreviewService(
         store,
-        download_client,
+        registry,
         events,
         dirs["preview"],
         max_bytes=settings.preview.max_bytes,
@@ -104,6 +116,7 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
         dirs=dirs,
         settings=settings,
         store=store,
+        registry=registry,
         downloads=downloads,
         sources=sources,
         search=search,
