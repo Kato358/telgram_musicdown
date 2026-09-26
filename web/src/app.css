@@ -364,13 +364,19 @@
 
 /* 折叠（迷你）态：86px = 66px 封面 + 18px 折叠把手内边距 + 2px 边框。
    机身是 border-box（含边框内边距），照抄 APlayer 出厂的 66px 内容区只剩
-   48px，封面会被 overflow:hidden 裁掉一块——这里按盒模型实算补齐。 */
+   48px，封面会被 overflow:hidden 裁掉一块——这里按盒模型实算补齐。
+   高度同理：出厂 66px 高配 1px 边框后内腔只剩 64px，封面被裁、把手
+   比封面矮一截（展开态高 66px 内容 + 2px 边框 = 68px，折叠态补成同高，
+   切换时卡片也不再跳变）。 */
 .aplayer-host.aplayer.aplayer-fixed.aplayer-narrow .aplayer-body {
   width: 86px !important;
+  height: 68px !important;
 }
 
 .aplayer-host.aplayer.aplayer-fixed .aplayer-info {
-  border-top-color: var(--border);
+  /* 出厂在 info 顶边画了一条 1px 分隔线，横在封面右侧，看起来像 info 区
+     比封面矮了一截。卡片是一张整卡，这条缝直接去掉，不让它再出现。 */
+  border-top: none;
 }
 
 .aplayer-host.aplayer .aplayer-music .aplayer-title {
@@ -453,10 +459,14 @@
   overflow: hidden;
 }
 
-/* 收起态（aplayer-list-hide = max-height:0）盒高只剩上下两条边框，会在机身
-   正上方压出一条 2px 细线——收起时把边框一并隐去，卡片顶边才算干净。 */
+/* 收起态（aplayer-list-hide = max-height:0）只把内容盒压到 0，上下边框仍占着
+   约 2px 盒高，而 background-clip 默认画到边框盒、投影围着边框盒画——边框只
+   透明化的话，这 1-2px 仍被卡片底色涂满（浅色下就是机身顶边上方那条白条），
+   外加一圈投影。边、底、影一并隐去才算藏干净；展开时 transition:all 再平滑回来。 */
 .aplayer-host.aplayer.aplayer-fixed .aplayer-list.aplayer-list-hide {
   border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .aplayer-host.aplayer .aplayer-list ol li {
