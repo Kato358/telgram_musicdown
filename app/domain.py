@@ -358,14 +358,15 @@ _RELEVANCE_FIELDS: tuple[tuple[str, int], ...] = (("title", 4), ("artist", 3), (
 SEARCH_SORTS: tuple[str, ...] = ("relevance", "date", "duration", "size")
 
 
-def relevance_score(card: SearchResultCard, tokens: list[str]) -> tuple[int, int]:
-    """相关度 = ``(命中词数, 命中质量总和)``（pansou 智能排序里「关键词得分」一维的对应）。
+def relevance_score(card: SearchResultCard, tokens: list[str]) -> tuple[int, int, int, str]:
+    """相关度 = ``(命中词数, 命中质量, 文件大小, 日期)``。
 
-    先比覆盖面：两个词都命中的排在只命中一个的前面；再比命中质量：
-    整字段相等 > 前缀 > 子串，且标题 > 表演者 > 说明（说明常是频道推广文案）。
+    名字决定前两维：先比覆盖面（多词都命中的在前），再比命中质量
+    （整字段相等 > 前缀 > 子串；标题 > 表演者 > 说明，说明常是频道推广文案）。
+    名字分不出时才看文件：大的在前（未知取 -1 垫底），最后才看日期（新的在前，缺失垫底）。
 
-    用元组而不是加权求和：加权需要一个凭空设定的量纲（pansou 那里是插件等级的 1000 分），
-    本项目没有数据源分级，比较口径越直白越好。
+    大小与日期是独立的键，不乘进质量分：字节和质量不是同一量纲，
+    一个大文件不该盖过标题命中。
     """
     covered = 0
     total = 0
@@ -387,7 +388,7 @@ def relevance_score(card: SearchResultCard, tokens: list[str]) -> tuple[int, int
         if best:
             covered += 1
         total += best
-    return covered, total
+    return covered, total, _or_neg(card.file_size), card.message_date or ""
 
 
 @dataclass(slots=True)
@@ -503,18 +504,18 @@ def matches_fields(card: SearchResultCard, tokens: list[str], fields: list[str] 
 def sort_cards(cards: list[SearchResultCard], sort: str, keyword: str) -> list[SearchResultCard]:
     """排序（FR-SEARCH-03）：默认相关度，可换日期/时长/大小；未知值按相关度。
 
-    先按日期新→旧铺一遍，再按主键稳定排序——日期既当主键也当同分时的次序依据，
-    不需要为每个维度再拼一套复合键。
+    日期/时长/大小先按日期新→旧铺一遍，再按主键稳定排序——同值仍是日期新→旧。
+    相关度不走这条路：它的键自己带了大小和日期，名字相同时大文件在前、日期最后。
     """
+    if sort not in ("date", "duration", "size"):
+        tokens = keyword_tokens(keyword)
+        return sorted(cards, key=lambda c: relevance_score(c, tokens), reverse=True)
     by_date = sorted(cards, key=lambda c: c.message_date or "", reverse=True)
     if sort == "date":
         return by_date
     if sort == "duration":
         return sorted(by_date, key=lambda c: _or_neg(c.duration_sec), reverse=True)
-    if sort == "size":
-        return sorted(by_date, key=lambda c: _or_neg(c.file_size), reverse=True)
-    tokens = keyword_tokens(keyword)
-    return sorted(by_date, key=lambda c: relevance_score(c, tokens), reverse=True)
+    return sorted(by_date, key=lambda c: _or_neg(c.file_size), reverse=True)
 
 
 def _or_neg(value: int | None) -> int:

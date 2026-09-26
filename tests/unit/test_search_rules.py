@@ -78,11 +78,16 @@ def test_relevance_requires_every_token() -> None:
     assert relevance_score(both, ["周杰伦", "晴天"]) > relevance_score(one, ["周杰伦", "晴天"])
     assert relevance_score(
         _card(3, title="无关", artist=None, caption=None), ["周杰伦", "晴天"]
-    ) == (0, 0)
+    ) == (0, 0, 100, "2026-01-01T00:00:00+00:00")
 
 
 def test_relevance_ignores_missing_fields() -> None:
-    assert relevance_score(_card(1, title=None, artist=None, caption=None), ["晴天"]) == (0, 0)
+    assert relevance_score(_card(1, title=None, artist=None, caption=None), ["晴天"]) == (
+        0,
+        0,
+        100,
+        "2026-01-01T00:00:00+00:00",
+    )
 
 
 # ---- 筛选 ----
@@ -176,16 +181,28 @@ def test_sort_by_duration_and_size_put_unknown_last() -> None:
     assert [c.message_id for c in sort_cards([short, unknown, long], "size", "晴天")] == [2, 1, 3]
 
 
-def test_sort_relevance_breaks_ties_by_date() -> None:
-    older = _card(1, date="2020-01-01T00:00:00+00:00")
-    newer = _card(2, date="2026-01-01T00:00:00+00:00")
-    assert [c.message_id for c in sort_cards([older, newer], "relevance", "晴天")] == [2, 1]
+def test_sort_relevance_prefers_larger_file_then_newer_date() -> None:
+    # 名字分不出时大文件在前；大小也相同才看日期；大小未知垫底
+    small_new = _card(1, size=1_000, date="2026-01-01T00:00:00+00:00")
+    large_old = _card(2, size=50_000_000, date="2020-01-01T00:00:00+00:00")
+    large_new = _card(3, size=50_000_000, date="2026-01-01T00:00:00+00:00")
+    unknown = _card(4, size=None, date="2026-06-01T00:00:00+00:00")
+    ordered = sort_cards([small_new, unknown, large_old, large_new], "relevance", "晴天")
+    assert [c.message_id for c in ordered] == [3, 2, 1, 4]
 
 
 def test_sort_unknown_falls_back_to_relevance() -> None:
     exact = _card(1, title="晴天")
     loose = _card(2, title="我的晴天")
     assert [c.message_id for c in sort_cards([loose, exact], "bogus", "晴天")] == [1, 2]
+
+
+def test_sort_relevance_name_beats_size() -> None:
+    # 标题整字段命中压过只在说明里命中的大文件
+    exact_small = _card(1, title="晴天", caption=None, size=1_000)
+    caption_large = _card(2, title="夜曲", caption="晴天", size=50_000_000)
+    ordered = sort_cards([caption_large, exact_small], "relevance", "晴天")
+    assert [c.message_id for c in ordered] == [1, 2]
 
 
 # ---- 去重 ----
