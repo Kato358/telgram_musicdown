@@ -7,7 +7,14 @@
 
 import { api, errorText } from "$lib/api/client";
 import { coverUrl } from "$lib/cover";
-import type { SearchResponse, SearchResult, SourceRow } from "$lib/api/types";
+import type {
+  QualityOption,
+  QualityTier,
+  QualitiesResponse,
+  SearchResponse,
+  SearchResult,
+  SearchSource,
+} from "$lib/api/types";
 import { t } from "$lib/i18n/index.svelte";
 import { fly, type FlyOrigin } from "$lib/stores/fly.svelte";
 import { player, type Track } from "$lib/stores/player.svelte";
@@ -27,9 +34,28 @@ function coverOf(item: SearchResult): string | null {
   return coverUrl(item.title, item.artist);
 }
 
+/** 卡片 → 入队/试听的定位载荷。
+ *
+ *  在线源多带 `provider`（平台）与 `ref`（平台曲目 id）：`message_id` 是哈希，
+ *  拿不回平台 id，前端不传就无从解析播放地址。频道行只带两个 id，与旧调用同形。
+ */
+function refOf(item: SearchResult, quality?: QualityTier, fileSize?: number | null) {
+  return {
+    chat_id: item.chat_id,
+    message_id: item.message_id,
+    title: item.title,
+    artist: item.artist,
+    provider: item.provider,
+    ref: item.ref,
+    ...(quality ? { quality } : {}),
+    ...(fileSize !== undefined && fileSize !== null ? { file_size: fileSize } : {}),
+  };
+}
+
 class SearchStore {
   query = $state("");
-  sources = $state<SourceRow[]>([]);
+  /** 可搜来源：音乐源频道 + 在线源平台的同一份清单（scope 唯一，id 即勾选值）。 */
+  sources = $state<SearchSource[]>([]);
   /** 选中源 id；空数组 = 全部启用源（与后端 source_ids 语义一致）。 */
   selected = $state<number[]>([]);
   /** 排序口径（服务端在合并后的窗口上排序，见 SDD §2.6）。 */
@@ -66,8 +92,17 @@ class SearchStore {
     return this.meta.reason === "no_enabled_sources";
   }
 
-  get enabledSources(): SourceRow[] {
-    return this.sources.filter((source) => source.enabled);
+  /** 在线源平台（网易云/QQ 音乐/酷狗…）。加新源只需服务端加一项，前端不认平台名。 */
+  get onlineSources(): SearchSource[] {
+    return this.sources.filter((source) => source.online);
+  }
+
+  get channelSources(): SearchSource[] {
+    return this.sources.filter((source) => !source.online);
+  }
+
+  isOnline(item: SearchResult): boolean {
+    return item.provider !== "telegram";
   }
 
   /** 后台补齐中的源名（提示里点名，缺标题回退 #id）。 */
@@ -81,11 +116,12 @@ class SearchStore {
     return `${item.chat_id}-${item.message_id}`;
   }
 
-  async loadSources() {
-    if (this.sourcesLoaded) return;
+  async loadSources(force = false) {
+    if (this.sourcesLoaded && !force) return;
     this.sourcesLoaded = true;
     try {
-      this.sources = await api.get<SourceRow[]>("/api/sources");
+      const resp = await api.get<{ sources: SearchSource[] }>("/api/search/sources");
+      this.sources = resp.sources;
     } catch (err) {
       this.sourcesLoaded = false;
       this.error = errorText(err, t("common.error"));
@@ -244,9 +280,7 @@ class SearchStore {
       this.pending = { ...this.pending, [key]: true };
       try {
         const resp = await api.post<{ preview_id: number }>("/api/preview", {
-          message_refs: [
-            { chat_id: item.chat_id, message_id: item.message_id, file_size: item.file_size },
-          ],
+          message_refs: [refOf(item, undefined, item.file_size)],
         });
         this.previews = { ...this.previews, [key]: resp.preview_id };
       } catch (err) {
@@ -262,17 +296,64 @@ class SearchStore {
   }
 
   /** 加入下载队列：成功的信号是「飞进侧边栏」（FlyOverlay），行内不再挂提示。 */
-  async download(item: SearchResult, origin: FlyOrigin) {
+  async download(item: SearchResult, origin: FlyOrigin, quality?: QualityTier) {
     const key = this.keyOf(item);
     this.clearRowError(key);
     try {
-      await api.post("/api/downloads", {
-        message_refs: [{ chat_id: item.chat_id, message_id: item.message_id }],
-      });
+      await api.post("/api/downloads", { message_refs: [refOf(item, quality)] });
       fly.launch(origin, [coverOf(item)]);
     } catch (err) {
       this.setRowError(key, errorText(err, t("common.error")));
     }
+  }
+
+  // ---- 音质弹窗（在线源才有「选哪一档」这回事）----
+
+  /** 正在选音质的行（`null` = 弹窗关着）。 */
+  qualityTarget = $state<SearchResult | null>(null);
+  /** 弹窗里当前选中的档位。 */
+  qualityChoice = $state<QualityTier>("320k");
+  /** 各平台阶梯（服务端发的语义档位表，加新源不用改前端）。 */
+  ladders = $state<Record<string, QualityOption[]>>({});
+  private laddersLoaded = false;
+
+  /** 点在线源行的下载：先问档位，再入队。频道行直接下，没有这一步。 */
+  async requestDownload(item: SearchResult, origin: FlyOrigin) {
+    if (!this.isOnline(item)) {
+      await this.download(item, origin);
+      return;
+    }
+    await this.loadLadders();
+    this.qualityChoice = this.defaultTierFor(item.provider);
+    this.qualityOrigin = origin;
+    this.qualityTarget = item;
+  }
+
+  /** 弹窗确认：按所选档位入队。 */
+  async confirmQuality() {
+    const item = this.qualityTarget;
+    if (item === null) return;
+    const origin = this.qualityOrigin;
+    this.qualityTarget = null;
+    await this.download(item, origin, this.qualityChoice);
+  }
+
+  /** 该平台的默认档位：设置页的下载默认音质。 */
+  defaultTierFor(provider: string): QualityTier {
+    const configured = this.ladders[provider]?.find((o) => o.tier === this.defaultDownloadQuality);
+    if (configured) return configured.tier;
+    return (this.ladders[provider]?.[0]?.tier ?? "320k") as QualityTier;
+  }
+
+  private qualityOrigin: FlyOrigin = { x: 0, y: 0 };
+  /** 设置页的「下载默认音质」；批量的「下载所选」按它走，不逐行弹窗。 */
+  defaultDownloadQuality = $state<QualityTier>("hires");
+
+  async loadLadders(force = false) {
+    if (this.laddersLoaded && !force) return;
+    const resp = await api.get<QualitiesResponse>("/api/settings/qualities");
+    this.ladders = resp.providers;
+    this.laddersLoaded = true;
   }
 
   /** 批量下载：一次请求带全部勾选行，成功后整批飞向侧边栏并退出多选。 */
@@ -281,10 +362,8 @@ class SearchStore {
     if (targets.length === 0) return;
     try {
       await api.post("/api/downloads", {
-        message_refs: targets.map((item) => ({
-          chat_id: item.chat_id,
-          message_id: item.message_id,
-        })),
+        // 批量按设置里的默认档走：逐行弹窗会让「全选下载」根本没法用
+        message_refs: targets.map((item) => refOf(item, this.defaultDownloadQuality)),
       });
       fly.launch(origin, targets.map(coverOf));
       this.exitSelect();

@@ -31,6 +31,9 @@ export interface SetupStatus {
   connected: boolean;
   display_name: string | null;
   username: string | null;
+  /** 在线源：只回「有没有 Key」与「开没开」，不回明文（NFR-02）。 */
+  has_chksz_key: boolean;
+  chksz_enabled: boolean;
 }
 
 /** 提交的代理（用户名密码可选；回读时不返回，NFR-02）。 */
@@ -48,6 +51,33 @@ export interface SetupSecretsPayload {
   bot_token?: string;
   /** 明确给 `null` = 清除 config.yaml 里的代理段（关掉「走代理」后保存）。 */
   proxy?: SetupProxyInput | null;
+  /** ChKSz 在线源 Key（只写不回显；留空 = 不改动）。 */
+  chksz_api_key?: string;
+}
+
+/** 音质档位（语义值，跨平台同名）：`320k` 在网易那边叫 exhigh，映射由服务端做。
+ *
+ *  `sky` / `jyeffect` 是网易独有两套**混音**（杜比全景声、臻品音效），不是更高保真的
+ *  版本，QQ 与酷狗没有。列表里排在保真度阶梯之下（见 `app/chksz/quality.py`）。 */
+export type QualityTier =
+  | "128k"
+  | "320k"
+  | "lossless"
+  | "hires"
+  | "master"
+  | "sky"
+  | "jyeffect";
+
+export interface QualityOption {
+  tier: QualityTier;
+  label: string;
+  /** 该平台最高档。 */
+  best: boolean;
+}
+
+/** `GET /api/settings/qualities`：各在线源平台的音质阶梯（服务端唯一数据源）。 */
+export interface QualitiesResponse {
+  providers: Record<string, QualityOption[]>;
 }
 
 export interface SendCodeResponse {
@@ -211,6 +241,19 @@ export interface SearchResult {  chat_id: number;
   message_date: string | null;
   caption: string | null;
   file_unique_id: string | null;
+  /** 音频来源：`telegram` = 音乐源频道，其余为在线源平台（163/qq/kugo）。 */
+  provider: string;
+  /** 在线源曲目的平台 id；下载时原样回传（Telegram 行为 null）。 */
+  ref: string | null;
+}
+
+/** 可搜来源（`GET /api/search/sources`）：音乐源频道与在线源平台的同一份清单。 */
+export interface SearchSource {
+  /** 勾选用的 id：频道是 sources.id（≥1），在线源是保留负号 scope。 */
+  id: number;
+  title: string;
+  provider: string;
+  online: boolean;
 }
 
 export interface SearchResponse {

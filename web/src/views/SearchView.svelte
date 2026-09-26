@@ -19,6 +19,7 @@
   import EmptyState from "$lib/components/app/EmptyState.svelte";
   import Note from "$lib/components/app/Note.svelte";
   import PageHeader from "$lib/components/app/PageHeader.svelte";
+  import QualityPickerDialog from "$lib/components/app/QualityPickerDialog.svelte";
   import SectionCard from "$lib/components/app/SectionCard.svelte";
   import TrackRow, { COL_CHECK, trackColumns } from "$lib/components/app/TrackRow.svelte";
 
@@ -67,7 +68,7 @@
   {/snippet}
 </PageHeader>
 
-{#if !session.globalSearch && search.enabledSources.length === 0}
+{#if !session.globalSearch && search.sources.length === 0}
   <EmptyState title={t("search.needSources")} hint={t("dashboard.needSourcesHint")}>
     {#snippet actions()}
       <Button size="lg" onclick={() => navigate(pathOf("sources"))}>
@@ -120,7 +121,7 @@
       </button>
     {/snippet}
 
-    {#if !session.globalSearch && search.enabledSources.length > 0}
+    {#if !session.globalSearch && search.sources.length > 0}
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-caption text-muted-foreground">{t("search.filterSources")}</span>
         {@render pill(
@@ -128,10 +129,10 @@
           t("search.allSources"),
           () => (search.selected = []),
         )}
-        {#each search.enabledSources as source (source.id)}
+        {#each search.sources as source (source.id)}
           {@render pill(
             search.selected.includes(source.id),
-            source.title,
+            source.online ? `${t("search.onlineBadge")} ${source.title}` : source.title,
             () => search.toggleSource(source.id),
           )}
         {/each}
@@ -258,7 +259,8 @@
         playLabel={search.playLabelOf(key)}
         onplay={() => void search.preview(item)}
         downloadLabel={t("search.download")}
-        ondownload={(origin) => void search.download(item, origin)}
+        ondownload={(origin) => void search.requestDownload(item, origin)}
+        online={search.isOnline(item)}
         selected={search.selection.has(key)}
         onselected={(checked) => search.toggleSelect(key, checked)}
         selectLabel={t("search.selectRow", { title: item.title ?? t("common.unknown") })}
@@ -273,3 +275,5 @@
     {/each}
   </DataTable>
 {/if}
+
+<QualityPickerDialog onconfirm={() => void search.confirmQuality()} />

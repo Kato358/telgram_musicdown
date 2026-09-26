@@ -62,6 +62,8 @@
     missing?: string | null;
     /** 无路径行的第二行（搜索结果的频道名等）。 */
     subtitle?: string | null;
+    /** 在线源行：第二行前缀一枚「在线」徽章，和频道来源一眼分得开。 */
+    online?: boolean;
     duration?: number | null;
     size?: number | null;
     date?: string | null;
@@ -94,6 +96,7 @@
     path = null,
     missing = null,
     subtitle = null,
+    online = false,
     duration = null,
     size = null,
     date = null,
@@ -112,7 +115,9 @@
     class: className = "",
   }: Props = $props();
 
-  const secondLine = $derived([artist, subtitle].filter(Boolean).join(" | "));
+  const secondLine = $derived(
+    [artist, online && subtitle ? `\u25cf ${subtitle}` : subtitle].filter(Boolean).join(" | "),
+  );
 
   /** 封面加载失败（404 / 网络断）→ 退回音符占位（与下载页同款）。 */
   let coverFailed = $state(false);

@@ -21,6 +21,7 @@
   import { onMount } from "svelte";
   import BotIcon from "@lucide/svelte/icons/bot";
   import CircleUserIcon from "@lucide/svelte/icons/circle-user";
+  import CloudIcon from "@lucide/svelte/icons/cloud";
   import DownloadIcon from "@lucide/svelte/icons/download";
   import FolderTreeIcon from "@lucide/svelte/icons/folder-tree";
   import NetworkIcon from "@lucide/svelte/icons/network";
@@ -28,7 +29,13 @@
   import RotateCcwIcon from "@lucide/svelte/icons/rotate-ccw";
   import SearchIcon from "@lucide/svelte/icons/search";
   import { api, errorText } from "$lib/api/client";
-  import type { CacheStats, SetupProxyInput } from "$lib/api/types";
+  import type {
+    CacheStats,
+    QualityOption,
+    QualityTier,
+    QualitiesResponse,
+    SetupProxyInput,
+  } from "$lib/api/types";
   import { formatSize } from "$lib/format";
   import { i18n, LOCALES, t } from "$lib/i18n/index.svelte";
   import { navigate, pathOf } from "$lib/router.svelte";
@@ -199,6 +206,18 @@
   let logoutOpen = $state(false);
   let loggingOut = $state(false);
 
+  /** 在线源 ChKSz（SDD §2.7）：开关与两档音质走 settings 表，Key 走 config.yaml。 */
+  let chkszEnabled = $state(false);
+  let chkszDownloadQuality = $state<QualityTier>("hires");
+  let chkszPreviewQuality = $state<QualityTier>("320k");
+  let chkszKey = $state("");
+  let savingChkszKey = $state(false);
+  let chkszNote: Feedback | null = $state(null);
+  /** 各在线源平台的音质阶梯（服务端发的语义档位表）。 */
+  let chkszTiers = $state<QualityOption[]>([]);
+  /** bits-ui 的 Select 要 {value,label}；语义档位就是 value。 */
+  const chkszTierItems = $derived(chkszTiers.map((o) => ({ value: o.tier, label: o.label })));
+  let hasChkszKey = $state(false);
   let botToken = $state("");
   let botNote = $state<Feedback | null>(null);
   let savingBot = $state(false);
@@ -392,10 +411,23 @@
     dateFormat = pick(values, "date_format");
     maxTasks = pick(values, "max_download_task");
     cacheMb = toMb(pick(values, "preview_cache_max_bytes"));
+    // 在线源（SDD §2.7）：开关与两档音质都在 settings 表，热更新不必重启
+    chkszEnabled = truthy(values.chksz_enabled);
+    chkszDownloadQuality = tierOf(pick(values, "chksz_download_quality"), DEFAULTS.chksz_download_quality);
+    chkszPreviewQuality = tierOf(pick(values, "chksz_preview_quality"), DEFAULTS.chksz_preview_quality);
   }
 
   function fingerprint(): string {
-    return [dirTemplate, fileTemplate, dateFormat, maxTasks, cacheMb].join("\u0000");
+    return [
+      dirTemplate,
+      fileTemplate,
+      dateFormat,
+      maxTasks,
+      cacheMb,
+      chkszEnabled,
+      chkszDownloadQuality,
+      chkszPreviewQuality,
+    ].join("\u0000");
   }
 
   const dirty = $derived(savedKey === null || fingerprint() !== savedKey);
@@ -403,10 +435,51 @@
   async function load() {
     try {
       apply(await api.get<Record<string, string>>("/api/settings"));
+      // 阶梯是静态文档，与开关分开取；三家平台共用同一张语义档位表
+      const resp = await api.get<QualitiesResponse>("/api/settings/qualities");
+      chkszTiers = resp.providers["163"] ?? [];
+      hasChkszKey = session.setup?.has_chksz_key ?? false;
       loadError = "";
       loaded = true;
     } catch (err) {
       loadError = errorText(err, t("common.error"));
+    }
+  }
+
+  function truthy(raw: string | undefined): boolean {
+    return raw === "true" || raw === "1" || raw === "on";
+  }
+
+  /** 库里存的是语义档位；认不出就落回缺省，别把一个错值塞进下载请求。 */
+  function tierOf(raw: string | undefined, fallback: string): QualityTier {
+    const known: QualityTier[] = [
+    "128k",
+    "320k",
+    "lossless",
+    "hires",
+    "master",
+    "sky",
+    "jyeffect",
+  ];
+    return known.includes(raw as QualityTier) ? (raw as QualityTier) : (fallback as QualityTier);
+  }
+
+  /** Key 单独存 config.yaml（不入库，NFR-02）：留空 = 不改动，服务端不回显明文。 */
+  async function saveChkszKey() {
+    if (savingChkszKey) return;
+    const key = chkszKey.trim();
+    if (key === "") return;
+    savingChkszKey = true;
+    chkszNote = null;
+    try {
+      await api.post("/api/setup/secrets", { chksz_api_key: key });
+      chkszKey = "";
+      hasChkszKey = true;
+      chkszNote = { tone: "done", text: t("settings.chkszKeySaved") };
+    } catch (err) {
+      chkszNote = { tone: "fail", text: errorText(err, t("common.error")) };
+    } finally {
+      savingChkszKey = false;
     }
   }
 
@@ -507,6 +580,9 @@
         date_format: dateFormat,
         max_download_task: maxTasks,
         preview_cache_max_bytes: String(toBytes(cacheMb)),
+        chksz_enabled: String(chkszEnabled),
+        chksz_download_quality: chkszDownloadQuality,
+        chksz_preview_quality: chkszPreviewQuality,
       };
       apply(await api.put<Record<string, string>>("/api/settings", { values }));
       savedKey = fingerprint();
@@ -782,6 +858,107 @@
         </div>
 
         <p class="text-caption text-muted-foreground">{t("settings.restartHint")}</p>
+      </div>
+    </SectionCard>
+
+    <SectionCard
+      title={t("settings.chkszSection")}
+      hint={t("settings.chkszHint")}
+      icon={CloudIcon}
+    >
+      <div class="flex flex-col gap-4">
+        <Field
+          label={t("settings.chkszEnabled")}
+          for="setting-chksz-enabled"
+          hint={t("settings.chkszEnabledHint")}
+        >
+          <div class="flex items-center gap-3">
+            <Checkbox
+              id="setting-chksz-enabled"
+              checked={chkszEnabled}
+              onCheckedChange={(value) => (chkszEnabled = value === true)}
+            />
+            <span class="text-body">{chkszEnabled ? t("settings.chkszOn") : t("settings.chkszOff")}</span>
+          </div>
+        </Field>
+
+        <!-- Key 只写不回显：服务端只回「有没有」（NFR-02），留空 = 不改动 -->
+        <Field
+          label={t("settings.chkszKey")}
+          for="setting-chksz-key"
+          hint={hasChkszKey ? t("settings.chkszKeySet") : t("settings.chkszKeyHint")}
+        >
+          <div class="flex flex-wrap items-center gap-3">
+            <Input
+              id="setting-chksz-key"
+              type="password"
+              autocomplete="off"
+              class="w-72"
+              placeholder={hasChkszKey ? "••••••••" : "chksz_…"}
+              bind:value={chkszKey}
+            />
+            <Button
+              size="sm"
+              disabled={savingChkszKey || chkszKey.trim() === ""}
+              onclick={() => void saveChkszKey()}
+            >
+              {savingChkszKey ? t("settings.saving") : t("settings.chkszKeySave")}
+            </Button>
+          </div>
+        </Field>
+
+        {#if chkszEnabled}
+          <div class="grid gap-4 sm:grid-cols-2">
+            <Field
+              label={t("settings.chkszDownloadQuality")}
+              for="setting-chksz-download"
+              hint={t("settings.chkszDownloadQualityHint")}
+            >
+              <Select
+                type="single"
+                value={chkszDownloadQuality}
+                items={chkszTierItems}
+                onValueChange={(value) => (chkszDownloadQuality = value as QualityTier)}
+              >
+                <SelectTrigger id="setting-chksz-download" class="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {#each chkszTiers as option (option.tier)}
+                    <SelectItem value={option.tier}>{option.label}</SelectItem>
+                  {/each}
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field
+              label={t("settings.chkszPreviewQuality")}
+              for="setting-chksz-preview"
+              hint={t("settings.chkszPreviewQualityHint")}
+            >
+              <Select
+                type="single"
+                value={chkszPreviewQuality}
+                items={chkszTierItems}
+                onValueChange={(value) => (chkszPreviewQuality = value as QualityTier)}
+              >
+                <SelectTrigger id="setting-chksz-preview" class="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {#each chkszTiers as option (option.tier)}
+                    <SelectItem value={option.tier}>{option.label}</SelectItem>
+                  {/each}
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+        {/if}
+
+        {#if chkszNote}
+          <Note tone={chkszNote.tone}>{chkszNote.text}</Note>
+        {/if}
+        <p class="text-caption text-muted-foreground">{t("settings.chkszGetKey")}</p>
       </div>
     </SectionCard>
 
