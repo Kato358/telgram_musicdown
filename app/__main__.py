@@ -1,6 +1,6 @@
 """入口：装配、启动 FastAPI + TG 客户端（SDD §1.1，FR-OPS-01）。
 
-单进程：uvicorn 与 Pyrogram 共享同一 asyncio loop，避免双 loop（SDD §1.3）。
+单进程：uvicorn 与 Kurigram 共享同一 asyncio loop，避免双 loop（SDD §1.3）。
 启动顺序：目录 → 迁移 → 恢复（NFR-05）→ 服务装配 → web/tg 启动。
 """
 
@@ -25,7 +25,6 @@ from app.services.preview import PreviewService
 from app.services.source import SearchService, SourceService
 from app.telegram.manager import TelegramManager
 from app.utils.proactor_patch import silence_proactor_connection_reset
-from app.utils.pyrogram_peer_id_patch import widen_peer_id_ranges
 from app.web import auth as web_auth
 from app.web.routes import create_app
 
@@ -183,8 +182,6 @@ def main() -> None:
 
     # Windows Proactor 关连接时对已 RST 的 socket shutdown 报 10054，属 asyncio 已知噪音
     silence_proactor_connection_reset()
-    # 频道 id ≥ 2^31 时 pyrogram 把它判成非法 peer（Peer id invalid）→ 放宽判定区间
-    widen_peer_id_ranges()
     base_dir = Path(os.environ.get("TGM_BASE_DIR") or Path(__file__).resolve().parent.parent)
     dirs = app_dirs(base_dir)
     setup_logging(dirs["logs"])

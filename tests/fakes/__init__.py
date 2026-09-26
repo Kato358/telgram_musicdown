@@ -13,11 +13,11 @@ from typing import Any
 
 
 class FakeFloodWait(Exception):
-    """模拟 pyrogram FloodWait。"""
+    """模拟 Kurigram 的 FloodWait：只保留退避包装真正读的 ``seconds``。"""
 
-    def __init__(self, value: int) -> None:
-        super().__init__(f"flood wait {value}s")
-        self.value = value
+    def __init__(self, seconds: int) -> None:
+        super().__init__(f"flood wait {seconds}s")
+        self.seconds = seconds
 
 
 class FakeUserClient:

@@ -103,7 +103,7 @@ class EventBusLogHandler(logging.Handler):
     """logging → 事件总线桥：ERROR+ 记录发布为 ``log.error``（日志页「实时错误」）。
 
     历史事实源仍是 ``logs/app.log`` 文件，这里只补「连接期间发生了什么」的实时提示。
-    ``logging.Handler`` 可能在任意线程被调（worker 池、Pyrogram loop），所以发布走
+    ``logging.Handler`` 可能在任意线程被调（worker 池、Kurigram loop），所以发布走
     ``publish_nowait``（跨线程安全）；发布路径自身不再记日志，不会自激成环。
     """
 

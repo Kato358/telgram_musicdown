@@ -1,9 +1,9 @@
 """UserClient：登录、搜索、取消息、下载（FR-AUTH-01/03、FR-SEARCH-01、SDD §2.1）。
 
-services 层不 import pyrogram；本层把底层异常翻译为领域异常（编码规范 §2.4）。
-Pyrogram 调用全部经 ``with_flood_retry()``（编码规范 §2.3），唯一例外见
-``search_messages``：交互式只读搜索按 FR-SEARCH-01 把 FloodWait 原样透出
-（``reason="flood_wait"``），不挂起用户。
+services 层不 import Kurigram（发行名 Kurigram，导入名仍是 pyrogram）；本层把底层异常
+翻译为领域异常（编码规范 §2.4）。Kurigram 调用全部经 ``with_flood_retry()``（编码规范
+§2.3），唯一例外见 ``search_messages``：交互式只读搜索按 FR-SEARCH-01 把 FloodWait 原样
+透出（``reason="flood_wait"``），不挂起用户。
 """
 
 from __future__ import annotations
@@ -15,17 +15,20 @@ from typing import Any
 
 from pyrogram.client import Client
 from pyrogram.enums import MessagesFilter
-from pyrogram.errors import (  # type: ignore[attr-defined]  # 运行时存在
+from pyrogram.errors import (
     FloodWait,
     PasswordHashInvalid,
     PhoneCodeExpired,
     PhoneCodeInvalid,
     PhoneNumberBanned,
     PhoneNumberInvalid,
-    RPCError,
     SessionPasswordNeeded,
     Unauthorized,
 )
+
+# RPCError 只有从定义它的模块导入 mypy 才看得见：pyrogram.errors 是用 `import *`
+# 逐层再导出的，strict 模式下那条链不被当成显式再导出（运行期是同一个类对象）。
+from pyrogram.errors.rpc_error import RPCError
 from pyrogram.types import Message
 
 from app.config import SecretConfig
@@ -35,8 +38,22 @@ from app.telegram.flood import with_flood_retry
 logger = logging.getLogger(__name__)
 
 MAX_DIALOG_SCAN = 200  # 候选源扫描上限：一次 get_dialogs，不做逐会话额外请求（FR-SRC-05）
-CONNECT_TIMEOUT_SEC = 30  # Pyrogram 对连不上的代理会无限重试，故本层给硬超时（FR-AUTH-03）
+CONNECT_TIMEOUT_SEC = 30  # Kurigram 对连不上的代理会无限重试，故本层给硬超时（FR-AUTH-03）
 SESSION_NAME = "musicdown"  # 会话文件名（sessions/musicdown.session）；登出按此名删除
+
+# Kurigram 把同一 RPC 错误按 HTTP code 拆成多个类（403/406 变体带数字后缀）。只认无后缀
+# 的那个，服务端真按 403 回时就会掉进兜底的 not_joined，界面于是给出错的修复指引。
+_BANNED_ERRORS = frozenset(
+    {
+        "ChatAdminRequired",
+        "ChatAdminRequired403",
+        "ChannelPrivate",
+        "ChannelPrivate406",
+        "UserBannedInChannel",
+        "UserBannedInChannel403",
+    }
+)
+_INVALID_LINK_ERRORS = frozenset({"UsernameInvalid", "UsernameNotOccupied"})
 
 
 def _proxy_text(cfg: SecretConfig) -> str:
@@ -67,6 +84,17 @@ def _proxy_dict(cfg: SecretConfig) -> dict[str, Any] | None:
     }
 
 
+def chat_id_of(msg: Message) -> int:
+    """消息所在对话的 id。
+
+    Kurigram 把 ``Chat.id`` / ``Message.chat`` 都标成可空（min 对话、已删除的会话），
+    而业务侧（去重、Bot 搜索结果序号）必须拿到一个可比较的整数：取不到时回退 0，
+    与"没有对话"等价，不把 None 混进 ``tasks.chat_id``。
+    """
+    chat = msg.chat
+    return chat.id if chat is not None and chat.id is not None else 0
+
+
 class UserClient:
     """User Client 包装：登录、搜索、取消息、下载。"""
 
@@ -77,12 +105,14 @@ class UserClient:
             api_id=secrets.api_id,
             api_hash=secrets.api_hash,
             workdir=str(session_dir),
-            proxy=_proxy_dict(secrets),  # type: ignore[arg-type]  # pyrogram 期望 dict
+            # Kurigram 的 ProxyDict 是按协议区分的 TypedDict 联合，scheme 来自配置字符串，
+            # 静态收窄不了（运行期由 normalize_proxy 校验）
+            proxy=_proxy_dict(secrets),  # type: ignore[arg-type]
             in_memory=False,
         )
 
     async def connect(self) -> None:
-        """连接（FR-AUTH-01/03）：Pyrogram 的会话启动对网络失败是无限重试，故设硬超时。"""
+        """连接（FR-AUTH-01/03）：Kurigram 的会话启动对网络失败是无限重试，故设硬超时。"""
         try:
             await asyncio.wait_for(self.client.connect(), timeout=CONNECT_TIMEOUT_SEC)
         except TimeoutError as e:
@@ -110,7 +140,9 @@ class UserClient:
     async def send_code(self, phone: str) -> str:
         """发验证码（FR-AUTH-01）。返回 phone_code_hash。"""
         try:
-            sent = await with_flood_retry(lambda: self.client.send_code(phone), label="send_code")
+            sent = await with_flood_retry(
+                lambda: self.client.send_phone_number_code(phone), label="send_code"
+            )
         except PhoneNumberInvalid as e:
             raise AuthError("phone_invalid", "手机号无效：要带国家码，例如 +8613800000000") from e
         except PhoneNumberBanned as e:
@@ -168,9 +200,10 @@ class UserClient:
 
         async def _collect() -> list[dict[str, Any]]:
             out: list[dict[str, Any]] = []
-            async for dialog in self.client.get_dialogs(limit=limit):  # type: ignore[union-attr]
+            async for dialog in self.client.get_dialogs(limit=limit):
                 chat = dialog.chat
-                if chat is None:
+                # Kurigram 的 Chat.id 可空（min 对话）：没有 id 就做不了音乐源
+                if chat is None or chat.id is None:
                     continue
                 chat_type = getattr(getattr(chat, "type", None), "value", None) or "user"
                 if chat_type == "bot":  # 机器人不是音乐源
@@ -231,8 +264,7 @@ class UserClient:
                 filter=MessagesFilter.AUDIO,
             )
             msgs: list[Message] = []
-            # pyrogram stub 把 search_messages 的生成器标成可空，实际不会返回 None
-            async for m in gen:  # type: ignore[union-attr]
+            async for m in gen:
                 msgs.append(m)
                 if len(msgs) >= limit:
                     break
@@ -267,7 +299,7 @@ class UserClient:
             out = await self.client.download_media(
                 msgs[0],
                 file_name=file_name,
-                progress=progress,  # type: ignore[arg-type]  # pyrogram stub 用 Callable[..., Any]
+                progress=progress,
             )
             return out if isinstance(out, str) else None
 
@@ -281,7 +313,7 @@ def _message_dict(m: Message) -> dict[str, Any]:
     audio = m.audio
     doc = m.document
     return {
-        "chat_id": m.chat.id if m.chat else 0,
+        "chat_id": chat_id_of(m),
         "message_id": m.id,
         "audio": {
             "title": audio.title,
@@ -318,10 +350,10 @@ def _translate_rpc(e: RPCError) -> SourceUnreachableError:
     错的修复指引（「先用该账号加入频道」），而 SRS FR-SEARCH-01 要求的正是**限流可见**。
     """
     if isinstance(e, FloodWait):
-        return SourceUnreachableError("flood_wait", f"FloodWait {int(e.value or 0)}s")
+        return SourceUnreachableError("flood_wait", f"FloodWait {e.seconds or 0}s")
     name = type(e).__name__
-    if name in ("ChatAdminRequired", "ChannelPrivate", "UserBannedInChannel"):
+    if name in _BANNED_ERRORS:
         return SourceUnreachableError("banned", str(e))
-    if name in ("UsernameInvalid", "UsernameNotOccupied"):
+    if name in _INVALID_LINK_ERRORS:
         return SourceUnreachableError("invalid_link", str(e))
     return SourceUnreachableError("not_joined", str(e))

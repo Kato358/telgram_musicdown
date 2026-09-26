@@ -1,4 +1,4 @@
-# telegram-musicdown：单进程 FastAPI + Pyrogram（SDD §8 M4）
+# telegram-musicdown：单进程 FastAPI + Kurigram（SDD §8 M4）
 FROM python:3.11-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
@@ -9,7 +9,7 @@ WORKDIR /opt/app
 
 # 依赖层（利用缓存）
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir fastapi uvicorn pydantic pyrogram tgcrypto mutagen pyyaml
+RUN pip install --no-cache-dir fastapi uvicorn pydantic kurigram tgcrypto mutagen pyyaml
 
 # 代码与前端构建产物
 COPY app ./app

@@ -1,6 +1,6 @@
 """源管理（FR-SRC-01~05）与搜索（FR-SEARCH-01~04）服务。
 
-services 层不 import pyrogram（编码规范 §2.4 反模式表）；
+services 层不 import Kurigram（导入名 pyrogram；编码规范 §2.4 反模式表）；
 Telegram 交互经 SourceClientProto 协议面（FakeUserClient 可替换，NFR-07）。
 音频判定、卡片映射、源级过滤、搜索筛选/排序等跨服务共用的纯规则在 app/domain.py；
 二级缓存（L1 内存 LRU + L2 SQLite）在 app/services/search_cache.py。

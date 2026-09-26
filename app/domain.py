@@ -2,7 +2,8 @@
 
 path_builder 是纯函数层，本模块为其提供唯一数据契约（SDD §2.2）。
 两个以上服务（搜索、同步、下载、路由）共用的纯规则收在这里，避免 services 之间互相
-import（编码规范 §1.2 依赖方向）。本模块不 import pyrogram/services/web，可单测。
+import（编码规范 §1.2 依赖方向）。本模块不 import Kurigram（导入名 pyrogram）/services/web，
+可单测。
 """
 
 from __future__ import annotations
@@ -144,7 +145,7 @@ _DURATION_PARTS = 3  # 正则三段：H:MM:SS；两段时 MM:SS（小时补 0）
 def _duration_from_caption(caption: str | None) -> int | None:
     """消息说明里的「Duration: MM:SS / HH:MM:SS」→ 秒；认不出返回 None（不编造）。
 
-    document 音频（pyrogram 的 Document 没有时长字段）的兜底：频道发歌时说明里
+    document 音频（Kurigram 的 Document 没有时长字段）的兜底：频道发歌时说明里
     常带 Duration，这是唯一拿得到时长的来源。
     """
     if not caption:

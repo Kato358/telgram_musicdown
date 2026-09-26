@@ -33,10 +33,12 @@ ROOT = Path(__file__).resolve().parent
 # 发行包名 → 导入名（用于探测是否已安装）
 IMPORT_NAMES = {
     "pyyaml": "yaml",
+    "kurigram": "pyrogram",  # Kurigram 是 Pyrogram 分支，沿用上游导入名
 }
 
-# tgcrypto：pyrogram 加解密加速，非必需。Python 3.13 常无预编译 wheel、需 MSVC 才能装，
-# 因此单独作为「尽力安装」的可选依赖：失败只告警，不阻断启动。
+# tgcrypto：Kurigram 加解密加速（等价于 kurigram[fast] 里的那一项），非必需。
+# Python 3.13 常无预编译 wheel、需 MSVC 才能装，因此单独作为「尽力安装」的可选依赖：
+# 失败只告警，不阻断启动。
 OPTIONAL_REQS = ["tgcrypto"]
 
 # Windows 控制台默认 GBK，中文路径/日志会 UnicodeEncodeError
@@ -107,7 +109,7 @@ def install_deps(dev: bool = False) -> bool:
     if opt:
         _log("尝试安装可选加速依赖：" + ", ".join(opt) + "（无预编译包则跳过）")
         if not _pip_install(opt, only_binary=True):
-            _log("可选依赖 " + ", ".join(opt) + " 不可用，跳过（pyrogram 仍正常，速度略慢）")
+            _log("可选依赖 " + ", ".join(opt) + " 不可用，跳过（Kurigram 仍正常，速度略慢）")
     return True
 
 

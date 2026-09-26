@@ -13,13 +13,19 @@ from typing import Any
 
 from pyrogram import filters
 from pyrogram.client import Client
+from pyrogram.handlers import MessageHandler
 from pyrogram.types import Message
 
 from app.config import SecretConfig
 from app.domain import DownloadRequest, TrackMeta, card_to_meta
 from app.errors import AppError
 from app.services.download import DownloadQueueServiceProto
-from app.telegram.user_client import CONNECT_TIMEOUT_SEC, _connect_error, _proxy_dict
+from app.telegram.user_client import (
+    CONNECT_TIMEOUT_SEC,
+    _connect_error,
+    _proxy_dict,
+    chat_id_of,
+)
 from app.utils.linkparse import parse_link
 
 logger = logging.getLogger(__name__)
@@ -49,28 +55,34 @@ class BotClient:
             SESSION_NAME,
             api_id=secrets.api_id,
             api_hash=secrets.api_hash,
-            bot_token=secrets.bot_token or None,  # type: ignore[arg-type]
+            bot_token=secrets.bot_token or None,
             workdir=str(session_dir),
-            proxy=_proxy_dict(secrets),  # type: ignore[arg-type]  # pyrogram 期望 dict
+            proxy=_proxy_dict(secrets),  # type: ignore[arg-type]  # scheme 是配置字符串，收窄不了
         )
         self._register_handlers()
 
     def _register_handlers(self) -> None:
+        # Kurigram 的 on_message 装饰器把首参标成 `OnMessage | Filter | None`（为支持未绑定
+        # 调用），绑定式 `@c.on_message(...)` 过不了 mypy；这里直接用它内部同一套
+        # MessageHandler + add_handler，注册时机（构造期）、分组（0）与装饰器写法一致。
         c = self.client
 
-        @c.on_message(filters.command("download"))
         async def on_download(_client: Client, msg: Message) -> None:
             if not self._is_allowed(msg):
                 return
             await self._handle_download(msg)
 
-        @c.on_message(filters.private & (filters.audio | filters.document))
+        c.add_handler(MessageHandler(on_download, filters.command("download")))
+
         async def on_audio(_client: Client, msg: Message) -> None:
             if not self._is_allowed(msg):
                 return
             await self._handle_forwarded_audio(msg)
 
-        @c.on_message(filters.command("status"))
+        c.add_handler(
+            MessageHandler(on_audio, filters.private & (filters.audio | filters.document))
+        )
+
         async def on_status(_client: Client, msg: Message) -> None:
             if not self._is_allowed(msg):
                 return
@@ -78,7 +90,8 @@ class BotClient:
             lines = [f"#{t.id} {t.status} {t.type}" for t in tasks]
             await msg.reply("\n".join(lines) or "no tasks")
 
-        @c.on_message(filters.command("cancel"))
+        c.add_handler(MessageHandler(on_status, filters.command("status")))
+
         async def on_cancel(_client: Client, msg: Message) -> None:
             if not self._is_allowed(msg):
                 return
@@ -89,7 +102,8 @@ class BotClient:
             await self.downloads.cancel_task(int(parts[1]))
             await msg.reply(f"cancelled #{parts[1]}")
 
-        @c.on_message(filters.command("help"))
+        c.add_handler(MessageHandler(on_cancel, filters.command("cancel")))
+
         async def on_help(_client: Client, msg: Message) -> None:
             if not self._is_allowed(msg):
                 return
@@ -102,11 +116,14 @@ class BotClient:
                 "转发音频或直接发送音频文件可下载"
             )
 
-        @c.on_message(filters.command("search"))
+        c.add_handler(MessageHandler(on_help, filters.command("help")))
+
         async def on_search(_client: Client, msg: Message) -> None:
             if not self._is_allowed(msg):
                 return
             await self._handle_search(msg)
+
+        c.add_handler(MessageHandler(on_search, filters.command("search")))
 
     def _is_allowed(self, msg: Message) -> bool:
         """非授权用户消息忽略（FR-AUTH-04）。"""
@@ -160,7 +177,7 @@ class BotClient:
             else:
                 await msg.reply(f"没有找到「{q}」相关音频")
             return
-        self._last_results[msg.chat.id if msg.chat else 0] = resp.results
+        self._last_results[chat_id_of(msg)] = resp.results
         lines = [f"搜索「{q}」，回复 /download <序号> 下载："]
         for i, card in enumerate(resp.results[: self.MAX_LIST], start=1):
             d = card.duration_sec
@@ -173,7 +190,7 @@ class BotClient:
 
     async def _download_by_index(self, msg: Message, index: int) -> None:
         """按上次搜索结果序号入队下载。"""
-        results = self._last_results.get(msg.chat.id if msg.chat else 0)
+        results = self._last_results.get(chat_id_of(msg))
         if not results:
             await msg.reply("请先 /search 再按序号下载")
             return
@@ -191,7 +208,7 @@ class BotClient:
         """转发/直接上传音频（FR-LINK-04）：不依赖源配置。"""
         task_id = await self.downloads.enqueue(
             DownloadRequest(
-                meta=TrackMeta(chat_id=msg.chat.id if msg.chat else 0, message_id=msg.id)
+                meta=TrackMeta(chat_id=chat_id_of(msg), message_id=msg.id)
             )
         )
         if task_id is None:

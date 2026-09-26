@@ -1,13 +1,14 @@
 [project]
 name = "telgram-musicdown"
 version = "0.1.0"
-description = "Telegram 音乐下载器 — 单进程 FastAPI + Pyrogram 应用"
+description = "Telegram 音乐下载器 — 单进程 FastAPI + Kurigram 应用"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.27",
     "pydantic>=2.5",
-    "pyrogram>=2.0",
+    # 发行名 Kurigram；导入名仍是 pyrogram（分支沿用上游包路径，见 §[tool.mypy] overrides）
+    "kurigram>=2.2",
     "mutagen>=1.47",
     "pyyaml>=6.0",
 ]
@@ -59,7 +60,8 @@ disallow_untyped_defs = false
 module = ["app.services.tags"]
 disallow_untyped_calls = false
 [[tool.mypy.overrides]]
-module = ["pyrogram.*", "mutagen.*", "uvicorn.*"]
+# Kurigram 自带 py.typed，`pyrogram.*` 的标注会被真实检查，故不再 ignore
+module = ["mutagen.*", "uvicorn.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

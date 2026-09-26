@@ -9,7 +9,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pyrogram.errors import ChatAdminRequired, FloodWait, RPCError
+from pyrogram.errors import (
+    ChannelPrivate406,
+    ChatAdminRequired,
+    ChatAdminRequired403,
+    FloodWait,
+    RPCError,
+    UserBannedInChannel403,
+)
 
 from app.db.models import Source
 from app.db.store import Store
@@ -28,6 +35,16 @@ def test_floodwait_is_reported_as_rate_limit() -> None:
 def test_rpc_reasons_keep_their_own_bucket() -> None:
     assert user_client._translate_rpc(ChatAdminRequired()).reason == "banned"
     assert user_client._translate_rpc(RPCError()).reason == "not_joined"
+
+
+def test_banned_bucket_covers_kurigram_per_code_variants() -> None:
+    """Kurigram 把同一 RPC 错误按 HTTP code 拆成多个类（403/406 带后缀）。
+
+    只认无后缀的那个，服务端真按 403/406 回时会掉进 not_joined，界面给出错的修复指引
+    （「先用该账号加入频道」），所以每个变体都要落进 banned。
+    """
+    for exc in (ChatAdminRequired403(), ChannelPrivate406(), UserBannedInChannel403()):
+        assert user_client._translate_rpc(exc).reason == "banned"
 
 
 class _RateLimitedClient:

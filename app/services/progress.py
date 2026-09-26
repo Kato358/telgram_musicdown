@@ -3,7 +3,7 @@
 - ``TaskRunState``：暂停/取消标记与在跑协程的登记处。原先这三份集合挂在
   ``DownloadService`` 私有字段上，进度回调要反向读服务的私有集合（跨类访问私有成员）；
   现在它是独立对象，Worker 池与进度回调共用同一份事实源。
-- ``ProgressReporter``：把 Pyrogram 的同步进度回调转成节流的 SSE + DB 写入。
+- ``ProgressReporter``：把 Kurigram 的同步进度回调转成节流的 SSE + DB 写入。
   它只依赖 ``IStore`` / ``EventBus`` / ``TaskRunState`` 三个协作面，不再持有整个服务。
 """
 
@@ -71,7 +71,7 @@ class TaskRunState:
 
 
 class ProgressReporter:
-    """把 Pyrogram 同步进度回调转换成节流的 SSE 与 DB 更新。"""
+    """把 Kurigram 同步进度回调转换成节流的 SSE 与 DB 更新。"""
 
     def __init__(
         self,

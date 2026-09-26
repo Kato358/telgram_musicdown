@@ -74,7 +74,7 @@ def test_source_filters_duration_and_extension() -> None:
 
 
 def test_duration_from_caption_for_document_audio() -> None:
-    # document 音频（pyrogram Document 无时长字段）：说明里的「Duration:」兜底进卡片
+    # document 音频（Kurigram 的 Document 无时长字段）：说明里的「Duration:」兜底进卡片
     msg = make_audio_document_message(10)
     msg["caption"] = "Artist: 周杰伦\nAlbum: 爱琴海\nDuration: 03:34\nSize: 45.64M  Type: flac"
     card = message_to_card(msg, "Music Channel")

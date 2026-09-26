@@ -155,21 +155,21 @@ async def test_floodwait_retries_after_wait(
     svc: tuple[DownloadService, Store, FakeUserClient], tmp_path: Path
 ) -> None:
     # NFR-09：FloodWait 注入 → 挂起后重试、不无视等待。
-    # 引擎内 with_flood_retry 捕获 pyrogram FloodWait；这里验证包装器重试行为
-    # 与 FakeFloodWait 等价语义（挂起 value 秒后重试）。
+    # 引擎内 with_flood_retry 捕获 Kurigram 的 FloodWait；这里验证包装器重试行为
+    # 与 FakeFloodWait 等价语义（按 seconds 挂起后重试）。
     service, store, client = svc
     client.flood_queue = [1]  # 1 次 1 秒 FloodWait
     task_id = await service.enqueue(req(1))
     assert task_id is not None
     with pytest.raises(Exception, match="flood wait"):
-        # 引擎不捕获 FakeFloodWait（它只认 pyrogram FloodWait）；
+        # 引擎不捕获 FakeFloodWait（它只认 Kurigram 的 FloodWait）；
         # 挂起行为单测由 test_with_flood_retry_retries 覆盖
         await service._run_task(worker_row(store, task_id))
     assert client.download_calls == 1
 
 
 async def test_with_flood_retry_retries() -> None:
-    # NFR-09：with_flood_retry 挂起 value 秒后重试（FakeFloodWait 等价注入）
+    # NFR-09：with_flood_retry 按 FloodWait.seconds 挂起后重试（FakeFloodWait 等价注入）
 
     calls = 0
 

@@ -1,7 +1,8 @@
 """FloodWait 统一退避包装（NFR-09，SDD §1.3）。
 
-Pyrogram 调用必须经 ``with_flood_retry()`` 包装，禁止裸调后自行 try FloodWait
-（编码规范 §2.3）。按服务端给的 ``value`` 秒挂起该 worker 后重试，其余 worker 不受影响。
+Kurigram 调用必须经 ``with_flood_retry()`` 包装，禁止裸调后自行 try FloodWait
+（编码规范 §2.3）。按服务端给的秒数（Kurigram 的 ``FloodWait.seconds``）挂起该 worker
+后重试，其余 worker 不受影响。
 
 **唯一例外**：``UserClient.search_messages``（交互式只读搜索）。那里不挂起等待，而是把
 FloodWait 翻译成 ``reason="flood_wait"`` 透出给用户（SRS FR-SEARCH-01「FloodWait 要可见」）
@@ -48,7 +49,7 @@ async def with_flood_retry(
         try:
             return await fn()
         except FloodWait as e:
-            wait_sec = float(e.value)
+            wait_sec = float(e.seconds or 0)
             logger.warning(
                 "floodwait on %s (attempt %d): sleeping %.0fs", label, attempt + 1, wait_sec
             )
