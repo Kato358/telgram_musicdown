@@ -29,9 +29,20 @@ class Session {
     this.web = await api.get<WebSessionStatus>("/api/auth/session");
   }
 
-  /** 用 web_login_secret 换会话 cookie（FR-WEB-02）。 */
+  /** 用 web_login_secret 换会话 cookie（FR-WEB-02）。
+   *
+   * 登录成功后先补齐外壳 onMount 跳过的引导（loadSetup/loadMe），最后才放行登录闸门：
+   * 受保护部署未登录时外壳提前 return，若不补，setup 仍是 null，setupGate 会把
+   * 已完成初始化的人钉回向导。引导失败不报错——与刷新时一致，交给初始化闸门
+   * 「停在向导并写原因」的路径。 */
   async webLogin(secret: string) {
     await api.post("/api/auth/login", { secret });
+    await this.loadSetup().catch(() => undefined);
+    try {
+      await this.loadMe();
+    } catch {
+      // 账号信息取不到不影响进门
+    }
     await this.loadWebSession();
   }
 

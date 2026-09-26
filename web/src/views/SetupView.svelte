@@ -535,6 +535,13 @@
   onMount(() => {
     void (async () => {
       await refresh();
+      // 已完成过初始化的人带着残留地址落进向导（登录闸门误导航过、手工输 /setup）：
+      // 送回控制台。只在进场判一次——第 2 步登录成功后 complete 就已是 true，
+      // 跟着状态跳会把第 3 步（音乐源）直接跳没。
+      if (session.setup?.complete) {
+        navigate(pathOf("dashboard"), { replace: true });
+        return;
+      }
       await loadCandidates();
     })();
   });
