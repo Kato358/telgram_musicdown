@@ -34,6 +34,7 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
         拿它求和会让「占用」永远显示 0。逐个 stat 放线程里做，别堵事件循环。
         """
         counts = ctx.store.counts()
+        local = ctx.store.count_local_tracks()
         return schemas.StatsResponse(
             tasks=schemas.TaskCounts(
                 queued=counts["tasks_queued"],
@@ -46,6 +47,10 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
                 tracks=counts["library_tracks"],
                 bytes=await asyncio.to_thread(_disk_bytes, ctx.store.library_paths()),
                 failed=counts["library_failed"],
+                # 本地曲库台账读数：侧栏曲库卡与曲库页同一套数字（SUM 比逐文件 stat 便宜）
+                local_present=local["present"],
+                local_missing=local["missing"],
+                local_bytes=ctx.store.local_track_bytes(),
             ),
             sources=schemas.SourceCounts(
                 total=counts["sources_total"], enabled=counts["sources_enabled"]

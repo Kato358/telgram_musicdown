@@ -30,6 +30,7 @@ class RouteContext:
     sources: SourceService
     search: SearchService
     preview: PreviewService
+    library: Any  # LocalLibraryService（None = 未装配，曲库路由退 503）
     tg: Any  # TelegramManager（协议面：路由只用其生命周期方法）
     base_dir: Path
     web_host: str
@@ -53,6 +54,7 @@ def register_all(app: FastAPI, ctx: RouteContext) -> None:  # noqa: PLC0415  模
         cover,
         downloads,
         history,
+        library,
         logs,
         lyrics,
         preview,
@@ -75,3 +77,4 @@ def register_all(app: FastAPI, ctx: RouteContext) -> None:  # noqa: PLC0415  模
     logs.register(app, ctx)
     lyrics.register(app, ctx)
     cover.register(app, ctx)
+    library.register(app, ctx)

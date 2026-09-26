@@ -44,12 +44,30 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
     preview: object,
     tg: object,
     *,
+    library: object | None = None,
     base_dir: object,
     web_host: str = "127.0.0.1",
     web_login_secret: str = "",
     static_dir: object = None,
 ) -> FastAPI:
-    """装配 FastAPI 应用：错误包络 + SSE + 静态资源 + 按资源注册的路由。"""
+    """装配 FastAPI 应用：错误包络 + SSE + 静态资源 + 按资源注册的路由。
+
+    ``library`` 未给时按默认布局兜底装配（save_path = base_dir/downloads），
+    曲库路由因此始终可用；生产由容器传入。
+    """
+    library_service = library
+    if library_service is None:
+        from pathlib import Path  # noqa: PLC0415  仅兜底装配需要
+
+        from app.services.local_library import LocalLibraryService  # noqa: PLC0415
+
+        tags = getattr(downloads, "tags", None)
+        library_service = LocalLibraryService(
+            store,  # type: ignore[arg-type]
+            Path(str(base_dir)) / "downloads",  # type: ignore[arg-type]
+            tags,  # type: ignore[arg-type]
+            events,  # type: ignore[arg-type]
+        )
     ctx = RouteContext(
         store=store,  # type: ignore[arg-type]  # IStore 协议（duck-type）
         events=events,
@@ -57,6 +75,7 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
         sources=sources,  # type: ignore[arg-type]
         search=search,  # type: ignore[arg-type]
         preview=preview,  # type: ignore[arg-type]
+        library=library_service,  # type: ignore[arg-type]
         tg=tg,
         base_dir=base_dir,  # type: ignore[arg-type]
         web_host=web_host,

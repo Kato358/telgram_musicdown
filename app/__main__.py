@@ -21,6 +21,7 @@ from app.domain import TemplateConfig
 from app.errors import SessionLockedError, WebAuthConfigError
 from app.events import EventBus, attach_event_log_bridge
 from app.services.download import DownloadService
+from app.services.local_library import LocalLibraryService
 from app.services.preview import PreviewService
 from app.services.source import SearchService, SourceService
 from app.services.sync import SyncRunner
@@ -58,6 +59,7 @@ class AppServices:
     search: SearchService
     downloads: DownloadService
     preview: PreviewService
+    library: LocalLibraryService
     tg: TelegramManager
 
 
@@ -97,6 +99,7 @@ def build_services(base_dir: Path) -> AppServices:
         search=container.search,
         downloads=downloads,
         preview=container.preview,
+        library=container.library,
         tg=tg,
     )
 
@@ -117,6 +120,15 @@ async def run(base_dir: Path) -> None:
     if backfilled:
         logging.getLogger(__name__).info("backfilled media facts for %d history rows", backfilled)
 
+    # 本地曲库台账随启动后台扫一次（不阻塞 web/tg 启动；扫描结果经 SSE 推给前端）
+    async def _startup_library_scan() -> None:
+        try:
+            await svc.library.rescan()
+        except Exception:  # noqa: BLE001  曲库扫描失败不影响主服务
+            logging.getLogger(__name__).exception("startup library scan failed")
+
+    library_scan_task = asyncio.create_task(_startup_library_scan())
+
     app = create_app(
         store=svc.store,
         events=svc.events,
@@ -125,6 +137,7 @@ async def run(base_dir: Path) -> None:
         search=svc.search,
         preview=svc.preview,
         tg=svc.tg,
+        library=svc.library,
         base_dir=base_dir,
         web_host=svc.secrets.web_host,
         web_login_secret=svc.secrets.web_login_secret,
@@ -147,6 +160,7 @@ async def run(base_dir: Path) -> None:
     finally:
         await svc.tg.stop()
         await svc.downloads.stop_workers()
+        library_scan_task.cancel()
         store.close()
 
 

@@ -7,6 +7,7 @@
   import type { Component } from "svelte";
   import DownloadIcon from "@lucide/svelte/icons/download";
   import LayoutDashboardIcon from "@lucide/svelte/icons/layout-dashboard";
+  import LibraryIcon from "@lucide/svelte/icons/library";
   import MusicIcon from "@lucide/svelte/icons/music";
   import RadioTowerIcon from "@lucide/svelte/icons/radio-tower";
   import ScrollTextIcon from "@lucide/svelte/icons/scroll-text";
@@ -27,6 +28,7 @@ import { queue } from "$lib/stores/queue.svelte";
     search: SearchIcon,
     downloads: DownloadIcon,
     sources: RadioTowerIcon,
+    library: LibraryIcon,
     settings: SettingsIcon,
     logs: ScrollTextIcon,
     setup: SettingsIcon,
@@ -90,11 +92,12 @@ import { queue } from "$lib/stores/queue.svelte";
     {/each}
   </nav>
 
-  <!-- 底部的曲库卡（参考图的侧栏底部位）：只回答「曲库现在多大」，整块点进下载页的已入库筛选。
-      侧栏只在 ≥1024px 渲染，抽屉模式下曲库占用读数随侧栏一起隐藏。 -->
+  <!-- 底部的本地曲库入口（左下角）：整块进曲库页（/library），扫描 downloads 落盘文件的
+      独立台账——文件删了记录仍在。侧栏只在 ≥1024px 渲染，抽屉模式入口在 MobileNav 底部。 -->
   <div class="px-3 pb-4">
     <Link
-      href={`${pathOf("downloads")}?status=success`}
+      href={pathOf("library")}
+      active={router.key === "library"}
       class="surface-promo ui-transition block rounded-nav p-3 hover:opacity-90"
       title={t("sidebar.library")}
     >
@@ -102,13 +105,13 @@ import { queue } from "$lib/stores/queue.svelte";
         class="grid size-8 shrink-0 place-items-center rounded-chip bg-card/70 text-primary"
         aria-hidden="true"
       >
-        <MusicIcon class="size-4" />
+        <LibraryIcon class="size-4" />
       </span>
       <p class="mt-2 truncate text-body font-semibold">{t("sidebar.library")}</p>
       <p class="tabular truncate text-caption text-muted-foreground">
         {t("sidebar.libraryFacts", {
-          n: formatCount(stats.data?.library.tracks ?? null),
-          size: formatSize(stats.data?.library.bytes ?? null),
+          n: formatCount(stats.data?.library.local_present ?? null),
+          size: formatSize(stats.data?.library.local_bytes ?? null),
         })}
       </p>
       <p class="truncate text-caption text-muted-foreground">{t("sidebar.libraryHint")}</p>

@@ -12,6 +12,7 @@ export const zhCN: Dict = {
     search: "搜索",
     downloads: "下载",
     sources: "音乐源",
+    library: "本地曲库",
     settings: "设置",
     logs: "日志",
   },
@@ -35,7 +36,40 @@ export const zhCN: Dict = {
   sidebar: {
     library: "本地曲库",
     libraryFacts: "{n} 首 · {size}",
-    libraryHint: "查看落盘位置",
+    libraryHint: "浏览全部曲目",
+  },
+
+  /** 本地曲库页（FR-LIB）：downloads 落盘文件的扫描台账，服务端筛选/排序 + 懒加载；
+   *  排序是 Excel 式表头点击（列名即排序钮），不在工具栏放排序控件。 */
+  library: {
+    title: "本地曲库",
+    lede: "downloads 目录里的全部音乐；文件删除后记录保留，随时可重新下载。",
+    tabsLabel: "按状态筛选",
+    tabPresent: "在库",
+    tabMissing: "已删除",
+    tabAll: "全部",
+    searchPlaceholder: "按标题、歌手、专辑、文件名筛选",
+    rescan: "重新扫描",
+    rescanDone: "扫描完成：新增 {added} · 更新 {updated} · 标记删除 {missing}",
+    fileMissing: "文件已删除，可重新下载",
+    redownload: "重新下载",
+    redownloaded: "已加入队列",
+    removeRecord: "移除记录",
+    removeTitle: "移除这条曲库记录？",
+    removeBody:
+      "「{title}」的曲库记录会被移除；磁盘上的文件不会被删除，文件还在的话下次扫描会重新入库。",
+    removeConfirm: "移除",
+    removed: "已移除记录",
+    play: "播放",
+    playing: "播放中",
+    empty: "曲库还是空的。下载完成的音乐会自动出现在这里，也可以点「重新扫描」检索 downloads 目录。",
+    none: "没有符合筛选条件的曲目。",
+    loadingMore: "加载中…",
+    loadedAll: "已加载全部 {n} 首",
+    loadedCount: "已加载 {m} / {n} 首",
+    summaryPresent: "{present} 首在库",
+    summaryMissing: "{missing} 首已删除",
+    albumLabel: "专辑",
   },
 
   topbar: {
@@ -562,6 +596,7 @@ export const en: Dict = {
     search: "Search",
     downloads: "Downloads",
     sources: "Sources",
+    library: "Library",
     settings: "Settings",
     logs: "Logs",
   },
@@ -585,7 +620,41 @@ export const en: Dict = {
   sidebar: {
     library: "Local library",
     libraryFacts: "{n} tracks · {size}",
-    libraryHint: "See where files landed",
+    libraryHint: "Browse all tracks",
+  },
+
+  /** Local library page (FR-LIB): scanned index of files under downloads; server-side filter/sort + lazy loading.
+   *  Sorting is Excel-style (click the column header to sort) — no sort control in the toolbar. */
+  library: {
+    title: "Local library",
+    lede: "Every track under the downloads folder; deleted files stay listed and can be re-downloaded.",
+    tabsLabel: "Filter by status",
+    tabPresent: "On disk",
+    tabMissing: "Deleted",
+    tabAll: "All",
+    searchPlaceholder: "Filter by title, artist, album, file name",
+    rescan: "Rescan",
+    rescanDone: "Scan finished: {added} added · {updated} updated · {missing} marked deleted",
+    fileMissing: "File deleted; re-download available",
+    redownload: "Download again",
+    redownloaded: "Queued",
+    removeRecord: "Remove record",
+    removeTitle: "Remove this library record?",
+    removeBody:
+      "The library record for “{title}” will be removed; files on disk are never touched — a file that is still there is re-indexed on the next scan.",
+    removeConfirm: "Remove",
+    removed: "Record removed",
+    play: "Play",
+    playing: "Playing",
+    empty:
+      "The library is empty. Finished downloads appear here automatically, or hit Rescan to index the downloads folder.",
+    none: "No tracks match this filter.",
+    loadingMore: "Loading…",
+    loadedAll: "All {n} loaded",
+    loadedCount: "{m} of {n} loaded",
+    summaryPresent: "{present} on disk",
+    summaryMissing: "{missing} deleted",
+    albumLabel: "Album",
   },
 
   topbar: {

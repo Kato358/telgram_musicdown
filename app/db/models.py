@@ -83,6 +83,31 @@ class PreviewCache:
     last_access_at: str
 
 
+@dataclass(slots=True)
+class LocalTrack:
+    """本地曲库台账行（FR-LIB）：save_path 下音频文件的扫描索引。
+
+    rel_path 相对曲库根目录（posix 分隔符），部署目录整体搬家记录仍有效；
+    missing=1 表示文件已不在磁盘——记录保留，曲库可见（可重新下载）。
+    """
+
+    id: int | None
+    rel_path: str
+    file_name: str
+    ext: str | None = None
+    title: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    duration_sec: int | None = None
+    file_size: int | None = None
+    bitrate: int | None = None
+    mtime: float | None = None
+    missing: int = 0
+    history_id: int | None = None
+    first_seen_at: str = ""
+    scanned_at: str = ""
+
+
 SCHEMA_VERSION = 1
 
 

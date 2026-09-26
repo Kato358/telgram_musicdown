@@ -14,6 +14,15 @@ class Events {
   errors = $state<(LogErrorEvent & { id: number })[]>([]);
   /** 状态事件计数：页面用 $effect 观察它触发重载（DB 才是事实源）。 */
   revision = $state(0);
+  /** 本地曲库扫描完成计数：曲库页观察它重取列表（启动扫描 / 手动重扫都会发）。 */
+  libraryRevision = $state(0);
+  /** 最近一次曲库扫描结果（done 帧载荷；曲库页的完成提示用）。 */
+  lastLibraryScan = $state<{
+    added: number;
+    updated: number;
+    missing: number;
+    total: number;
+  } | null>(null);
 
   #source: EventSource | null = null;
   #listeners = new Set<StatusListener>();
@@ -53,6 +62,15 @@ class Events {
             logger: parsed.payload.logger ? String(parsed.payload.logger) : undefined,
           },
         ];
+      } else if (parsed.type === "library.scan" && parsed.payload?.done) {
+        // 扫描完成才推：开始帧没有可刷新的事实
+        this.lastLibraryScan = {
+          added: Number(parsed.payload.added ?? 0),
+          updated: Number(parsed.payload.updated ?? 0),
+          missing: Number(parsed.payload.missing ?? 0),
+          total: Number(parsed.payload.total ?? 0),
+        };
+        this.libraryRevision += 1;
       }
     };
     this.#source = source;

@@ -88,3 +88,25 @@ def history_dict(h: Any, task_id: int | None = None) -> dict[str, Any]:
         # 这条记录当前挂着的任务（台账被删过则为 null）：实时读数与暂停/继续/取消都用它
         "task_id": task_id,
     }
+
+
+def local_track_dict(t: Any, history: Any | None = None) -> dict[str, Any]:
+    """本地曲库行 → API dict；挂着下载记录时带上 chat/message（重新下载入队用）。"""
+    return {
+        "id": t.id,
+        "rel_path": t.rel_path,
+        "file_name": t.file_name,
+        "ext": t.ext,
+        "title": t.title,
+        "artist": t.artist,
+        "album": t.album,
+        "duration_sec": t.duration_sec,
+        "file_size": t.file_size,
+        "bitrate": t.bitrate,
+        "missing": bool(t.missing),
+        "history_id": t.history_id,
+        "chat_id": history.chat_id if history is not None else None,
+        "message_id": history.message_id if history is not None else None,
+        "first_seen_at": t.first_seen_at,
+        "scanned_at": t.scanned_at,
+    }

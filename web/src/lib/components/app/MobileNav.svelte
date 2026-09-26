@@ -7,6 +7,7 @@
   import type { Component } from "svelte";
   import DownloadIcon from "@lucide/svelte/icons/download";
   import LayoutDashboardIcon from "@lucide/svelte/icons/layout-dashboard";
+  import LibraryIcon from "@lucide/svelte/icons/library";
   import MenuIcon from "@lucide/svelte/icons/menu";
   import RadioTowerIcon from "@lucide/svelte/icons/radio-tower";
   import ScrollTextIcon from "@lucide/svelte/icons/scroll-text";
@@ -24,6 +25,7 @@
     search: SearchIcon,
     downloads: DownloadIcon,
     sources: RadioTowerIcon,
+    library: LibraryIcon,
     settings: SettingsIcon,
     logs: ScrollTextIcon,
     setup: SettingsIcon,
@@ -104,6 +106,32 @@
           <Badge count={countFor(route.key)} />
         </button>
       {/each}
+    </div>
+
+    <!-- 抽屉底部的本地曲库入口：桌面端在侧栏左下角卡（窄屏没有侧栏，入口落在这里） -->
+    <div class="mt-auto pt-3">
+      <button
+        type="button"
+        class="surface-promo ui-transition flex w-full items-center gap-2.5 rounded-nav p-3 text-left hover:opacity-90 {router.key ===
+        'library'
+          ? 'ring-1 ring-primary/40'
+          : ''}"
+        aria-current={router.key === "library" ? "page" : undefined}
+        onclick={() => go(pathOf("library"))}
+      >
+        <span
+          class="grid size-8 shrink-0 place-items-center rounded-chip bg-card/70 text-primary"
+          aria-hidden="true"
+        >
+          <LibraryIcon class="size-4" />
+        </span>
+        <span class="min-w-0 flex-1">
+          <span class="block truncate text-body font-semibold">{t("sidebar.library")}</span>
+          <span class="block truncate text-caption text-muted-foreground">
+            {t("sidebar.libraryHint")}
+          </span>
+        </span>
+      </button>
     </div>
   </nav>
 {/if}

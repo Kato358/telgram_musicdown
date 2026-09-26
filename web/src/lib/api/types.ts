@@ -139,6 +139,10 @@ export interface StatsResponse {
     tracks: number;
     bytes: number;
     failed: number;
+    /** 本地曲库台账（local_tracks 扫描索引）读数：侧栏曲库卡与曲库页同一套数字。 */
+    local_present: number;
+    local_missing: number;
+    local_bytes: number;
   };
   sources: {
     total: number;
@@ -147,8 +151,37 @@ export interface StatsResponse {
   uptime_sec: number;
 }
 
-export interface SearchResult {
-  chat_id: number;
+/** 本地曲库行（`GET /api/local-library`，扫描 downloads 落盘文件的台账）。 */
+export interface LocalTrackRow {
+  id: number;
+  rel_path: string;
+  file_name: string;
+  ext: string | null;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  duration_sec: number | null;
+  file_size: number | null;
+  bitrate: number | null;
+  /** 文件已不在磁盘（记录保留，可重新下载）。 */
+  missing: boolean;
+  /** 挂着的下载记录 id（该记录被删则为 null，重新下载不可用）。 */
+  history_id: number | null;
+  chat_id: number | null;
+  message_id: number | null;
+  first_seen_at: string;
+  scanned_at: string;
+}
+
+/** `GET /api/local-library`：items + 当前筛选 total + 全局计数与占用。 */
+export interface LocalLibraryResponse {
+  items: LocalTrackRow[];
+  total: number;
+  counts: { present: number; missing: number; all: number };
+  bytes: number;
+}
+
+export interface SearchResult {  chat_id: number;
   message_id: number;
   title: string | null;
   artist: string | null;

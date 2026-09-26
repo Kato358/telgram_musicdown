@@ -19,6 +19,7 @@ from app.config import SecretConfig, app_dirs
 from app.ports import IStore
 from app.ports.telegram import TelegramClientProto
 from app.services.download import DownloadService
+from app.services.local_library import LocalLibraryService
 from app.services.preview import PreviewService
 from app.services.source import SearchService, SourceService
 
@@ -46,6 +47,7 @@ class Container:
     sources: SourceService
     search: SearchService
     preview: PreviewService
+    library: LocalLibraryService
     extras: dict[str, Any] = field(default_factory=dict)
 
     def close(self) -> None:
@@ -90,6 +92,7 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
         dirs["preview"],
         max_bytes=settings.preview.max_bytes,
     )
+    library = LocalLibraryService(store, dirs["save_path"], downloads.tags, events)
     return Container(
         base_dir=base_dir,
         dirs=dirs,
@@ -99,5 +102,6 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
         sources=sources,
         search=search,
         preview=preview,
+        library=library,
         extras={"events": events},
     )

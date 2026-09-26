@@ -78,11 +78,17 @@ class LibraryCounts(BaseModel):
     `bytes` 是这些文件在磁盘上的实际大小之和——刻意不取 `history.file_size` 求和：
     链接/转发入队时 Telegram 经常不给大小，那样求和会让「占用」长期停在 0。
     磁盘才是这个数字的事实源（文件被移走就不算占用）。
+
+    `local_*` 是本地曲库台账（local_tracks 扫描索引）的读数：侧栏曲库卡与曲库页
+    说同一套数字（文件删了的记录仍计入 local_missing，不计占用）。
     """
 
     tracks: int = 0
     bytes: int = 0
     failed: int = 0
+    local_present: int = 0
+    local_missing: int = 0
+    local_bytes: int = 0
 
 
 class SourceCounts(BaseModel):

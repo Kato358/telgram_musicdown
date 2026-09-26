@@ -20,6 +20,7 @@
   import FlyOverlay from "$lib/components/app/FlyOverlay.svelte";
   import DashboardView from "@/views/DashboardView.svelte";
   import DownloadsView from "@/views/DownloadsView.svelte";
+  import LibraryView from "@/views/LocalLibraryView.svelte";
   import LogsView from "@/views/LogsView.svelte";
   import SearchView from "@/views/SearchView.svelte";
   import SettingsView from "@/views/SettingsView.svelte";
@@ -31,6 +32,7 @@
     search: SearchView,
     downloads: DownloadsView,
     sources: SourcesView,
+    library: LibraryView,
     settings: SettingsView,
     logs: LogsView,
     setup: SetupView,

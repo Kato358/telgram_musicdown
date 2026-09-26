@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from app.db.models import History, PreviewCache, Source, Task
+from app.db.models import History, LocalTrack, PreviewCache, Source, Task
 
 
 @runtime_checkable
@@ -52,6 +52,7 @@ class HistoryRepo(Protocol):
         offset: int = 0,
     ) -> list[History]: ...
     def latest_task_ids(self, history_ids: list[int]) -> dict[int, int]: ...
+    def history_paths_by_id(self) -> dict[str, int]: ...
     def mark_history_status(
         self,
         history_id: int,
@@ -120,5 +121,49 @@ class StatsRepo(Protocol):
     def library_paths(self) -> list[str]: ...
 
 
-class IStore(SourceRepo, HistoryRepo, TaskRepo, SettingsRepo, PreviewRepo, StatsRepo, Protocol):
+@runtime_checkable
+class LocalLibraryRepo(Protocol):
+    """本地曲库台账协议（FR-LIB）：扫描索引的读写与筛选聚合。"""
+
+    def upsert_local_track(self, t: LocalTrack) -> int: ...
+    def get_local_track(self, track_id: int) -> LocalTrack | None: ...
+    def get_local_track_by_path(self, rel_path: str) -> LocalTrack | None: ...
+    def local_track_paths(self) -> dict[str, LocalTrack]:
+        """rel_path → 行（扫描时与磁盘清单对账用）。"""
+        ...
+    def list_local_tracks(
+        self,
+        q: str | None = None,
+        artist: str | None = None,
+        missing: bool | None = None,
+        sort: str = "created",
+        order: str = "desc",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[LocalTrack]: ...
+    def count_local_tracks(
+        self, q: str | None = None, artist: str | None = None
+    ) -> dict[str, int]:
+        """当前关键词/歌手筛选下的 present/missing 计数（页签计数用）。"""
+        ...
+    def local_track_bytes(self) -> int:
+        """在库文件的总字节（SUM(file_size) WHERE missing=0）。"""
+        ...
+    def local_track_artists(self) -> list[tuple[str, int]]:
+        """非空歌手聚合（artist, count），按名称排序（筛选下拉用）。"""
+        ...
+    def set_local_track_missing(self, track_ids: list[int], missing: bool) -> None: ...
+    def delete_local_track(self, track_id: int) -> bool: ...
+
+
+class IStore(
+    SourceRepo,
+    HistoryRepo,
+    TaskRepo,
+    SettingsRepo,
+    PreviewRepo,
+    StatsRepo,
+    LocalLibraryRepo,
+    Protocol,
+):
     """统一仓储端口：全部子协议的聚合（服务层依赖它，不依赖 ``Store``）。"""

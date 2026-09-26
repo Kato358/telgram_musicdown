@@ -10,6 +10,7 @@ export type RouteKey =
   | "search"
   | "downloads"
   | "sources"
+  | "library"
   | "settings"
   | "logs"
   | "setup";
@@ -19,6 +20,7 @@ export const ROUTES: { key: RouteKey; path: string }[] = [
   { key: "search", path: "/search" },
   { key: "downloads", path: "/downloads" },
   { key: "sources", path: "/sources" },
+  { key: "library", path: "/library" },
   { key: "settings", path: "/settings" },
   { key: "logs", path: "/logs" },
   { key: "setup", path: "/setup" },

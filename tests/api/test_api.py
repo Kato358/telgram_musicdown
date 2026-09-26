@@ -505,7 +505,14 @@ def test_stats_counts_written_tracks_and_tasks(client: TestClient, tmp_path: Pat
     store.create_task(Task(id=None, type="link", payload_json="{}", status="downloading"))
 
     body = client.get("/api/stats").json()
-    assert body["library"] == {"tracks": 2, "bytes": 1000, "failed": 1}
+    assert body["library"] == {
+        "tracks": 2,
+        "bytes": 1000,
+        "failed": 1,
+        "local_present": 0,
+        "local_missing": 0,
+        "local_bytes": 0,
+    }
     assert body["tasks"]["downloading"] == 1
     assert body["tasks"]["success"] == 0
     assert body["uptime_sec"] >= 0
