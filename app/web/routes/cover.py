@@ -63,9 +63,7 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
                 audio = Path(row.save_path)
                 if audio.exists():  # noqa: ASYNC240  路由级存在性检查非热路径
                     try:
-                        cover = await _local_cover_response(
-                            row.id, request, audio, tags
-                        )
+                        cover = await _local_cover_response(row.id, request, audio, tags)
                     except Exception:  # noqa: BLE001  封面是装饰，读失败回退 api
                         cover = None
                     if cover is not None:

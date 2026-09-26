@@ -38,9 +38,7 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
 
         豁免模式（未设口令且仅监听本机，或登录开关关闭）直接放行，不签 cookie——前端据此跳过登录页。
         """
-        if not web_auth.auth_required(
-            ctx.web_host, ctx.web_login_secret, ctx.web_login_enabled
-        ):
+        if not web_auth.auth_required(ctx.web_host, ctx.web_login_secret, ctx.web_login_enabled):
             return schemas.LoginResponse()
         if not hmac.compare_digest(req.secret, ctx.web_login_secret):
             # 不区分「口令错」与「不该访问」之外的细节，避免给爆破者额外信息
@@ -66,9 +64,7 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
     @app.get("/api/auth/session")
     async def web_session(request: Request) -> dict[str, bool]:
         """当前 Web 会话是否有效（前端登录闸门用；豁免模式恒 true）。"""
-        if not web_auth.auth_required(
-            ctx.web_host, ctx.web_login_secret, ctx.web_login_enabled
-        ):
+        if not web_auth.auth_required(ctx.web_host, ctx.web_login_secret, ctx.web_login_enabled):
             return {"required": False, "authenticated": True}
         token = request.cookies.get(web_auth.SESSION_COOKIE, "")
         ok = web_auth.verify_session_token(token, ctx.web_login_secret)

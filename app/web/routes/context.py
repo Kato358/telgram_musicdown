@@ -47,9 +47,7 @@ class RouteContext:
 
     def check_session(self, request: Request) -> None:
         """认证依赖（FR-WEB-01/02）：豁免判定 + 会话 cookie 校验。"""
-        if not web_auth.auth_required(
-            self.web_host, self.web_login_secret, self.web_login_enabled
-        ):
+        if not web_auth.auth_required(self.web_host, self.web_login_secret, self.web_login_enabled):
             return
         token = request.cookies.get(web_auth.SESSION_COOKIE, "")
         if not web_auth.verify_session_token(token, self.web_login_secret):

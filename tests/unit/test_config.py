@@ -55,9 +55,7 @@ def test_env_overrides_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert load_path_config(tmp_path).save_directory == "from-env"
 
 
-def test_web_login_enabled_parsing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_web_login_enabled_parsing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """登录开关（FR-WEB-02）：yaml/env 双入口；解析不出按开启处理，别把保护静默关掉。"""
     monkeypatch.delenv("TGM_WEB_LOGIN_ENABLED", raising=False)
     # yaml 布尔字面量与带引号字符串写法都要认

@@ -658,9 +658,7 @@ class Store:
         clauses: list[str] = []
         params: list[Any] = []
         if q:
-            clauses.append(
-                "(title LIKE ? OR artist LIKE ? OR album LIKE ? OR file_name LIKE ?)"
-            )
+            clauses.append("(title LIKE ? OR artist LIKE ? OR album LIKE ? OR file_name LIKE ?)")
             like = f"%{q}%"
             params += [like, like, like, like]
         if artist is not None:
@@ -693,9 +691,7 @@ class Store:
         params += [limit, offset]
         return [row_to(LocalTrack, r) for r in self._conn.execute(sql, params)]
 
-    def count_local_tracks(
-        self, q: str | None = None, artist: str | None = None
-    ) -> dict[str, int]:
+    def count_local_tracks(self, q: str | None = None, artist: str | None = None) -> dict[str, int]:
         """当前筛选下的在库/已删除/合计计数（页签计数，不数当前页）。"""
         clauses, params = self._local_track_clauses(q, artist, None)
         sql = "SELECT COALESCE(SUM(missing=0),0) AS present, COALESCE(SUM(missing=1),0) AS gone"

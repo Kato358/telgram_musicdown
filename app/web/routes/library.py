@@ -35,6 +35,7 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
     tags = ctx.tags
 
     if library is None:  # 兜底装配失败的服务器：曲库整体退 503
+
         @app.get("/api/local-library", include_in_schema=False)
         async def _unavailable(_: None = Depends(ctx.check_session)) -> dict[str, Any]:
             raise HTTPException(status_code=503, detail="library service unavailable")
@@ -103,9 +104,7 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
                 if found is not None:
                     history_rows[row.history_id] = found
         return {
-            "items": [
-                local_track_dict(row, history_rows.get(row.history_id or 0)) for row in rows
-            ],
+            "items": [local_track_dict(row, history_rows.get(row.history_id or 0)) for row in rows],
             "total": total,
             "counts": counts,
             "bytes": store.local_track_bytes(),
@@ -142,9 +141,7 @@ def _register_track_routes(
     root = Path(ctx.library.save_path)
 
     @app.get("/api/local-library/{track_id}/stream")
-    async def library_stream(
-        track_id: int, _: None = Depends(ctx.check_session)
-    ) -> FileResponse:
+    async def library_stream(track_id: int, _: None = Depends(ctx.check_session)) -> FileResponse:
         """曲库文件流（FileResponse 自带 Range 206，播放器拖进度条按字节段取）。"""
         path = existing_file(track_or_404(track_id))
         return FileResponse(path, media_type="application/octet-stream")

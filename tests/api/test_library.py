@@ -79,7 +79,11 @@ def test_library_lists_scanned_files_with_history_link(tmp_path: Path) -> None:
     target = seed_audio(tmp_path, "周杰伦/晴天.mp3")
     history_id = store.upsert_history(
         History(
-            id=None, chat_id=-1009, message_id=7, title="晴天", save_path=str(target),
+            id=None,
+            chat_id=-1009,
+            message_id=7,
+            title="晴天",
+            save_path=str(target),
             status="success",
         )
     )
@@ -133,9 +137,7 @@ def test_library_pagination_lazily_serves_pages(tmp_path: Path) -> None:
     page2 = client.get("/api/local-library", params={"limit": 2, "offset": 2}).json()
     assert len(page1["items"]) == 2 and len(page2["items"]) == 2
     assert page1["total"] == 5
-    assert {row["id"] for row in page1["items"]}.isdisjoint(
-        {row["id"] for row in page2["items"]}
-    )
+    assert {row["id"] for row in page1["items"]}.isdisjoint({row["id"] for row in page2["items"]})
 
 
 def test_library_missing_rows_stay_visible_and_stream_404s(tmp_path: Path) -> None:
@@ -195,8 +197,9 @@ def test_library_task_links_not_required(tmp_path: Path) -> None:
     client, store, library = make_client(tmp_path)
     target = seed_audio(tmp_path, "A/x.mp3")
     history_id = store.upsert_history(
-        History(id=None, chat_id=-1, message_id=1, title="x", save_path=str(target),
-                status="success")
+        History(
+            id=None, chat_id=-1, message_id=1, title="x", save_path=str(target), status="success"
+        )
     )
     store.create_task(Task(id=None, type="link", payload_json="{}", history_id=history_id))
     library.scan_sync()

@@ -111,6 +111,7 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
         """实时事件流（SDD §4「所有 /api/* 需 Web 会话」的最后一角）：任务进度、错误日志、
         曲库扫描都从这里广播，未登录可读等于把运行状态公网裸奔，故同样过 check_session。
         """
+
         async def gen() -> AsyncIterator[str]:
             q = await events.subscribe()
             try:

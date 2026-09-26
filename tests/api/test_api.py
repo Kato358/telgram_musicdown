@@ -927,6 +927,7 @@ def test_preview_path_empty_dir_template_is_flat(tmp_path: Path) -> None:
     body = resp.json()
     assert body["relative"] == "03 晴天.mp3"
 
+
 # ---- 歌词路由（/api/lyrics）：播放器歌词面板的数据源 ----
 
 

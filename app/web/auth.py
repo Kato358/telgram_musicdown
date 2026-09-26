@@ -20,9 +20,7 @@ SESSION_COOKIE = "tgm_session"
 SESSION_MAX_AGE_SEC = 30 * 24 * 3600
 
 
-def check_auth_config(
-    web_host: str, web_login_secret: str, web_login_enabled: bool = True
-) -> None:
+def check_auth_config(web_host: str, web_login_secret: str, web_login_enabled: bool = True) -> None:
     """0.0.0.0 无密码启动报错退出（FR-WEB-02 验收）。
 
     ``web_login_enabled=False`` 是用户显式关闭登录：不再拦启动，否则这个开关

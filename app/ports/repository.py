@@ -43,6 +43,7 @@ class HistoryRepo(Protocol):
     def find_history_cover_source(self, title: str) -> History | None:
         """全局封面「本地优先」：按标题取最近一条已落盘的成功记录。"""
         ...
+
     def list_history(
         self,
         status: str | None = None,
@@ -139,6 +140,7 @@ class LocalLibraryRepo(Protocol):
     def local_track_paths(self) -> dict[str, LocalTrack]:
         """rel_path → 行（扫描时与磁盘清单对账用）。"""
         ...
+
     def list_local_tracks(
         self,
         q: str | None = None,
@@ -149,17 +151,18 @@ class LocalLibraryRepo(Protocol):
         limit: int = 50,
         offset: int = 0,
     ) -> list[LocalTrack]: ...
-    def count_local_tracks(
-        self, q: str | None = None, artist: str | None = None
-    ) -> dict[str, int]:
+    def count_local_tracks(self, q: str | None = None, artist: str | None = None) -> dict[str, int]:
         """当前关键词/歌手筛选下的 present/missing 计数（页签计数用）。"""
         ...
+
     def local_track_bytes(self) -> int:
         """在库文件的总字节（SUM(file_size) WHERE missing=0）。"""
         ...
+
     def local_track_artists(self) -> list[tuple[str, int]]:
         """非空歌手聚合（artist, count），按名称排序（筛选下拉用）。"""
         ...
+
     def set_local_track_missing(self, track_ids: list[int], missing: bool) -> None: ...
     def delete_local_track(self, track_id: int) -> bool: ...
 

@@ -24,8 +24,14 @@ def _env(key: str) -> str | None:
 # 布尔开关（web_login_enabled）认得的写法；表里没有的值一律按 default 处理
 # （安全向：拼写错误解析失败时宁可保持开启登录，也不能把保护静默关掉）。
 _BOOL_MAP = {
-    "1": True, "true": True, "yes": True, "on": True,
-    "0": False, "false": False, "no": False, "off": False,
+    "1": True,
+    "true": True,
+    "yes": True,
+    "on": True,
+    "0": False,
+    "false": False,
+    "no": False,
+    "off": False,
 }
 
 
