@@ -58,9 +58,15 @@
    *  先问登录再问初始化，否则会把人误导向向导。 */
   const loginGate = $derived(session.web?.required === true && !session.web.authenticated);
 
-  /** 地址栏与渲染保持一致：强制进向导时用 replace，不留一条控制台历史。 */
+  /** 地址栏与渲染保持一致：强制进向导时用 replace，不留一条控制台历史。
+   *
+   *  登录闸门期间绝不能跳：那时 `checked` 已为真（登录页自身就是首屏）而 setup 还是
+   *  null，照 setupGate 判断必然成立，会在用户还在输口令时就把地址栏写成 /setup；
+   *  登录一过 setupGate 转假、渲染回控制台，但地址栏已是 /setup，于是渲染出向导再由
+   *  SetupView 弹回仪表盘——「登录后闪一下向导」。初始化状态没拿到之前不跳，与渲染
+   *  顺序同一理由：先问登录，再问初始化。 */
   $effect(() => {
-    if (setupGate && router.key !== "setup") {
+    if (setupGate && !loginGate && router.key !== "setup") {
       navigate(pathOf("setup"), { replace: true });
     }
   });
