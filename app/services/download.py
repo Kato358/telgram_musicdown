@@ -62,12 +62,6 @@ def _utc_after(seconds: int) -> str:
     return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat(timespec="seconds")
 
 
-class SyncRunnerProto(Protocol):
-    """源同步执行器协议面（FR-SRC-04，实现在 services/sync.py）。"""
-
-    async def run(self, task_id: int, payload: dict[str, Any]) -> Any: ...
-
-
 class DownloadQueueServiceProto(Protocol):
     """下载队列对外协议面（bot 层依赖它，不依赖 DownloadService 具体类）。"""
 
@@ -103,7 +97,6 @@ class DownloadService:
         self.tags = TagService()
         # 历史行结算（展示字段/读数/终态）独立成协作对象：与队列调度无关
         self._history = HistoryWriter(store, self.tags, cfg)
-        self.sync_runner: SyncRunnerProto | None = None
 
     @property
     def client(self) -> TelegramClientProto:
@@ -115,10 +108,6 @@ class DownloadService:
     @client.setter
     def client(self, value: TelegramClientProto | None) -> None:
         self._client = value
-
-    def set_sync_runner(self, runner: SyncRunnerProto) -> None:
-        """装配源同步执行器（FR-SRC-04）：tasks.type='sync' 由本 Worker 池执行。"""
-        self.sync_runner = runner
 
     def apply_template(self, cfg: TemplateConfig) -> None:
         """运行中替换落盘模板（FR-CFG-03：设置保存即时生效，不必重启）。
@@ -350,9 +339,16 @@ class DownloadService:
         return task
 
     async def _run_task(self, task: dict[str, Any]) -> None:
-        """按任务类型分发：sync 走源同步执行器，其余是单条下载（SDD §2.3）。"""
-        if task["type"] == "sync":
-            await self._run_sync(task)
+        """执行一条下载任务（SDD §2.3）：台账里只有下载任务一种类型。"""
+        if task["type"] != "link":
+            # 老库里的残留（同步子系统已移除，v0.10）：结算成失败并留下原因，
+            # 不当作下载去跑——它的 payload 里没有 meta，跑了只会以怪错误反复重试
+            await self._set_status(
+                task["id"],
+                "failed",
+                task.get("history_id"),
+                error=f"任务类型已移除：{task['type']}",
+            )
             return
         payload = json.loads(task["payload_json"])
         task_id: int = task["id"]
@@ -466,20 +462,6 @@ class DownloadService:
         hydrated.track = meta.track
         hydrated.album = meta.album or hydrated.album
         return hydrated
-
-    async def _run_sync(self, task: dict[str, Any]) -> None:
-        """源同步/回溯（FR-SRC-04）：交给 SyncRunner，本处只做状态与错误落库。"""
-        task_id: int = task["id"]
-        if self.sync_runner is None:
-            await self._set_status(task_id, "failed", error="sync runner not wired")
-            return
-        payload = json.loads(task["payload_json"])
-        try:
-            await self.sync_runner.run(task_id, payload)  # 扫描计数由 SyncRunner 记日志
-        except AppError as e:  # 领域错误：写人类可读原因（NFR-08）
-            await self._set_status(task_id, "failed", error=e.message)
-            return
-        await self._set_status(task_id, "success")
 
     def _discard_temp(self, temp_path: Path) -> None:
         if temp_path.exists():

@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class _UserProxy:
-    """SourceService/SearchService/SyncRunner 所需协议面；未登录时报错。"""
+    """SourceService/SearchService 所需协议面；未登录时报错。"""
 
     def __init__(self, mgr: TelegramManager) -> None:
         self._mgr = mgr
@@ -43,11 +43,6 @@ class _UserProxy:
 
     async def get_chat(self, entity: str | int) -> dict[str, Any]:
         return await self._client().get_chat(entity)
-
-    async def iter_messages(
-        self, chat_id: int, reverse: bool, offset_id: int, limit: int
-    ) -> list[dict[str, Any]]:
-        return await self._client().iter_messages(chat_id, reverse, offset_id, limit)
 
     async def list_dialogs(self, limit: int) -> list[dict[str, Any]]:
         return await self._client().list_dialogs(limit)

@@ -86,13 +86,8 @@ export interface SourceRow {
   title: string;
   type: string;
   enabled: boolean;
-  auto_sync: boolean;
-  sync_interval_sec: number;
-  last_message_id: number | null;
   media_scope: string[];
   note: string | null;
-  /** 添加源时那条一次性导入任务的 id（最近 200 条，向导第 3 步）。 */
-  import_task_id?: number | null;
 }
 
 export interface TaskRow {

@@ -8,7 +8,7 @@
     return ["failed", "cancelled", "skipped"].includes(status);
   }
 
-  export type TaskAction = "pause" | "resume" | "retry" | "cancel";
+  export type TaskAction = "pause" | "resume" | "retry" | "cancel" | "delete";
 </script>
 
 <script lang="ts">
@@ -120,6 +120,16 @@
             onclick={() => onact("cancel")}
           >
             {t("tasks.cancel")}
+          </Button>
+        {:else}
+          <!-- 终态行只留「重试」会变成死胡同：重试还是失败就永远挂在榜上，没人能把它拿下来 -->
+          <Button
+            variant="destructive"
+            size="xs"
+            class="rounded-full"
+            onclick={() => onact("delete")}
+          >
+            {t("tasks.dismiss")}
           </Button>
         {/if}
       </div>

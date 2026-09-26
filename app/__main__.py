@@ -23,7 +23,6 @@ from app.services.download import DownloadService
 from app.services.local_library import LocalLibraryService
 from app.services.preview import PreviewService
 from app.services.source import SearchService, SourceService
-from app.services.sync import SyncRunner
 from app.telegram.manager import TelegramManager
 from app.utils.proactor_patch import silence_proactor_connection_reset
 from app.web import auth as web_auth
@@ -85,8 +84,6 @@ def build_services(base_dir: Path) -> AppServices:
     downloads.client = tg.download_client_proxy
     container.sources.client = tg.user_client_proxy
     container.search.client = tg.user_client_proxy
-    # 源同步/回溯（FR-SRC-04）由下载 Worker 池执行：扫描 → 逐条入队
-    downloads.set_sync_runner(SyncRunner(store, tg.user_client_proxy, downloads))
     container.preview.client = tg.download_client_proxy
     return AppServices(
         secrets=secrets,
@@ -117,6 +114,12 @@ async def run(base_dir: Path) -> None:
     backfilled = await asyncio.to_thread(svc.downloads.backfill_history_media)
     if backfilled:
         logging.getLogger(__name__).info("backfilled media facts for %d history rows", backfilled)
+
+    # 缓存上限不只在下载时生效：启动先按上限修剪一次（封面按 mtime 一并进预算，FR-PLAY-02）
+    try:
+        await svc.preview.enforce_limits()
+    except Exception:  # noqa: BLE001  缓存修剪失败不该拦住启动
+        logging.getLogger(__name__).exception("startup cache trim failed")
 
     # 本地曲库台账随启动后台扫一次（不阻塞 web/tg 启动；扫描结果经 SSE 推给前端）
     async def _startup_library_scan() -> None:

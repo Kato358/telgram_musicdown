@@ -67,9 +67,7 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
         return {"ok": True}
 
     @app.post("/api/downloads/{task_id}/pause")
-    async def pause_download(
-        task_id: int, _: None = Depends(ctx.check_session)
-    ) -> dict[str, bool]:
+    async def pause_download(task_id: int, _: None = Depends(ctx.check_session)) -> dict[str, bool]:
         await downloads.pause_task(task_id)
         return {"ok": True}
 
@@ -81,9 +79,7 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
         return {"ok": True}
 
     @app.post("/api/downloads/{task_id}/retry")
-    async def retry_download(
-        task_id: int, _: None = Depends(ctx.check_session)
-    ) -> dict[str, bool]:
+    async def retry_download(task_id: int, _: None = Depends(ctx.check_session)) -> dict[str, bool]:
         if store.get_task(task_id) is None:
             raise HTTPException(status_code=404, detail="task not found")
         await downloads.retry_task(task_id)

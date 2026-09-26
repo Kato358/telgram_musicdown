@@ -15,9 +15,6 @@ def src_dict(s: Any) -> dict[str, Any]:
         "title": s.title,
         "type": s.type,
         "enabled": bool(s.enabled),
-        "auto_sync": bool(s.auto_sync),
-        "sync_interval_sec": s.sync_interval_sec,
-        "last_message_id": s.last_message_id,
         "media_scope": json.loads(s.media_scope),
         "note": s.note,
     }
@@ -41,17 +38,13 @@ def task_dict(t: Any, history: Any | None = None) -> dict[str, Any]:
     artist = history.artist if history is not None else None
     album = history.album if history is not None else None
     duration_sec = history.duration_sec if history is not None else None
-    if not title or not artist or not album:
-        try:
-            payload = json.loads(t.payload_json)
-        except (TypeError, json.JSONDecodeError):
-            payload = {}
-        meta = payload.get("meta") if isinstance(payload, dict) else None
-        if isinstance(meta, dict):
-            title = title or meta.get("title")
-            artist = artist or meta.get("artist")
-            album = album or meta.get("album")
-            duration_sec = duration_sec or meta.get("duration_sec")
+    payload = _payload(t)
+    meta = payload.get("meta")
+    if (not title or not artist or not album) and isinstance(meta, dict):
+        title = title or meta.get("title")
+        artist = artist or meta.get("artist")
+        album = album or meta.get("album")
+        duration_sec = duration_sec or meta.get("duration_sec")
     return {
         "id": t.id,
         "type": t.type,
@@ -66,6 +59,15 @@ def task_dict(t: Any, history: Any | None = None) -> dict[str, Any]:
         "retry_count": t.retry_count,
         "error": t.error,
     }
+
+
+def _payload(t: Any) -> dict[str, Any]:
+    """`payload_json` → dict；坏值（手改过/老行）一律当空字典，展示层不为它抛异常。"""
+    try:
+        loaded = json.loads(t.payload_json)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def history_dict(h: Any, task_id: int | None = None) -> dict[str, Any]:

@@ -63,19 +63,15 @@ class Store:
             if src.id is None:
                 cur = self._conn.execute(
                     "INSERT INTO sources (telegram_chat_id, username, title, type, enabled,"
-                    " auto_sync, sync_interval_sec, last_message_id, media_scope,"
-                    " filters_json, save_path_override, dir_template_override,"
+                    " media_scope, filters_json, save_path_override, dir_template_override,"
                     " file_template_override, note, created_at, updated_at)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         src.telegram_chat_id,
                         src.username,
                         src.title,
                         src.type,
                         src.enabled,
-                        src.auto_sync,
-                        src.sync_interval_sec,
-                        src.last_message_id,
                         src.media_scope,
                         src.filters_json,
                         src.save_path_override,
@@ -89,8 +85,7 @@ class Store:
                 return int(cur.lastrowid)  # type: ignore[arg-type]  # sqlite3 lastrowid 运行时必为 int
             self._conn.execute(
                 "UPDATE sources SET telegram_chat_id=?, username=?, title=?, type=?,"
-                " enabled=?, auto_sync=?, sync_interval_sec=?, last_message_id=?,"
-                " media_scope=?, filters_json=?, save_path_override=?,"
+                " enabled=?, media_scope=?, filters_json=?, save_path_override=?,"
                 " dir_template_override=?, file_template_override=?, note=?, updated_at=?"
                 " WHERE id=?",
                 (
@@ -99,9 +94,6 @@ class Store:
                     src.title,
                     src.type,
                     src.enabled,
-                    src.auto_sync,
-                    src.sync_interval_sec,
-                    src.last_message_id,
                     src.media_scope,
                     src.filters_json,
                     src.save_path_override,
@@ -137,14 +129,6 @@ class Store:
             if with_history:
                 self._conn.execute("DELETE FROM history WHERE source_id=?", (source_id,))
             self._conn.execute("DELETE FROM sources WHERE id=?", (source_id,))
-
-    def set_source_cursor(self, source_id: int, last_message_id: int) -> None:
-        """游标写入 sources.last_message_id（FR-SRC-04）。"""
-        with self._conn:
-            self._conn.execute(
-                "UPDATE sources SET last_message_id=?, updated_at=? WHERE id=?",
-                (last_message_id, utcnow(), source_id),
-            )
 
     # ---- history ----
 

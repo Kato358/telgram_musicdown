@@ -971,7 +971,6 @@
                 <Button size="lg" disabled={adding || link.trim() === ""} onclick={() => void addManual()}>
                   {adding ? t("setup.adding") : t("setup.add")}
                 </Button>
-                <span class="text-caption text-muted-foreground">{t("setup.manualImportHint")}</span>
               </div>
               {#if manualNote}<Note tone={manualNote.tone}>{manualNote.text}</Note>{/if}
             </div>

@@ -35,7 +35,6 @@ from app.telegram.flood import with_flood_retry
 logger = logging.getLogger(__name__)
 
 MAX_DIALOG_SCAN = 200  # 候选源扫描上限：一次 get_dialogs，不做逐会话额外请求（FR-SRC-05）
-HISTORY_BATCH = 100  # 历史遍历单请求上限（get_chat_history 内部按 100 分片，超出会重复取窗口）
 CONNECT_TIMEOUT_SEC = 30  # Pyrogram 对连不上的代理会无限重试，故本层给硬超时（FR-AUTH-03）
 SESSION_NAME = "musicdown"  # 会话文件名（sessions/musicdown.session）；登出按此名删除
 
@@ -240,50 +239,6 @@ class UserClient:
         except RPCError as e:
             raise _translate_rpc(e) from e
         return [_message_dict(m) for m in msgs]
-
-    async def iter_messages(
-        self, chat_id: int, reverse: bool, offset_id: int, limit: int
-    ) -> list[dict[str, Any]]:
-        """历史遍历（FR-SRC-04）：从锚点之后取一批，向更早降序 / 向更新升序。
-
-        pyrogram v2 的历史 API 是 ``get_chat_history``（v1 的 iter_messages 已移除），
-        它只给「比 offset_id 更早」的降序窗口、也没有 reverse 参数：向更新必须靠负
-        ``offset``（MTProto ``add_offset``）取「锚点之后」的窗口再翻转，与 pyrogram v1
-        ``get_history(reverse=True)`` 同款语义。
-        """
-        out: list[dict[str, Any]] = []
-        try:
-            while len(out) < limit:
-                size = min(HISTORY_BATCH, limit - len(out))
-                cursor = int(out[-1]["message_id"]) if out else offset_id
-                # 向更新：offset_id 含锚点本身，add_offset=-size 把窗口推到锚点之后；
-                # 向更早：offset_id 是排他的上界（get_chat_history 的降序游标语义）。
-                start = cursor + 1 if reverse else cursor
-                batch = [
-                    _message_dict(m)
-                    for m in await self._fetch_history_chunk(chat_id, start, size, reverse)
-                ]
-                if not batch:
-                    break
-                if reverse:
-                    batch.reverse()
-                out.extend(batch)
-        except RPCError as e:
-            raise _translate_rpc(e) from e
-        return out[:limit]
-
-    async def _fetch_history_chunk(
-        self, chat_id: int, start: int, size: int, reverse: bool
-    ) -> list[Message]:
-        """一批历史消息（服务端原始顺序）；FloodWait 经 with_flood_retry（NFR-09）。"""
-
-        async def _fetch() -> list[Message]:
-            gen = self.client.get_chat_history(
-                chat_id, offset_id=start, offset=-size if reverse else 0, limit=size
-            )
-            return [] if gen is None else [m async for m in gen]
-
-        return await with_flood_retry(_fetch, label="history")
 
     async def get_messages(self, chat_id: int, message_ids: list[int]) -> list[dict[str, Any]]:
         """按 id 取消息 dict（DownloadService meta 补全用）；单条返回也归一为列表。"""

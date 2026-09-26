@@ -54,7 +54,7 @@
     active: "queued,downloading,paused",
     failed: "failed",
   };
-  /** 进行中在队列卡里的先后：在传的排最前，其次已暂停，最后是还在等待的。 */
+  /** 在飞的任务在队列卡里的先后：在传的排最前，其次已暂停，最后是还在等待的。 */
   const QUEUE_ORDER: Record<string, number> = { downloading: 0, paused: 1, queued: 2 };
 
   /** 站内链接带一个状态进来（最近入库、侧栏曲库卡给的是 `?status=success`），归到它所在的页签。 */
@@ -116,7 +116,7 @@
     { key: "active", label: t("downloads.statActive"), count: activeCount },
   ]);
 
-  /** 队列卡与（v3.8 前的）右栏进度卡说的是同一批任务，顺序也一样。 */
+  /** 队列卡与（v3.8 前的）右栏进度卡说的是同一批任务，顺序也一样：在飞的那些。 */
   const activeTasks = $derived(
     queue.tasks
       .filter((task) => task.status in QUEUE_ORDER)
@@ -255,10 +255,15 @@
     player.play(next, 0);
   }
 
+  /** 行内动作：取消/暂停/恢复/重试都是 POST；「清除」是删台账行（DELETE），不是状态变更。 */
   async function act(taskId: number, action: TaskAction) {
     error = "";
     try {
-      await api.post(`/api/downloads/${taskId}/${action}`);
+      if (action === "delete") {
+        await api.delete(`/api/downloads/${taskId}`);
+      } else {
+        await api.post(`/api/downloads/${taskId}/${action}`);
+      }
       await refresh();
     } catch (err) {
       error = errorText(err, t("common.error"));

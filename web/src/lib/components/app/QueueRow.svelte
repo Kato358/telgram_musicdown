@@ -7,11 +7,12 @@
 </script>
 
 <script lang="ts">
-  /** 队列行（设计规范 §5.4）：正在跑的任务在队列卡里的一行。
+  /** 队列行（设计规范 §5.4）：队列卡里的一行。
    *
    * 一行 = DB 快照（状态、标题、元信息）+ SSE 进度帧（字节、速率、剩余），拼装收在
    * `queue.readings()`；动作由状态推出：下载中→暂停、已暂停→继续、进行中→取消
-   * （队列里没有终态行）。动作一律是圆形实底键（与下载记录行同一族），词由 `aria-label` 补全。
+   * （队列里没有终态行：失败/取消的下载由下载页的记录表管）。动作一律是圆形实底键
+   * （与下载记录行同一族），词由 `aria-label` 补全。
    */
   import ClockIcon from "@lucide/svelte/icons/clock";
   import MusicIcon from "@lucide/svelte/icons/music";
@@ -37,11 +38,12 @@
 
   let { task, progress, onact, class: className = "" }: Props = $props();
 
-  /** 标题行按参考图排成「歌手 / 歌名」；缺省用浅灰 `—` 占位（v3.9），不留满屏「未知」。 */
+  /** 标题行按参考图排成「歌手 / 歌名」；缺省用浅灰 `—` 占位（v3.9），不留满屏「未知」。
+   *  没有歌手的行（源同步）不摆一个空的 `— /`——那是排版噪音，不是信息。 */
   const heading = $derived.by(() => {
-    const artist = task.artist?.trim() || t("common.placeholder");
+    const artist = task.artist?.trim();
     const title = task.title?.trim() || t("common.placeholder");
-    return `${artist} / ${title}`;
+    return artist ? `${artist} / ${title}` : title;
   });
   const artistLine = $derived(task.artist?.trim() || taskTypeText(task.type));
   const ratio = $derived(progressRatio(progress.received, progress.total));
@@ -78,7 +80,9 @@
       <span class="tabular shrink-0 text-caption text-muted-foreground">{statusLine}</span>
     </div>
     <ProgressBar {ratio} label={heading} />
-    <div class="tabular flex flex-wrap items-center gap-x-3 gap-y-0.5 text-caption text-faint-foreground">
+    <div
+      class="tabular flex flex-wrap items-center gap-x-3 gap-y-0.5 text-caption text-faint-foreground"
+    >
       <span>{total}</span>
       {#if speed}
         <span>{speed}</span>

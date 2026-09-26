@@ -1,6 +1,6 @@
 """假 Telegram 客户端（NFR-07，编码规范 §4.2）。
 
-实现真实协议面：search_messages / get_chat / get_messages / iter_messages /
+实现真实协议面：search_messages / get_chat / get_messages /
 download_media。可脚本化注入：正常返回、FloodWait、大小不符、非音频。
 单测禁止真实网络。
 """
@@ -64,18 +64,6 @@ class FakeUserClient:
         return [
             next((m for m in self.messages if m["message_id"] == mid), None) for mid in message_ids
         ]
-
-    async def iter_messages(
-        self, chat_id: int, reverse: bool, offset_id: int, limit: int = 100
-    ) -> list[dict[str, Any]]:
-        """按 pyrogram 语义分页：reverse=False 取 id < offset 的降序，True 取 id > offset 升序。"""
-        ordered = sorted(self.messages, key=lambda m: int(m["message_id"]), reverse=not reverse)
-        if offset_id:
-            if reverse:
-                ordered = [m for m in ordered if int(m["message_id"]) > offset_id]
-            else:
-                ordered = [m for m in ordered if int(m["message_id"]) < offset_id]
-        return ordered[:limit]
 
     async def download_media(
         self,

@@ -150,10 +150,16 @@
     }
   }
 
+  /** 行内动作：取消/暂停/恢复/重试走 POST；「清除」删的是任务台账行（DELETE），
+   *  失败的历史记录与已落盘文件都留着——仪表盘只借它把死任务从榜上拿下来。 */
   async function act(id: number, action: TaskAction) {
     error = "";
     try {
-      await api.post(`/api/downloads/${id}/${action}`);
+      if (action === "delete") {
+        await api.delete(`/api/downloads/${id}`);
+      } else {
+        await api.post(`/api/downloads/${id}/${action}`);
+      }
       await queue.refresh();
     } catch (err) {
       error = errorText(err, t("common.error"));

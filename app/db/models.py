@@ -19,9 +19,6 @@ class Source:
     type: str  # channel|group|user
     username: str | None = None
     enabled: int = 1
-    auto_sync: int = 0
-    sync_interval_sec: int = 120
-    last_message_id: int | None = None
     media_scope: str = '["audio","audio_document"]'
     filters_json: str | None = None
     save_path_override: str | None = None

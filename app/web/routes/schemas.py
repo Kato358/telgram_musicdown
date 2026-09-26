@@ -126,8 +126,6 @@ class ResetResponse(BaseModel):
 class SourceUpsertRequest(BaseModel):
     link: str
     enabled: bool = True
-    auto_sync: bool = False
-    sync_interval_sec: int = 120
     media_scope: list[str] = Field(default_factory=lambda: ["audio", "audio_document"])
     filters: dict[str, Any] | None = None
     save_path_override: str | None = None
@@ -138,21 +136,12 @@ class SourceUpsertRequest(BaseModel):
 
 class SourceUpdateRequest(BaseModel):
     enabled: bool | None = None
-    auto_sync: bool | None = None
-    sync_interval_sec: int | None = None
     media_scope: list[str] | None = None
     filters: dict[str, Any] | None = None
     save_path_override: str | None = None
     dir_template_override: str | None = None
     file_template_override: str | None = None
     note: str | None = None
-
-
-class BackfillRequest(BaseModel):
-    direction: str = "backward"
-    to_message_id: int | None = None
-    to_date: str | None = None
-    limit: int | None = None
 
 
 class SearchRequest(BaseModel):

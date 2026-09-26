@@ -19,7 +19,6 @@ from app.events import Event, EventBus
 from app.services.download import DownloadService
 from app.services.preview import PreviewService
 from app.services.source import SearchService, SourceService
-from app.services.sync import INITIAL_IMPORT_LIMIT
 from app.telegram.manager import TelegramManager
 from app.web import auth as web_auth
 from app.web.routes import create_app
@@ -82,7 +81,9 @@ def test_history_rows_point_at_their_current_task(client: TestClient, tmp_path: 
     history_id = store.upsert_history(History(id=None, chat_id=-1009, message_id=1, title="Song"))
     store.create_task(Task(id=None, type="link", payload_json="{}", history_id=history_id))
     latest = store.create_task(Task(id=None, type="link", payload_json="{}", history_id=history_id))
-    store.create_task(Task(id=None, type="sync", payload_json="{}"))  # 无历史行的同步任务不该被串上
+    store.create_task(
+        Task(id=None, type="link", payload_json="{}")
+    )  # 不挂在任何行上的任务不该被串上
 
     rows = client.get("/api/history").json()
     assert [(row["id"], row["task_id"]) for row in rows] == [(history_id, latest)]
@@ -482,8 +483,8 @@ def test_discover_requires_login(tmp_path: Path) -> None:
     assert r.json()["error"]["code"] == "not_connected"
 
 
-def test_add_source_enqueues_initial_import(tmp_path: Path) -> None:
-    # 向导第 3 步：添加源后立刻建一条 sync 任务（最近 200 条的一次性导入）
+def test_add_source_enqueues_nothing(tmp_path: Path) -> None:
+    # v0.10：同步子系统移除——添加源只加源，不建任何任务（搜索是实时的，入库由手动动作触发）
     store = Store(tmp_path / "app.db")
     events = EventBus()
     client = FakeUserClient([])
@@ -499,18 +500,16 @@ def test_add_source_enqueues_initial_import(tmp_path: Path) -> None:
     preview = PreviewService(store, client, events, tmp_path / "temp" / "preview")
     tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
     app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
-    body = TestClient(app).post("/api/sources", json={"link": "@music_library"}).json()
+    c = TestClient(app)
+    body = c.post("/api/sources", json={"link": "@music_library"}).json()
+
     assert body["username"] == "music"
-    task = store.get_task(body["import_task_id"])
-    assert task is not None
-    assert task.type == "sync"
-    assert json.loads(task.payload_json)["limit"] == INITIAL_IMPORT_LIMIT
-
-
-def test_backfill_unknown_source_404(tmp_path: Path) -> None:
-    client, _ = _client_with(tmp_path)
-    r = client.post("/api/sources/999/backfill", json={"direction": "backward"})
-    assert r.status_code == 404
+    assert store.list_tasks() == []
+    # 连同回溯端点一起移除：源存在也不再有「拉历史」这条路
+    assert (
+        c.post(f"/api/sources/{body['id']}/backfill", json={"direction": "backward"}).status_code
+        == 404
+    )
 
 
 def test_sse_event_bus_delivers_event() -> None:
