@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -107,7 +107,10 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
     # ---- events (SSE) ----
 
     @app.get("/api/events")
-    async def events_sse(request: Request) -> StreamingResponse:
+    async def events_sse(_: None = Depends(ctx.check_session)) -> StreamingResponse:
+        """实时事件流（SDD §4「所有 /api/* 需 Web 会话」的最后一角）：任务进度、错误日志、
+        曲库扫描都从这里广播，未登录可读等于把运行状态公网裸奔，故同样过 check_session。
+        """
         async def gen() -> AsyncIterator[str]:
             q = await events.subscribe()
             try:

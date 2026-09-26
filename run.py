@@ -136,7 +136,7 @@ def build_frontend(force: bool = False) -> bool:
 
 
 def start() -> int:
-    os.environ.setdefault("TGM_WEB_HOST", "0.0.0.0")
+    os.environ.setdefault("TGM_WEB_HOST", "0.0.0.0")  # noqa: S104  公网面板默认地址，无口令会在下方中止
     os.environ.setdefault("TGM_WEB_PORT", "8787")
     os.environ.setdefault("TGM_WEB_LOGIN_SECRET", "123")
     os.environ.setdefault("TGM_BASE_DIR", str(ROOT))

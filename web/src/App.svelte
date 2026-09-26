@@ -72,6 +72,17 @@
     void stats.refresh();
   });
 
+  /** SSE 生命周期跟着 Web 准入走（FR-WEB-02）：`/api/events` 未登录恒 401，登录页
+   *  连它只是白连一条死流（EventSource 对 401 不自动重试），过了登录闸门（含本机
+   *  免密部署）才连，登出即断。connect() 幂等，登录引起的重复进入只会连一次。 */
+  $effect(() => {
+    if (!session.checked || session.needsWebLogin) {
+      events.disconnect();
+      return;
+    }
+    events.connect();
+  });
+
   /** 主题落到 <html>：浅/深唯一出口（首帧由 index.html 内联脚本先铺一次）。 */
   $effect(() => {
     const dark = theme.resolved === "dark";
@@ -84,7 +95,8 @@
     if (window.location.pathname !== router.path) {
       navigate(router.path + router.search, { replace: true });
     }
-    events.connect();
+    // SSE 不在这里连：受保护部署此时多半还没登录，抢先连只会收获一条 401 死流
+    // （connect() 见 #source 非空会早退，之后谁也救不回来）——生命周期全权交给准入 effect
     queue.start();
     void stats.refresh();
     void (async () => {

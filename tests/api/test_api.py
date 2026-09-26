@@ -220,6 +220,20 @@ def test_web_login_switch_disabled(tmp_path: Path) -> None:
     assert not client.cookies.get(web_auth.SESSION_COOKIE)
 
 
+def test_events_stream_requires_session(tmp_path: Path) -> None:
+    """/api/events 是最后一个无鉴权的 /api/*：未登录可订阅等于把任务进度与错误日志公网裸奔。
+
+    只断言 401——无限流不进 TestClient 阻塞读取（项目约定见 test_sse_event_bus_delivers_event）；
+    放行路径复用与 /api/stats 等同一个 check_session 依赖，其放行语义已由免密用例覆盖。
+    """
+    client, _ = _client_with(
+        tmp_path,
+        web_host="0.0.0.0",  # noqa: S104  测试注入的是绑定字符串
+        web_login_secret="s3cret",  # noqa: S106
+    )
+    assert client.get("/api/events").status_code == 401
+
+
 def test_setup_secrets_writes_to_base_dir(tmp_path: Path) -> None:
     # FR-OPS-02：密钥写入 base_dir/config.yaml；session_directory 可配置到别处也不影响
     store = Store(tmp_path / "app.db")
