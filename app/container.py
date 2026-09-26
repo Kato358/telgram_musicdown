@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from app.appsettings import AppSettings, load_app_settings
+from app.chksz.client import ChkszClient
 from app.config import SecretConfig, app_dirs
 from app.ports import IStore
 from app.ports.telegram import TelegramClientProto
@@ -53,12 +54,20 @@ class Container:
     preview: PreviewService
     library: LocalLibraryService
     extras: dict[str, Any] = field(default_factory=dict)
+    #: ChKSz 客户端；未启用在线源时为 None（``aclose`` 据此跳过）。
+    chksz: ChkszClient | None = None
 
     def close(self) -> None:
         """统一释放：DB 连接等生命周期资源收口于此。"""
         close = getattr(self.store, "close", None)
         if callable(close):
             close()
+
+    async def aclose(self) -> None:
+        """异步资源释放（HTTP 连接池）；``close()`` 之后仍可调，用于完整收尾。"""
+        if self.chksz is not None:
+            await self.chksz.aclose()
+        self.close()
 
 
 def build_container(base_dir: Path, overrides: Overrides | None = None) -> Container:
@@ -79,11 +88,18 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
     download_client = ov.download_client
     source_client = ov.source_client
 
+    # 在线源客户端：没有 Key 就不建（建了也只是每次 401，白白占一个连接池）。
+    chksz = None
+    if settings.chksz.enabled and settings.secrets.chksz_api_key:
+        chksz = ChkszClient(settings.secrets.chksz_base_url, settings.secrets.chksz_api_key)
     # 三个服务共用一份来源索引：同一个来源在搜索里叫 A、在下载里必须还是 A。
     registry = SourceRegistry(
         store,
         source_client,
         download_client,  # type: ignore[arg-type]  装配后必非空
+        chksz_client=chksz,
+        chksz_enabled=settings.chksz.enabled,
+        download_quality=settings.chksz.download_quality,
     )
 
     downloads = DownloadService(
@@ -94,6 +110,7 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
         settings.template,
         max_concurrent=settings.download.max_concurrent,
         registry=registry,
+        default_quality=settings.chksz.download_quality,
     )
     sources = SourceService(store, source_client)
     search = SearchService(
@@ -109,6 +126,7 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
         events,
         dirs["preview"],
         max_bytes=settings.preview.max_bytes,
+        preview_quality=settings.chksz.preview_quality,
     )
     library = LocalLibraryService(store, dirs["save_path"], downloads.tags, events)
     return Container(
@@ -122,5 +140,6 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
         search=search,
         preview=preview,
         library=library,
+        chksz=chksz,
         extras={"events": events},
     )

@@ -30,6 +30,10 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
             # 搜索模式（FR-SEARCH-01）：向导据此决定第 3 步要不要摆音乐源配置，
             # 控制台据此决定导航里有没有「音乐源」。取运行中服务的值 = 唯一事实源。
             search_mode=ctx.search.settings.mode,
+            # 在线源（SDD §2.7）：Key 只回「有没有」不回明文（NFR-02）；开关取运行中
+            # 服务的值 = 唯一事实源，前端据此决定搜索页要不要摆在线源药丸。
+            chksz_enabled=bool(ctx.registry.online_sources()),
+            has_chksz_key=bool(secrets.chksz_api_key),
             proxy=(
                 None
                 if proxy is None

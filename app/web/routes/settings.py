@@ -12,8 +12,14 @@ from typing import Any
 
 from fastapi import Depends, FastAPI
 
-from app.appsettings import load_search_settings, load_template_config, preview_max_bytes
-from app.domain import TemplateConfig, TrackMeta, meta_from_dict
+from app.appsettings import (
+    load_chksz_settings,
+    load_search_settings,
+    load_template_config,
+    preview_max_bytes,
+)
+from app.chksz.quality import ladder
+from app.domain import PROVIDER_SCOPES, TemplateConfig, TrackMeta, meta_from_dict
 from app.services.path_builder import render_path, resolve_field
 from app.services.preview import CacheStats
 from app.services.search_cache import SearchCacheStats
@@ -106,7 +112,28 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
         ctx.downloads.apply_template(load_template_config(store, ctx.base_dir))
         ctx.preview.max_bytes = preview_max_bytes(store)
         ctx.search.apply_settings(load_search_settings(store))
+        chksz = load_chksz_settings(store)
+        ctx.registry.apply_chksz(chksz.enabled, chksz.download_quality)
+        ctx.downloads.default_quality = chksz.download_quality
+        ctx.preview.preview_quality = chksz.preview_quality
         return store.all_settings()
+
+    @app.get("/api/settings/qualities")
+    async def qualities(_: None = Depends(ctx.check_session)) -> dict[str, Any]:
+        """各在线源平台的音质阶梯（界面弹窗与设置页下拉的唯一数据源）。
+
+        发的是**语义档位**（128k/320k/lossless/hires/master）而不是上游原生值：
+        同一个「320k」在网易那边叫 exhigh，让界面自己维护一份映射迟早会漂。
+        """
+        return {
+            "providers": {
+                provider: [
+                    {"tier": option.tier, "label": option.label, "best": option.best}
+                    for option in ladder(provider)
+                ]
+                for provider in PROVIDER_SCOPES
+            }
+        }
 
     @app.get("/api/settings/cache")
     async def cache_usage(_: None = Depends(ctx.check_session)) -> schemas.CacheStatsResponse:

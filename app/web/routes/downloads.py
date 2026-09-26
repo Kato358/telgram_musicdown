@@ -25,7 +25,9 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
         """入队（FR-LINK-01/02、FR-DL-01）：urls 逐条解析，message_refs 直接建任务。
 
         message_refs 里带的元数据（title/artist/ext…）原样进 TrackMeta，
-        搜索结果直接下载时模板才有真实字段可用。
+        搜索结果直接下载时模板才有真实字段可用。在线源还带三个键：
+        ``provider``（平台）、``ref``（曲目 id）、``quality``（目标音质档位），
+        缺省时 provider=telegram、quality 取设置页的默认值。
         """
         out: list[dict[str, Any]] = []
         refs: list[dict[str, Any]] = []
@@ -44,7 +46,11 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
                 refs.append({"chat_id": link.chat_id, "message_id": link.message_id})
         for ref in refs:
             meta = meta_from_dict(ref)
-            task_id = await downloads.enqueue(DownloadRequest(meta=meta, force=req.force))
+            task_id = await downloads.enqueue(
+                DownloadRequest(
+                    meta=meta, force=req.force, quality=ref.get("quality")  # type: ignore[arg-type]
+                )
+            )
             out.append({"chat_id": meta.chat_id, "message_id": meta.message_id, "task_id": task_id})
         return {"items": out}
 

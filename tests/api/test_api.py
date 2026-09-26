@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient
 from app.config import SecretConfig, load_secrets
 from app.db.models import History, Task
 from app.db.store import Store
-from app.registry import SourceRegistry
 from app.domain import TemplateConfig
 from app.errors import SourceUnreachableError, WebAuthConfigError
 from app.events import Event, EventBus
@@ -24,7 +23,7 @@ from app.telegram.manager import TelegramManager
 from app.web import auth as web_auth
 from app.web.routes import create_app
 from app.web.routes import lyrics as lyrics_route
-from tests.fakes import FakeUserClient, make_audio_message
+from tests.fakes import FakeChkszClient, FakeUserClient, fake_registry, make_audio_message
 from tests.service.test_tags_preview import JPEG, make_cover_mp3
 
 API_HASH = "0123456789abcdef0123456789abcdef"
@@ -35,7 +34,9 @@ def client(tmp_path: Path) -> TestClient:
     store = Store(tmp_path / "app.db")
     events = EventBus()
     # 三个服务共用一份来源索引（与容器装配同构），否则在线源那条路在 API 层是死的
-    registry = SourceRegistry(store, FakeUserClient([]), FakeUserClient([]))  # type: ignore[arg-type]
+    chksz = FakeChkszClient()
+    # 在线源默认关着（与生产一致：配了 Key 也要用户显式开），测试按需 apply_chksz
+    registry = fake_registry(store, FakeUserClient([]), chksz)  # type: ignore[arg-type]
     sources = SourceService(store, None)  # type: ignore[arg-type]
     search = SearchService(store, None, registry=registry)  # type: ignore[arg-type]
     downloads = DownloadService(
@@ -1180,6 +1181,62 @@ def test_search_endpoint_pages_caches_and_refreshes(tmp_path: Path) -> None:
 # ---- 在线源（SDD §2.7）----
 
 
+def test_quality_ladder_is_served_from_the_backend(client: TestClient) -> None:
+    # 阶梯由服务端发：同一档在网易叫 exhigh、QQ 叫 320k，界面自己维护一份映射迟早会漂
+    r = client.get("/api/settings/qualities")
+    assert r.status_code == 200
+    providers = r.json()["providers"]
+    assert set(providers) == {"163", "qq", "kugo"}
+    fidelity = ["master", "hires", "lossless", "320k", "128k"]
+    for provider, ladder in providers.items():
+        tiers = [o["tier"] for o in ladder]
+        assert tiers[: len(fidelity)] == fidelity
+        assert next(o for o in ladder if o["best"])["tier"] == "master"
+        # 网易独有两套混音，排在保真度阶梯之下；QQ 与酷狗没有
+        extra = tiers[len(fidelity) :]
+        assert extra == (["sky", "jyeffect"] if provider == "163" else [])
+    assert providers["163"][-1]["label"] == "臻品音效"
+    assert providers["qq"][-1]["label"] == "标准 128k"
+
+
+def test_search_sources_endpoint_lists_online_sources_with_negative_scopes(
+    client: TestClient,
+) -> None:
+    # 前端把「网易云」当成一颗普通药丸来勾选，scope 就是负号，没有第二套选择器
+    client.app.state.registry.apply_chksz(True, "hires")
+    body = client.get("/api/search/sources").json()
+    online = [s for s in body["sources"] if s["online"]]
+    assert {s["title"] for s in online} == {"网易云", "QQ 音乐", "酷狗"}
+    assert {s["id"] for s in online} == {-1, -2, -3}
+    assert {s["provider"] for s in online} == {"163", "qq", "kugo"}
+
+
+def test_download_accepts_online_provider_ref_and_quality(client: TestClient) -> None:
+    # 入队就把 provider/ref/quality 带进 payload，worker 才有得解析播放地址
+    r = client.post(
+        "/api/downloads",
+        json={
+            "message_refs": [
+                {
+                    "chat_id": -1,
+                    "message_id": 42,
+                    "title": "海底",
+                    "provider": "163",
+                    "ref": "1315196858",
+                    "quality": "lossless",
+                }
+            ]
+        },
+    )
+    assert r.status_code == 200
+    task_id = r.json()["items"][0]["task_id"]
+    assert task_id is not None
+    payload = json.loads(client.app.state.store.get_task(task_id).payload_json)  # type: ignore[union-attr]
+    assert payload["quality"] == "lossless"
+    assert payload["meta"]["provider"] == "163"
+    assert payload["meta"]["ref"] == "1315196858"
+
+
 def test_saving_settings_refreshes_online_source_toggles(client: TestClient) -> None:
     # 保存即生效（FR-CFG-03）：开关与两档音质不必重启
     r = client.put(
@@ -1197,3 +1254,25 @@ def test_saving_settings_refreshes_online_source_toggles(client: TestClient) -> 
     assert client.app.state.downloads.default_quality == "master"
     assert client.app.state.preview.preview_quality == "128k"
 
+
+def test_setup_status_reports_key_presence_never_the_key(client: TestClient) -> None:
+    # NFR-02：只回「有没有」，不回明文
+    assert client.get("/api/setup/status").json()["has_chksz_key"] is False
+    client.post(
+        "/api/setup/secrets",
+        json={"api_id": 1234567, "api_hash": API_HASH, "chksz_api_key": "chksz_abcdefgh12345678"},
+    )
+    body = client.get("/api/setup/status").json()
+    assert body["has_chksz_key"] is True
+    assert "chksz_abcdefgh12345678" not in json.dumps(body)
+
+
+def test_invalid_chksz_key_is_rejected_before_writing(client: TestClient) -> None:
+    # 格式不对的 Key 写进 config.yaml 只会在每次搜索时 401，不如在保存时就说清
+    r = client.post(
+        "/api/setup/secrets",
+        json={"api_id": 1234567, "api_hash": API_HASH, "chksz_api_key": "not-a-key"},
+    )
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "invalid_secrets"
+    assert "chksz_" in r.json()["error"]["message"]

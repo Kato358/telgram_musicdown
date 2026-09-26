@@ -1,7 +1,11 @@
-"""假 Telegram 客户端（NFR-07，编码规范 §4.2）。
+"""假适配器与假客户端（NFR-07，编码规范 §4.2）。
 
-实现真实协议面：search_messages / get_chat / get_messages /
-download_media。可脚本化注入：正常返回、FloodWait、大小不符、非音频。
+- ``FakeUserClient``：实现 Telegram 协议面（search_messages / get_chat / get_messages /
+  download_media），可脚本化注入：正常返回、FloodWait、大小不符、非音频。
+- ``FakeChkszClient``：实现 ChKSz 协议面（三个平台各一组搜索/解析），可脚本化注入
+  搜索结果、解析详情与下载内容。
+- ``fake_registry``：按生产装配方式拼一个来源索引（测试里三个服务共用同一份）。
+
 单测禁止真实网络。
 """
 
@@ -10,6 +14,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from app.ports.repository import IStore
+from app.registry import SourceRegistry
 
 
 class FakeFloodWait(Exception):
@@ -57,6 +64,8 @@ class FakeUserClient:
     async def search_messages(
         self, chat_id: int, query: str, limit: int, offset: int
     ) -> list[dict[str, Any]]:
+        if self.flood_queue:
+            raise FakeFloodWait(self.flood_queue.pop(0))
         return [
             m
             for m in self.messages
@@ -73,6 +82,7 @@ class FakeUserClient:
             for m in self.global_messages
             if query.lower() in str(m.get("audio", {}).get("title", "")).lower()
         ][:limit]
+
 
     async def get_messages(
         self, chat_id: int, message_ids: list[int]
@@ -100,6 +110,74 @@ class FakeUserClient:
         # ASYNC240 豁免：Fake 客户端允许直接写文件（测试环境无网络 IO）
         target.write_bytes(self.content[:size])  # noqa: ASYNC240
         return str(target)
+
+
+class FakeChkszClient:
+    """可脚本化注入的假 ChKSz 客户端。
+
+    按平台名分别给搜索行与解析详情；``downloaded`` 记每次下载的 URL，
+    便于断言「请求的是哪一档」。
+    """
+
+    def __init__(
+        self,
+        *,
+        rows: dict[str, list[dict[str, Any]]] | None = None,
+        detail: dict[str, Any] | None = None,
+        content: bytes = b"f" * 64,
+    ) -> None:
+        self.rows = rows or {}
+        self.detail = detail or {}
+        self.content = content
+        self.downloaded: list[str] = []
+        #: 每次解析请求的 (平台, 曲目 id, 音质)，用来断言档位真的传到了上游
+        self.resolved: list[tuple[str, str, str]] = []
+        self.search_calls: list[tuple[str, str, int, int]] = []
+
+    async def search_163(self, keyword: str, limit: int, offset: int) -> list[dict[str, Any]]:
+        self.search_calls.append(("163", keyword, limit, offset))
+        return self.rows.get("163", [])[:limit]
+
+    async def search_qq(self, keyword: str, limit: int) -> list[dict[str, Any]]:
+        self.search_calls.append(("qq", keyword, limit, 0))
+        return self.rows.get("qq", [])[:limit]
+
+    async def search_kugo(self, keyword: str, limit: int) -> list[dict[str, Any]]:
+        self.search_calls.append(("kugo", keyword, limit, 0))
+        return self.rows.get("kugo", [])[:limit]
+
+    async def resolve_163(self, track_id: str, quality: str) -> dict[str, Any]:
+        self.resolved.append(("163", track_id, quality))
+        return self.detail
+
+    async def resolve_qq(self, mid: str, quality: str) -> dict[str, Any]:
+        self.resolved.append(("qq", mid, quality))
+        return self.detail
+
+    async def resolve_kugo(self, track_id: str, quality: str) -> dict[str, Any]:
+        self.resolved.append(("kugo", track_id, quality))
+        return self.detail
+
+    async def download(
+        self,
+        url: str,
+        dest: Path,
+        progress: Callable[[int, int | None], None] | None = None,
+    ) -> int:
+        self.downloaded.append(url)
+        size = len(self.content)
+        if progress is not None:
+            progress(size, size)
+        # ASYNC240 豁免：Fake 客户端允许直接写文件（测试环境无网络 IO）
+        dest.write_bytes(self.content)  # noqa: ASYNC240
+        return size
+
+
+def fake_registry(
+    store: IStore, client: FakeUserClient, chksz: FakeChkszClient | None = None
+) -> SourceRegistry:
+    """按生产装配方式拼一个来源索引（在线源默认关闭，测试要开就自己 apply_chksz）。"""
+    return SourceRegistry(store, client, client, chksz_client=chksz)
 
 
 def make_audio_message(

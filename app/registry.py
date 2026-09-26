@@ -1,4 +1,4 @@
-"""来源索引：把音乐源频道拉平成一份「当前可搜的源」清单（组合根的配套件）。
+"""来源索引：把两类适配器拉平成一份「当前可搜的源」清单（组合根的配套件）。
 
 **为什么它不是 service**：SDD §1.2 定了「services 之间禁止互相 import」。
 ``SearchService`` / ``DownloadService`` / ``PreviewService`` 都要用这份清单，若把
@@ -9,14 +9,14 @@ services → ports ← adapters。
 清单随库里的启用源实时重建，不缓存：源是低频变更的资源，而一次搜索的代价是一次
 网络往返，多构造几个小对象换来的是「删了源立刻生效」这个不必再推理的性质。
 
-scope 分配全局唯一（``domain.PROVIDER_SCOPES`` 是它的唯一事实源）：
+scope 分配全局唯一，三段互不相撞（``domain.PROVIDER_SCOPES`` 是它的唯一事实源）：
 
 ============  ==========================================
 scope         来源
 ============  ==========================================
 ``>= 1``      ``sources`` 表里启用的音乐源频道（``sources.id``）
 ``0``         searchGlobal 的保留 scope（不在这份清单里）
-``-1/-2/-3``  预留给在线源平台（网易云 / QQ 音乐 / 酷狗）
+``-1/-2/-3``  网易云 / QQ 音乐 / 酷狗（``PROVIDER_SCOPES``）
 ============  ==========================================
 """
 
@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import logging
 
+from app.chksz.client import ChkszClient
+from app.chksz.source import ChkszSource
 from app.domain import PROVIDER_SCOPES, PROVIDER_TELEGRAM
 from app.ports.music import MusicSourceProto
 from app.ports.repository import SourceRepo
@@ -33,25 +35,47 @@ logger = logging.getLogger(__name__)
 
 
 class SourceRegistry:
-    """``MusicSourceIndexProto`` 的具体实现：音乐源频道的索引。"""
+    """``MusicSourceIndexProto`` 的具体实现：音乐源频道 + 在线源，一份清单。"""
 
     def __init__(
         self,
         sources: SourceRepo,
         search_client: SearchClientProto,
         media_client: MediaClientProto,
+        *,
+        chksz_client: ChkszClient | None = None,
+        chksz_enabled: bool = False,
+        download_quality: str = "flac",
     ) -> None:
         self._sources = sources
         self._search = search_client
         self._media = media_client
+        self._chksz_client = chksz_client
+        self._chksz_enabled = chksz_enabled
+        self._download_quality = download_quality
+
+    def apply_chksz(self, enabled: bool, download_quality: str) -> None:
+        """设置页保存后即时开关在线源并换默认档（FR-CFG-03：不必重启）。"""
+        self._chksz_enabled = enabled
+        self._download_quality = download_quality
+
+    def online_sources(self) -> list[ChkszSource]:
+        """在线源适配器（按 ``PROVIDER_SCOPES`` 的顺序）；未启用或没 Key 时为空。"""
+        if not self._chksz_enabled or self._chksz_client is None:
+            return []
+        return [
+            ChkszSource(provider, self._chksz_client, default_quality=self._download_quality)
+            for provider in PROVIDER_SCOPES
+        ]
 
     def targets(self) -> list[MusicSourceProto]:
-        """当前可搜的来源：启用的音乐源频道。"""
-        return [
+        """当前可搜的来源：启用的音乐源频道在前，在线源在后。"""
+        channels = [
             TelegramSource(row.id, row.telegram_chat_id, row.title, self._search, self._media)
             for row in self._sources.list_sources(enabled_only=True)
             if row.id is not None
         ]
+        return [*channels, *self.online_sources()]
 
     def by_scope(self, scope_id: int) -> MusicSourceProto | None:
         """按 scope 找回来源；已停用/已移除返回 None，调用方据此拒绝执行。"""

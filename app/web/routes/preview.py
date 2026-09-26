@@ -22,7 +22,11 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
             raise HTTPException(status_code=422, detail="message_refs required")
         r = refs[0]
         pid = await preview.request_preview(
-            int(r["chat_id"]), int(r["message_id"]), r.get("file_size")
+            int(r["chat_id"]),
+            int(r["message_id"]),
+            r.get("file_size"),
+            provider=str(r.get("provider") or "telegram"),
+            ref=r.get("ref"),
         )
         return {"preview_id": pid}
 

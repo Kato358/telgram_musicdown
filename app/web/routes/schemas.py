@@ -32,6 +32,7 @@ class SetupSecretsRequest(BaseModel):
     bot_token: str | None = None
     web_login_secret: str | None = None
     proxy: ProxySpec | None = None
+    chksz_api_key: str | None = None
 
 
 class SetupStatusResponse(BaseModel):
@@ -47,6 +48,9 @@ class SetupStatusResponse(BaseModel):
     has_api_hash: bool
     has_bot_token: bool
     search_mode: str = "sources"
+    #: 在线源（SDD §2.7）：只回「有没有 Key」与「开没开」，不回明文（NFR-02）。
+    has_chksz_key: bool = False
+    chksz_enabled: bool = False
     proxy: ProxySpec | None = None
     connected: bool = False
     display_name: str | None = None
