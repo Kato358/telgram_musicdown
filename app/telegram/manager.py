@@ -41,6 +41,9 @@ class _UserProxy:
     ) -> list[dict[str, Any]]:
         return await self._client().search_messages(chat_id, query, limit, offset)
 
+    async def search_global(self, query: str, limit: int) -> list[dict[str, Any]]:
+        return await self._client().search_global(query, limit)
+
     async def get_chat(self, entity: str | int) -> dict[str, Any]:
         return await self._client().get_chat(entity)
 

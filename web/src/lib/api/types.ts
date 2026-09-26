@@ -25,6 +25,8 @@ export interface SetupStatus {
   has_api_id: boolean;
   has_api_hash: boolean;
   has_bot_token: boolean;
+  /** 搜索模式（FR-SEARCH-01）：`sources` = 逐源搜索（需要音乐源）/ `global` = 全账号搜索。 */
+  search_mode: string;
   proxy: SetupProxy | null;
   connected: boolean;
   display_name: string | null;

@@ -132,6 +132,8 @@ export const zhCN: Dict = {
   search: {
     title: "搜索",
     lede: "只在已启用音乐源内搜索音频。",
+    ledeGlobal: "搜账号加入的全部对话里的音频，不需要音乐源。",
+    globalScope: "全账号搜索：范围是你账号加入的全部对话，可能包含未添加为音乐源的频道。",
     formTitle: "搜索条件",
     formHint: "关键词加搜索范围；回车即搜。",
     placeholder: "关键词，如：周杰伦 晴天",
@@ -149,6 +151,7 @@ export const zhCN: Dict = {
     idleHint: "输入关键词回车搜索。结果可直接试听，或加入下载队列。",
     resultsCount: "找到 {n} 首",
     resultsNone: "没找到匹配的曲目。换个关键词，或换一个已启用的音乐源。",
+    resultsNoneGlobal: "没找到匹配的曲目。换个关键词，或确认账号已加入有歌的频道。",
     needSources: "还没有音乐源。",
     needSourcesAction: "去添加源",
     preview: "试听",
@@ -277,6 +280,9 @@ export const zhCN: Dict = {
     statTotalHint: "已加入的频道",
     statEnabled: "已启用",
     statEnabledHint: "参与搜索",
+    globalModeNotice:
+      "当前是「全账号搜索」模式：搜索不经过音乐源。下面的配置要切回「逐源搜索」才会参与搜索。",
+    globalModeBack: "去设置切回逐源搜索",
   },
 
   settings: {
@@ -391,6 +397,19 @@ export const zhCN: Dict = {
     theme: "外观",
     webLogout: "退出控制台登录",
     webLogoutHint: "清掉本机会话 cookie，回到登录页；不影响 Telegram 账号与已下载的文件。",
+
+    searchModeSection: "搜索模式",
+    searchModeHint: "决定搜索走哪条链路；换模式立即生效，两种都能随时切回来。",
+    searchModeSources: "逐源搜索",
+    searchModeSourcesDesc:
+      "逐个频道各查一次：结果按来源频道分门别类，某个频道失败不影响其它频道，也不带出你没添加的频道。频道越多请求越多，更容易被 Telegram 限流。",
+    searchModeGlobal: "全账号搜索",
+    searchModeGlobalDesc:
+      "一次请求搜完账号加入的全部对话：频道再多也只打一次，几乎不会被限流，还能搜到没添加为源的频道。代价是结果按时间混在一起、无法只搜指定频道，一次失败就是整次失败。",
+    searchModeSourcesNote: "「音乐源」页可用：搜索只在你添加并启用的源里进行。",
+    searchModeGlobalNote: "「音乐源」页已隐藏：搜索覆盖账号加入的全部对话，不需要添加源。",
+    searchModeSaved: "已切换为「{mode}」",
+    searchModeFailed: "没切换：{reason}",
   },
 
   logs: {
@@ -430,11 +449,11 @@ export const zhCN: Dict = {
 
   setup: {
     title: "初始化",
-    lede: "首次部署三步：填写密钥与代理 → 登录 Telegram 账号 → 选音乐源。",
+    lede: "首次部署三步：填写密钥与代理 → 登录 Telegram 账号 → 选搜索模式（逐源搜索时才需要配音乐源）。",
     steps: {
       keys: "密钥与代理",
       login: "登录账号",
-      sources: "音乐源",
+      searchMode: "搜索模式",
       keysTodo: "待填写密钥",
       keysTyping: "正在填写",
       keysDone: "已完成配置",
@@ -444,6 +463,8 @@ export const zhCN: Dict = {
       sourcesTodo: "待添加",
       sourcesDoing: "正在配置",
       sourcesDone: "已添加 {n} 个",
+      searchModeTodo: "待选择",
+      searchModeDone: "已选择",
     },
     status: {
       title: "当前状态",
@@ -537,8 +558,6 @@ export const zhCN: Dict = {
     codeSent: "验证码已发到 Telegram 应用（点开 Telegram 看，不是短信）。收不到就检查代理。",
     alreadyLoggedIn: "这个会话仍然有效，不用再登录。",
     needKeysFirst: "还不能登录：先回第 1 步保存 api_id / api_hash，没有它们连不上 Telegram。",
-    step3Title: "第 3 步：添加音乐源",
-    step3Hint: "挑几个音乐频道/群组，让机器人替你采集。",
     sourcesBanner:
       "频道/群组/用户都行，公开的可以直接粘链接；这里只把源加进来，搜索是实时的。",
     tabRec: "从我的对话中推荐",
@@ -572,6 +591,13 @@ export const zhCN: Dict = {
     nextEnter: "进入控制台",
     gateNeedKeys: "先保存密钥，才能登录。",
     gateNoSources: "还没有音乐源也能进控制台，随时在「音乐源」页添加。",
+    modeTitle: "搜索模式",
+    modeLede: "选一种搜索方式；随时能在设置页改。",
+    modeSaved: "已保存搜索模式",
+    modeFailed: "没保存：{reason}",
+    sourcesTitle: "音乐源",
+    sourcesLede: "从账号对话里挑候选，或粘链接手动添加；也可以跳过，进控制台后再补。",
+    sourcesSkipped: "「全账号搜索」不需要音乐源：这一步可以直接进控制台。",
   },
 
   player: {
@@ -728,6 +754,9 @@ export const en: Dict = {
   search: {
     title: "Search",
     lede: "Searches audio inside enabled sources only.",
+    ledeGlobal: "Searches audio across every chat your account has joined; no sources needed.",
+    globalScope:
+      "Global search: the scope is every chat your account has joined, including channels you never added as sources.",
     formTitle: "Search criteria",
     formHint: "Keyword and scope; press Enter to search.",
     placeholder: "Keywords, e.g. Jay Chou Qing Tian",
@@ -745,6 +774,8 @@ export const en: Dict = {
     idleHint: "Type a keyword and press Enter. Results can be previewed or queued for download.",
     resultsCount: "{n} tracks found",
     resultsNone: "No matching tracks. Try another keyword, or enable another source.",
+    resultsNoneGlobal:
+      "No matching tracks. Try another keyword, or make sure your account joined channels that post music.",
     needSources: "No sources yet.",
     needSourcesAction: "Add a source",
     preview: "Preview",
@@ -875,6 +906,9 @@ export const en: Dict = {
     statTotalHint: "channels joined",
     statEnabled: "Enabled",
     statEnabledHint: "in search scope",
+    globalModeNotice:
+      "Global search is on: search does not go through sources. These settings only take effect after switching back to per-source search.",
+    globalModeBack: "Switch back in settings",
   },
 
   settings: {
@@ -998,6 +1032,20 @@ export const en: Dict = {
     theme: "Appearance",
     webLogout: "Sign out of console",
     webLogoutHint: "Clears this browser's session cookie and returns to the sign-in page; your Telegram account and downloaded files are untouched.",
+
+    searchModeSection: "Search mode",
+    searchModeHint: "Picks which search pipeline runs; switching applies immediately and is reversible.",
+    searchModeSources: "Per-source search",
+    searchModeSourcesDesc:
+      "Queries each channel separately: results are grouped by source, one failing channel never hides the others, and channels you never added stay out. More channels mean more requests and a higher chance of Telegram rate limits.",
+    searchModeGlobal: "Global search",
+    searchModeGlobalDesc:
+      "One request covers every chat your account has joined: no matter how many channels, it costs a single call, is rarely rate limited, and can surface channels you never added. The trade-offs: results come mixed in time order, you cannot restrict them to specific channels, and one failure fails the whole search.",
+    searchModeSourcesNote: "The Sources page is available: search runs only inside the sources you added.",
+    searchModeGlobalNote:
+      "The Sources page is hidden: search covers every chat your account has joined, so no sources are needed.",
+    searchModeSaved: "Switched to “{mode}”",
+    searchModeFailed: "Not switched: {reason}",
   },
 
   logs: {
@@ -1038,11 +1086,11 @@ export const en: Dict = {
 
   setup: {
     title: "Setup",
-    lede: "Three steps on first deploy: keys and proxy, sign in to Telegram, pick music sources.",
+    lede: "Three steps on first deploy: keys and proxy, sign in to Telegram, then pick a search mode and (optionally) music sources.",
     steps: {
       keys: "Keys and proxy",
       login: "Sign in",
-      sources: "Music sources",
+      searchMode: "Search mode",
       keysTodo: "Keys missing",
       keysTyping: "Editing",
       keysDone: "Configured",
@@ -1052,6 +1100,8 @@ export const en: Dict = {
       sourcesTodo: "None added",
       sourcesDoing: "Choosing",
       sourcesDone: "{n} added",
+      searchModeTodo: "Not chosen",
+      searchModeDone: "Chosen",
     },
     status: {
       title: "Current state",
@@ -1152,8 +1202,6 @@ export const en: Dict = {
     alreadyLoggedIn: "This session is still valid; no sign-in needed.",
     needKeysFirst:
       "Cannot sign in yet: save api_id / api_hash in step 1 first, without them Telegram is unreachable.",
-    step3Title: "Step 3: add music sources",
-    step3Hint: "Pick the music channels and groups the bot should collect from.",
     sourcesBanner:
       "Channels, groups and users all work; public ones can be pasted as links. This step only registers sources — search is live.",
     tabRec: "Recommend from my chats",
@@ -1187,6 +1235,14 @@ export const en: Dict = {
     prev: "Back",
     next: "Next",
     nextEnter: "Open console",
+    modeTitle: "Search mode",
+    modeLede: "Pick how search runs; you can change it later in settings.",
+    modeSaved: "Search mode saved",
+    modeFailed: "Not saved: {reason}",
+    sourcesTitle: "Music sources",
+    sourcesLede:
+      "Pick candidates from your chats, or paste a link. You can also skip this and add sources later from the console.",
+    sourcesSkipped: "Global search needs no sources: you can go straight to the console.",
     gateNeedKeys: "Save the keys first; sign-in needs them.",
     gateNoSources:
       "You can enter the console without sources and add them on the Sources page later.",

@@ -1,5 +1,5 @@
 <script lang="ts">
-  /** 初始化向导（FR-OPS-02）：三步——密钥与代理 → 登录账号 → 音乐源（源可选）。
+  /** 初始化向导（FR-OPS-02）：三步——密钥与代理 → 登录账号 → 搜索模式（逐源搜索时再配音乐源）。
    *
    * 步骤编号在此是真序列，故允许编号（设计规范 §10）；本页是唯一不套侧栏/顶栏/播放条
    * 的全屏闸门，自带页面容器（§2.2）。事实源都在服务端：密钥在 config.yaml、会话在
@@ -50,11 +50,17 @@
 
   const STEPS: Step[] = [1, 2, 3];
   const REC_PAGE = 4; // 推荐每次显示 4 条，「换一批」翻页
+  /** 第 3 步的模式选项：顺序与设置页一致（逐源在前）。 */
+  const MODE_OPTIONS: { id: "sources" | "global"; label: string; desc: string }[] = [
+    { id: "sources", label: "settings.searchModeSources", desc: "settings.searchModeSourcesDesc" },
+    { id: "global", label: "settings.searchModeGlobal", desc: "settings.searchModeGlobalDesc" },
+  ];
 
   let step = $state<Step>(1);
   let tab = $state<Tab>("rec");
 
   let savingKeys = $state(false);
+  let savingMode = $state(false);
   let sendingCode = $state(false);
   let signingIn = $state(false);
   let adding = $state(false);
@@ -62,6 +68,7 @@
   let removingId = $state<number | null>(null);
 
   let keysNote = $state<Feedback | null>(null);
+  let modeNote = $state<Feedback | null>(null);
   let loginNote = $state<Feedback | null>(null);
   let recNote = $state<Feedback | null>(null);
   let manualNote = $state<Feedback | null>(null);
@@ -102,16 +109,16 @@
   const connectedLabel = $derived(handle ? t("setup.status.connectedAs", { handle }) : t("app.connected"));
   const addedIds = $derived(sources.map((row) => row.telegram_chat_id));
 
-  /** 步骤是否已满足：第 3 步的源可选，只要加过就算满足。 */
+  /** 步骤是否已满足：第 3 步选模式即满足；逐源搜索下加过源也算满足。 */
   function stepDone(n: Step): boolean {
     if (n === 1) return keysSaved;
     if (n === 2) return connected;
-    return sources.length > 0;
+    return session.globalSearch || sources.length > 0;
   }
 
   function stepLabel(n: Step): string {
     if (n === 1) return t("setup.steps.keys");
-    return n === 2 ? t("setup.steps.login") : t("setup.steps.sources");
+    return n === 2 ? t("setup.steps.login") : t("setup.steps.searchMode");
   }
 
   function stepSub(n: Step): string {
@@ -123,8 +130,10 @@
       if (connected) return t("setup.steps.loginDone");
       return codeHash || sendingCode ? t("setup.steps.loginDoing") : t("setup.steps.loginTodo");
     }
+    // 全账号搜索没有源可数：只说模式已选定
+    if (session.globalSearch) return t("setup.steps.searchModeDone");
     if (sources.length > 0) return t("setup.steps.sourcesDone", { n: sources.length });
-    return step === 3 ? t("setup.steps.sourcesDoing") : t("setup.steps.sourcesTodo");
+    return step === 3 ? t("setup.steps.sourcesDoing") : t("setup.steps.searchModeTodo");
   }
 
   const statusRows = $derived.by(() => {
@@ -134,7 +143,7 @@
       : proxy.hostname
         ? `${proxy.scheme.toUpperCase()} ${proxy.hostname}:${proxy.port}`
         : t("setup.status.proxyHostMissing");
-    return [
+    const rows = [
       {
         key: t("setup.status.apiId"),
         hint: t("setup.status.apiIdHint"),
@@ -175,15 +184,26 @@
             ? t("setup.status.waitingCode")
             : t("setup.status.notConnected"),
       },
-      {
+    ];
+    // 全账号搜索没有源可数：换成一行模式状态；逐源搜索仍报源数量
+    if (session.globalSearch) {
+      rows.push({
+        key: t("setup.steps.searchMode"),
+        hint: t("settings.searchModeHint"),
+        tone: "done" as Tone,
+        text: t("settings.searchModeGlobal"),
+      });
+    } else {
+      rows.push({
         key: t("setup.status.sources"),
         hint: t("setup.status.sourcesHint"),
         tone: (sources.length > 0 ? "done" : "idle") as Tone,
         text: sources.length
           ? t("setup.status.sourcesCount", { n: sources.length })
           : t("setup.status.noSources"),
-      },
-    ];
+      });
+    }
+    return rows;
   });
 
   /** 标签按候选命中次数排序：先给最可能的那几个，避免出现一次性标签。 */
@@ -221,9 +241,11 @@
   const gateNote = $derived(
     step === 1 && !keysSaved
       ? t("setup.gateNeedKeys")
-      : step === 3 && sources.length === 0
-        ? t("setup.gateNoSources")
-        : "",
+      : step === 3 && session.globalSearch
+        ? t("setup.sourcesSkipped")
+        : step === 3 && sources.length === 0
+          ? t("setup.gateNoSources")
+          : "",
   );
 
   /** 后端错误码 → 本地文案；认不出就原样显示后端 message（含修复提示）。 */
@@ -242,6 +264,21 @@
       return map[err.code] ?? err.detail;
     }
     return errorText(err, t("common.error"));
+  }
+
+  /** 切换搜索模式：点选即存（后端即时生效），失败原样说明原因。 */
+  async function setMode(mode: "sources" | "global") {
+    if (savingMode) return;
+    savingMode = true;
+    modeNote = null;
+    try {
+      await session.setSearchMode(mode);
+      modeNote = { tone: "done", text: t("setup.modeSaved") };
+    } catch (err) {
+      modeNote = { tone: "fail", text: t("setup.modeFailed", { reason: authErrorText(err) }) };
+    } finally {
+      savingMode = false;
+    }
   }
 
   function handleOf(row: SourceRow): string {
@@ -828,11 +865,41 @@
               <MusicIcon class="size-4.5" />
             </span>
             <div>
-              <h2 id="setup-step3" class="text-h2 font-semibold">{t("setup.step3Title")}</h2>
-              <p class="text-caption text-muted-foreground">{t("setup.step3Hint")}</p>
+              <h2 id="setup-step3" class="text-h2 font-semibold">{t("setup.modeTitle")}</h2>
+              <p class="text-caption text-muted-foreground">{t("setup.modeLede")}</p>
             </div>
           </header>
 
+          <div class="grid gap-2 sm:grid-cols-2">
+            {#each MODE_OPTIONS as option (option.id)}
+              <button
+                type="button"
+                class="flex flex-col gap-1 rounded-nav border px-3 py-2.5 text-left {session.searchMode ===
+                option.id
+                  ? 'border-primary bg-primary-soft'
+                  : 'border-border bg-card'}"
+                aria-pressed={session.searchMode === option.id}
+                disabled={savingMode}
+                onclick={() => void setMode(option.id)}
+              >
+                <span
+                  class="text-body font-medium {session.searchMode === option.id
+                    ? 'text-primary'
+                    : 'text-foreground'}"
+                >
+                  {t(option.label)}
+                </span>
+                <span class="text-caption text-muted-foreground">{t(option.desc)}</span>
+              </button>
+            {/each}
+          </div>
+          {#if modeNote}<Note tone={modeNote.tone}>{modeNote.text}</Note>{/if}
+
+          {#if session.globalSearch}
+            <Note tone="idle">{t("setup.sourcesSkipped")}</Note>
+          {/if}
+
+          {#if !session.globalSearch}
           <div class="flex items-start gap-2.5 rounded-nav bg-primary-surface px-3.5 py-3">
             <CircleAlertIcon class="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
             <p class="text-body text-muted-foreground">{t("setup.sourcesBanner")}</p>
@@ -1000,6 +1067,7 @@
                 {/each}
               </div>
             </div>
+          {/if}
           {/if}
         </section>
       {/if}

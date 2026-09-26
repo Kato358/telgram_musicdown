@@ -38,12 +38,15 @@ class SetupStatusResponse(BaseModel):
     """初始化状态（FR-OPS-02）：放行 = 密钥齐备 + 已登录；音乐源可选。
 
     proxy 只回协议/地址/端口，不回用户名密码（NFR-02）。
+    search_mode（FR-SEARCH-01）：`sources` = 逐源搜索（需要音乐源）/ `global` = searchGlobal
+    （不需要音乐源）；前端据此决定向导第 3 步与导航里「音乐源」的去留。
     """
 
     complete: bool
     has_api_id: bool
     has_api_hash: bool
     has_bot_token: bool
+    search_mode: str = "sources"
     proxy: ProxySpec | None = None
     connected: bool = False
     display_name: str | None = None

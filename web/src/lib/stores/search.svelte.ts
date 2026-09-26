@@ -11,6 +11,7 @@ import type { SearchResponse, SearchResult, SourceRow } from "$lib/api/types";
 import { t } from "$lib/i18n/index.svelte";
 import { fly, type FlyOrigin } from "$lib/stores/fly.svelte";
 import { player, type Track } from "$lib/stores/player.svelte";
+import { session } from "$lib/stores/session.svelte";
 
 interface UnreachableSource {
   source_id: number;
@@ -94,12 +95,18 @@ class SearchStore {
   async runSearch() {
     const keyword = this.query.trim();
     if (!keyword) return;
+    // 全账号模式绕开音乐源：先入为主的源勾选不能把全局结果缩成某几个对话。
+    if (session.globalSearch) this.selected = [];
     this.searching = true;
     this.error = "";
     try {
       const resp = await api.post<SearchResponse>("/api/search", {
         q: keyword,
-        source_ids: this.selected.length > 0 ? this.selected : undefined,
+        source_ids: session.globalSearch
+          ? undefined
+          : this.selected.length > 0
+            ? this.selected
+            : undefined,
         sort: this.sort,
         page: 0,
       });
@@ -132,7 +139,11 @@ class SearchStore {
       const next = this.page + 1;
       const resp = await api.post<SearchResponse>("/api/search", {
         q: keyword,
-        source_ids: this.selected.length > 0 ? this.selected : undefined,
+        source_ids: session.globalSearch
+          ? undefined
+          : this.selected.length > 0
+            ? this.selected
+            : undefined,
         sort: this.sort,
         page: next,
       });

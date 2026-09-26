@@ -95,6 +95,17 @@ def chat_id_of(msg: Message) -> int:
     return chat.id if chat is not None and chat.id is not None else 0
 
 
+def chat_title_of(msg: Message) -> str | None:
+    """消息所在对话的标题（全局搜索按它给结果卡片标来源频道）。
+
+    取不到就留 None：宁可卡片上少一个频道名，也不编一个假名（同 ``message_to_card`` 约定）。
+    """
+    chat = msg.chat
+    if chat is None:
+        return None
+    return getattr(chat, "title", None) or getattr(chat, "first_name", None) or None
+
+
 class UserClient:
     """User Client 包装：登录、搜索、取消息、下载。"""
 
@@ -272,6 +283,27 @@ class UserClient:
             raise _translate_rpc(e) from e
         return [_message_dict(m) for m in msgs]
 
+    async def search_global(self, query: str, limit: int) -> list[dict[str, Any]]:
+        """全账号搜索（FR-SEARCH-01 global 模式）：服务端 messages.searchGlobal + Audio filter。
+
+        一次请求覆盖账号加入的**全部**对话（含未添加为音乐源的频道），免去逐源扇出；
+        代价是结果按全局时间序、无法限定源集合，故服务层在本地按 ``chat_id`` 归源/筛选。
+
+        与 ``search_messages`` 同一取舍：不经 ``with_flood_retry``——交互式只读请求，
+        限流按 ``reason="flood_wait"`` 透出，不挂起用户。
+        """
+        try:
+            msgs: list[Message] = []
+            async for m in self.client.search_global(
+                query=query, filter=MessagesFilter.AUDIO, limit=limit
+            ):
+                msgs.append(m)
+                if len(msgs) >= limit:
+                    break
+        except RPCError as e:
+            raise _translate_rpc(e) from e
+        return [_message_dict(m) for m in msgs]
+
     async def get_messages(self, chat_id: int, message_ids: list[int]) -> list[dict[str, Any]]:
         """按 id 取消息 dict（DownloadService meta 补全用）；单条返回也归一为列表。"""
         try:
@@ -340,6 +372,8 @@ def _message_dict(m: Message) -> dict[str, Any]:
         "voice": m.voice is not None,
         "caption": m.caption,
         "message_date": m.date.isoformat() if m.date else None,
+        # 全局搜索（FR-SEARCH-01 global 模式）按它给卡片标来源频道；逐源搜索不用（源标题已知）
+        "chat_title": chat_title_of(m),
     }
 
 

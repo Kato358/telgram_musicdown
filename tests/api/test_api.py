@@ -14,7 +14,7 @@ from app.config import SecretConfig, load_secrets
 from app.db.models import History, Task
 from app.db.store import Store
 from app.domain import TemplateConfig
-from app.errors import WebAuthConfigError
+from app.errors import SourceUnreachableError, WebAuthConfigError
 from app.events import Event, EventBus
 from app.services.download import DownloadService
 from app.services.preview import PreviewService
@@ -1007,6 +1007,80 @@ class _CountingClient(FakeUserClient):
     ) -> list[dict[str, object]]:
         self.search_calls += 1
         return await super().search_messages(chat_id, query, limit, offset)
+
+
+def _search_mode_client(tmp_path: Path, client: FakeUserClient) -> TestClient:
+    """带假 Telegram 客户端的 API 客户端（搜索链路用例共用）。"""
+    store = Store(tmp_path / "app.db")
+    events = EventBus()
+    sources = SourceService(store, client)  # type: ignore[arg-type]
+    search = SearchService(store, client)  # type: ignore[arg-type]
+    downloads = DownloadService(
+        store,
+        client,  # type: ignore[arg-type]
+        events,
+        tmp_path / "temp",
+        TemplateConfig(save_path=tmp_path / "downloads"),
+    )
+    preview = PreviewService(store, client, events, tmp_path / "temp" / "preview")  # type: ignore[arg-type]
+    tg = TelegramManager(SecretConfig(), tmp_path / "sessions")
+    app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
+    return TestClient(app)
+
+
+def test_search_mode_switch_switches_pipeline_without_sources(tmp_path: Path) -> None:
+    """搜索模式（FR-SEARCH-01 v0.14）：设置页切到 global 立即生效，且一个音乐源都不需要。"""
+    client = FakeUserClient(
+        [],
+        global_messages=[
+            make_audio_message(1, title="晴天", chat_id=-1001, chat_title="无损音乐"),
+            make_audio_message(2, title="晴天", chat_id=-1002, chat_title="音乐频道"),
+        ],
+    )
+    app = _search_mode_client(tmp_path, client)
+
+    with app as c:  # 单个 portal/loop：搜索缓存的后台补齐任务不跨 loop
+        # 逐源模式且未添加任何源：明确报「没有启用源」，不去打上游
+        before = c.post("/api/search", json={"q": "晴天"}).json()
+        assert before["results"] == []
+        assert before["meta"]["reason"] == "no_enabled_sources"
+        assert client.global_calls == 0
+
+        saved = c.put("/api/settings", json={"values": {"search_mode": "global"}})
+        assert saved.status_code == 200
+        assert saved.json()["search_mode"] == "global"
+
+        after = c.post("/api/search", json={"q": "晴天"}).json()
+        assert len(after["results"]) == 2
+        assert after["meta"]["mode"] == "global"
+        assert client.global_calls == 1
+        assert {r["channel_title"] for r in after["results"]} == {"无损音乐", "音乐频道"}
+
+
+def test_global_search_flood_wait_surfaces_as_error(tmp_path: Path) -> None:
+    """全局搜索没有「逐源不可达」这一档：限流以错误包络透出（FR-SEARCH-01 限流要可见）。"""
+    client = FakeUserClient([], global_messages=[make_audio_message(1, title="晴天")])
+    client.global_error = SourceUnreachableError("flood_wait", "FloodWait 30s")
+    app = _search_mode_client(tmp_path, client)
+
+    with app as c:
+        c.put("/api/settings", json={"values": {"search_mode": "global"}})
+        r = c.post("/api/search", json={"q": "晴天"})
+
+    assert r.status_code == 400
+    error = r.json()["error"]
+    assert error["reason"] == "flood_wait"
+    assert "限流" in error["message"]
+
+
+def test_setup_status_reports_search_mode(tmp_path: Path) -> None:
+    """向导第 3 步与导航按 search_mode 决定要不要摆音乐源：状态接口必须给出当前模式。"""
+    client, _ = _client_with(tmp_path)
+    assert client.get("/api/setup/status").json()["search_mode"] == "sources"
+
+    client.put("/api/settings", json={"values": {"search_mode": "global"}})
+
+    assert client.get("/api/setup/status").json()["search_mode"] == "global"
 
 
 def test_search_endpoint_pages_caches_and_refreshes(tmp_path: Path) -> None:

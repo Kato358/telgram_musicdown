@@ -12,6 +12,8 @@
   import RadioTowerIcon from "@lucide/svelte/icons/radio-tower";
   import { formatCount } from "$lib/format";
   import { t } from "$lib/i18n/index.svelte";
+  import { navigate, pathOf } from "$lib/router.svelte";
+  import { session } from "$lib/stores/session.svelte";
   import type { Tone } from "$lib/tone";
   import { Button } from "$lib/components/ui/button";
   import { Checkbox } from "$lib/components/ui/checkbox";
@@ -160,6 +162,20 @@
     </span>
   {/snippet}
 </PageHeader>
+
+{#if session.globalSearch}
+  <Note>
+    <span class="block">{t("sources.globalModeNotice")}</span>
+    <Button
+      class="mt-2"
+      variant="outline"
+      size="sm"
+      onclick={() => navigate(pathOf("settings"))}
+    >
+      {t("sources.globalModeBack")}
+    </Button>
+  </Note>
+{/if}
 
 <div class="grid grid-cols-2 gap-4">
   <StatCard

@@ -11,6 +11,13 @@ Telegram 交互经 SourceClientProto 协议面（FakeUserClient 可替换，NFR-
 3. 同键并发请求经 singleflight 合并成一次上游调用（缓存只挡「先后」，它挡「同时」）；
 4. ``sync_window_sec`` 内回来的进响应，超窗的**转后台补齐**并写缓存——下次同词直接命中；
 5. 合并 → 勾选字段过滤 → 二次筛选 → 排序 → 去重 → 切页（分页在完整结果集上做）。
+
+两种模式（FR-SEARCH-01，v0.14；``SearchSettings.mode``）：
+- ``sources``（默认）：上面这套逐源链路，只搜「已添加且启用」的音乐源，结果按源分门别类；
+- ``global``：一次 ``messages.searchGlobal`` 覆盖账号加入的全部对话——**不需要音乐源**，
+  请求数从 N 降到 1，代价是结果按全局时间序（无法限定源集合，只能拿回按 ``chat_id`` 归源）、
+  单次上游失败即整次失败（没有「逐源不可达」这一档）。缓存窗口与翻页前缀语义与逐源一致，
+  缓存键用 ``GLOBAL_CACHE_SCOPE`` 这个保留 scope（``searchGlobal`` 的结果不依赖任何源行）。
 """
 
 from __future__ import annotations
@@ -24,7 +31,7 @@ from dataclasses import dataclass, replace
 from functools import partial
 from typing import Any, Protocol
 
-from app.appsettings import SearchSettings
+from app.appsettings import SEARCH_MODE_GLOBAL, SEARCH_MODE_SOURCES, SearchSettings
 from app.db.models import Source
 from app.domain import (
     SEARCH_SORTS,
@@ -56,21 +63,29 @@ DISCOVER_LIMIT = 60  # 候选源上限：列表本身是「挑几个加入」，
 
 SEARCH_FETCH_ROUNDS = 5  # 单源为凑够一页卡片最多往返几次（上游已按 Audio 过滤，通常一次就够）
 
+# searchGlobal 的缓存/快照 scope 标记（FR-SEARCH-01 global 模式）。
+# 全局结果不依赖任何源行，但复用同一套「关键词 × 取数窗口」缓存与翻页前缀：
+# sources.id 从 1 起，0 不会与任何源相撞，故拿它当保留 scope。
+GLOBAL_CACHE_SCOPE = 0
+
 
 def _snapshot_key(
     keyword: str,
-    sources: list[tuple[int, Source]],
+    scope: str,
     sort: str,
     *,
     page_size: int,
     fields: list[str] | None,
     filters: dict[str, Any] | None,
 ) -> str:
-    """翻页前缀的身份：同关键词 + 同源集合 + 同排序/字段/筛选 + 同页大小，才算同一次翻页。"""
+    """翻页前缀的身份：同关键词 + 同取数范围 + 同排序/字段/筛选 + 同页大小，才算同一次翻页。
+
+    ``scope`` 是取数范围的字符串标识：逐源模式 = 逗号分隔的源 id 集合，全局模式 = ``"global"``。
+    """
     return "|".join(
         (
             normalize_keyword(keyword),
-            ",".join(str(source_id) for source_id, _ in sources),
+            scope,
             sort if sort in SEARCH_SORTS else "relevance",
             str(page_size),
             ",".join(sorted(fields or ())),
@@ -87,6 +102,8 @@ class SourceClientProto(Protocol):
     async def search_messages(
         self, chat_id: int, query: str, limit: int, offset: int
     ) -> list[dict[str, Any]]: ...
+
+    async def search_global(self, query: str, limit: int) -> list[dict[str, Any]]: ...
 
     async def list_dialogs(self, limit: int) -> list[dict[str, Any]]: ...
 
@@ -249,26 +266,44 @@ class SearchService:
         *,
         refresh: bool = False,
     ) -> SearchResponse:
-        """搜索已启用源（FR-SEARCH-01~03）。
+        """搜索（FR-SEARCH-01~03）：按 ``settings.mode`` 走逐源扇出或 searchGlobal。
 
-        每个源先备齐 ``(page+1)*page_size`` 张卡片再合并（k 路归并的取数下界），
+        逐源模式：每个源先备齐 ``(page+1)*page_size`` 张卡片再合并（k 路归并的取数下界），
         并在**同一份定序前缀**上切页（见 ``QuerySnapshotCache``）：旧实现把同一页的
         offset 在上游与本地各减一次，单源时 ``page>0`` 恒空；而按当前窗口直接切页，
-        又会因窗口加深导致重复行与丢行。
+        又会因窗口加深导致重复行与丢行。全局模式见 ``_search_global``。
         """
+        keyword = q.strip()
+        size = min(max(1, page_size or self.settings.page_size), self.settings.max_page_size)
+        page = max(0, page)
+        if self.settings.global_mode:
+            return await self._search_global(
+                keyword,
+                source_ids,
+                page,
+                size,
+                fields=fields,
+                filters=filters,
+                sort=sort,
+                refresh=refresh,
+            )
         sources = [
             (s.id, s)
             for s in self.store.list_sources(enabled_only=True)
             if s.id is not None and (source_ids is None or s.id in source_ids)
         ]
         if not sources:
-            return SearchResponse(results=[], meta={"reason": "no_enabled_sources"})
-        keyword = q.strip()
-        size = min(max(1, page_size or self.settings.page_size), self.settings.max_page_size)
-        page = max(0, page)
+            return SearchResponse(
+                results=[], meta={"reason": "no_enabled_sources", "mode": SEARCH_MODE_SOURCES}
+            )
         need = (page + 1) * size
         snapshot_key = _snapshot_key(
-            keyword, sources, sort, page_size=size, fields=fields, filters=filters
+            keyword,
+            ",".join(str(source_id) for source_id, _ in sources),
+            sort,
+            page_size=size,
+            fields=fields,
+            filters=filters,
         )
         if refresh:
             # 强制重取：定序前缀也作废，否则会拿旧次序套新结果
@@ -327,8 +362,137 @@ class SearchService:
                 "sort": sort if sort in SEARCH_SORTS else "relevance",
                 "filters": parsed.active,
                 "cache": {"hits": hits, "misses": len(per_source) - hits},
+                "mode": SEARCH_MODE_SOURCES,
             },
         )
+
+    # ---- 全局模式（FR-SEARCH-01 global，v0.14）----
+
+    async def _search_global(
+        self,
+        keyword: str,
+        source_ids: list[int] | None,
+        page: int,
+        size: int,
+        *,
+        fields: list[str] | None,
+        filters: dict[str, Any] | None,
+        sort: str,
+        refresh: bool,
+    ) -> SearchResponse:
+        """searchGlobal 链路：一次上游调用覆盖账号全部对话，本地归源/筛选/排序/切页。
+
+        与逐源模式的三点语义差异（都是 searchGlobal 的固有限制，不是实现取舍）：
+        - **不需要音乐源**：取数范围 = 账号加入的对话，故「没有启用源」不是错误；
+        - **无法限定源集合**：结果按全局时间序，故 ``source_ids`` 只能在取回后按
+          ``chat_id`` 过滤（界面在全局模式下不提供源选择，这是给 API 调用方的入口）；
+        - **单次失败即整次失败**：没有「逐源不可达」这一档，FloodWait 直接以错误透出。
+        """
+        need = (page + 1) * size
+        snapshot_key = _snapshot_key(
+            keyword, "global", sort, page_size=size, fields=fields, filters=filters
+        )
+        if refresh:
+            self._snapshots.drop(snapshot_key)
+        try:
+            window = await self._global_result(keyword, need, refresh=refresh)
+        except SourceUnreachableError as e:
+            if e.reason == "flood_wait":
+                raise SourceUnreachableError(
+                    "flood_wait",
+                    "Telegram 限流：稍等几秒再搜（全局搜索一次请求覆盖全部对话，等几秒即可）",
+                ) from e
+            raise
+
+        tokens = keyword_tokens(keyword)
+        parsed = SearchFilters.parse(filters)
+        cards = [
+            card
+            for card in window.items
+            if parsed.matches(card) and matches_fields(card, tokens, fields)
+        ]
+        if source_ids is not None:
+            wanted = {
+                s.telegram_chat_id for s in self.store.list_sources() if s.id in set(source_ids)
+            }
+            cards = [card for card in cards if card.chat_id in wanted]
+        ordered = dedupe_cards(sort_cards(cards, sort, keyword))
+        ordered = self._snapshots.resolve(snapshot_key, ordered)
+        start = page * size
+        return SearchResponse(
+            results=ordered[start : start + size],
+            meta={
+                "unreachable": [],
+                "partial": False,
+                "pending_sources": [],
+                "page": page,
+                "page_size": size,
+                # 上游还有更深的结果：全局搜索的「还有更多」只能靠窗口是否取满来判断
+                "has_more": start + size < len(ordered) or window.has_more,
+                "sort": sort if sort in SEARCH_SORTS else "relevance",
+                "filters": parsed.active,
+                "cache": {"hits": int(window.from_cache), "misses": int(not window.from_cache)},
+                "mode": SEARCH_MODE_GLOBAL,
+            },
+        )
+
+    async def _global_result(self, keyword: str, need: int, *, refresh: bool) -> CachedSourceResult:
+        """全局取数窗口：缓存够深就直接用，否则合并一次上游调用并写回缓存。
+
+        与逐源的差别在「续取」不存在：searchGlobal 没有 offset 参数，只能「从头要 N 条」，
+        故窗口就是「从最新往前的 N 条」，深翻页靠把 ``need`` 调大重取（上游约 10k 条上限）。
+        """
+        base: CachedSourceResult | None = None
+        if not refresh:
+            base = self.cache.get(GLOBAL_CACHE_SCOPE, keyword)
+            if base is not None and (len(base.items) >= need or not base.has_more):
+                return replace(base, from_cache=True)
+            if base is None and self.cache.is_negative(GLOBAL_CACHE_SCOPE, keyword):
+                return CachedSourceResult(
+                    source_id=GLOBAL_CACHE_SCOPE,
+                    keyword=keyword,
+                    items=[],
+                    covered=0,
+                    has_more=False,
+                    fetched_at=time.time(),
+                    from_cache=True,
+                )
+        key = f"{search_cache_key(GLOBAL_CACHE_SCOPE, keyword)}#{need}"
+        task = self._inflight.get(key)
+        if task is None:
+            task = asyncio.create_task(self._fetch_global(keyword, need))
+            self._inflight[key] = task
+            task.add_done_callback(partial(self._release_inflight, key))
+        return await task
+
+    async def _fetch_global(self, keyword: str, need: int) -> CachedSourceResult:
+        """一次 searchGlobal 取回 ``need`` 条（上游已按 Audio 过滤），按消息自带的频道名标来源。"""
+        async with self._sem:
+            raw = await self.client.search_global(keyword, limit=need)
+        items = [
+            message_to_card(m, m.get("chat_title")) for m in raw if is_audio_message(m)
+        ]
+        result = CachedSourceResult(
+            source_id=GLOBAL_CACHE_SCOPE,
+            keyword=keyword,
+            items=items,
+            covered=len(raw),
+            has_more=len(raw) >= need,
+            fetched_at=time.time(),
+        )
+        self.cache.put(result)
+        return result
+
+    def apply_settings(self, settings: SearchSettings) -> None:
+        """设置页保存后即时刷新（FR-CFG-03）：模式/扇出/窗口/分页与缓存 TTL 现读现生效。
+
+        扇出上限重建信号量（在飞的调用持旧信号量跑完，不影响正确性）；定序前缀的 TTL
+        跟着更新——它只决定「翻页前缀活多久」，不参与结果正确性。
+        """
+        self.settings = settings
+        self.cache.settings = settings.cache
+        self._snapshots.ttl_sec = settings.cache.ttl_sec
+        self._sem = asyncio.Semaphore(settings.fanout)
 
     async def invalidate_source(self, source_id: int) -> int:
         """源被移除后清掉它的缓存条目（路由在删除源时调用）。"""

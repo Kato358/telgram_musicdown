@@ -26,6 +26,7 @@
   import NetworkIcon from "@lucide/svelte/icons/network";
   import PaletteIcon from "@lucide/svelte/icons/palette";
   import RotateCcwIcon from "@lucide/svelte/icons/rotate-ccw";
+  import SearchIcon from "@lucide/svelte/icons/search";
   import { api, errorText } from "$lib/api/client";
   import type { CacheStats, SetupProxyInput } from "$lib/api/types";
   import { formatSize } from "$lib/format";
@@ -110,6 +111,32 @@
   let saveError = $state("");
   /** 已保存值的指纹：编辑后与当前指纹不等即「有未保存改动」，成功提示随之收起。 */
   let savedKey = $state<string | null>(null);
+
+  // ---- 搜索模式（FR-SEARCH-01）：点按即写库，不走「保存更改」----
+
+  let savingMode = $state(false);
+  let modeNote = $state<Feedback | null>(null);
+
+  /** 两种模式的文案键（标题 + 说明 + 卡片下方一行提示）集中一处，选项与提示复用。 */
+  const SEARCH_MODES = [
+    {
+      value: "sources",
+      label: "settings.searchModeSources",
+      desc: "settings.searchModeSourcesDesc",
+      note: "settings.searchModeSourcesNote",
+    },
+    {
+      value: "global",
+      label: "settings.searchModeGlobal",
+      desc: "settings.searchModeGlobalDesc",
+      note: "settings.searchModeGlobalNote",
+    },
+  ] as const;
+
+  /** 当前生效的选项：状态缺省按 sources 兜底（与 store、后端一致）。 */
+  const currentMode = $derived(
+    SEARCH_MODES.find((item) => item.value === session.searchMode) ?? SEARCH_MODES[0],
+  );
 
   let preview = $state("");
   let previewRoot = $state("");
@@ -501,6 +528,26 @@
     if (next) theme.set(next.value);
   }
 
+  /** 点按即生效：savingMode 挡住重复点击，成功后提示带上刚选中的模式名。 */
+  async function chooseMode(value: string) {
+    if (savingMode || value === session.searchMode) return;
+    const option = SEARCH_MODES.find((item) => item.value === value);
+    if (!option) return;
+    savingMode = true;
+    modeNote = null;
+    try {
+      await session.setSearchMode(value);
+      modeNote = { tone: "done", text: t("settings.searchModeSaved", { mode: t(option.label) }) };
+    } catch (err) {
+      modeNote = {
+        tone: "fail",
+        text: t("settings.searchModeFailed", { reason: errorText(err, t("common.error")) }),
+      };
+    } finally {
+      savingMode = false;
+    }
+  }
+
   onMount(() => {
     void load();
     void loadFieldDocs();
@@ -516,8 +563,43 @@
 {/if}
 
 <div class="grid items-start gap-4 md:gap-6 xl:grid-cols-2">
-  <!-- 桌面端（xl+）1:1 双栏：左栏「落盘命名 + 下载 + 界面」，右栏「账号 / Bot / 代理 / 重置」；窄屏退回单栏，顺序不变 -->
+  <!-- 桌面端（xl+）1:1 双栏：左栏「搜索模式 + 落盘命名 + 下载 + 界面」，右栏「账号 / Bot / 代理 / 重置」；窄屏退回单栏，顺序不变 -->
   <div class="flex min-w-0 flex-col gap-4 md:gap-6">
+    <SectionCard
+      title={t("settings.searchModeSection")}
+      hint={t("settings.searchModeHint")}
+      icon={SearchIcon}
+    >
+      <div class="flex flex-col gap-4">
+        <div class="grid gap-3 sm:grid-cols-2">
+          {#each SEARCH_MODES as option (option.value)}
+            {@const active = currentMode.value === option.value}
+            <button
+              type="button"
+              class="ui-transition flex flex-col gap-1 rounded-control border p-3 text-left {active
+                ? 'border-primary bg-primary-soft'
+                : 'border-border hover:bg-rule'}"
+              aria-pressed={active}
+              onclick={() => void chooseMode(option.value)}
+            >
+              <span class="text-caption font-semibold {active ? 'text-primary' : ''}">
+                {t(option.label)}
+              </span>
+              <span class="text-caption {active ? 'text-primary' : 'text-muted-foreground'}">
+                {t(option.desc)}
+              </span>
+            </button>
+          {/each}
+        </div>
+
+        <p class="text-caption text-faint-foreground">{t(currentMode.note)}</p>
+
+        {#if modeNote}
+          <Note tone={modeNote.tone}>{modeNote.text}</Note>
+        {/if}
+      </div>
+    </SectionCard>
+
     <SectionCard
       title={t("settings.pathSection")}
       hint={t("settings.pathHint")}

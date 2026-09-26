@@ -25,6 +25,26 @@ class Session {
     return this.web?.required === true && !this.web.authenticated;
   }
 
+  /** 搜索模式（FR-SEARCH-01）：`global` = 全账号搜索（不需要音乐源）。
+   *
+   *  状态还没取到时按保守的 `sources` 处理：多显示一个音乐源入口，好过把源配置藏起来
+   *  让人找不到（后端缺省也是 `sources`）。
+   */
+  get searchMode(): string {
+    return this.setup?.search_mode ?? "sources";
+  }
+
+  /** 全账号搜索：导航/仪表盘/搜索页据此收起音乐源相关入口。 */
+  get globalSearch(): boolean {
+    return this.searchMode === "global";
+  }
+
+  /** 切换搜索模式（设置页与向导共用）：保存后重取闸门状态，导航随即跟着变。 */
+  async setSearchMode(mode: string) {
+    await api.put<Record<string, string>>("/api/settings", { values: { search_mode: mode } });
+    await this.loadSetup();
+  }
+
   async loadWebSession() {
     this.web = await api.get<WebSessionStatus>("/api/auth/session");
   }

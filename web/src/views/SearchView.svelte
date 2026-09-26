@@ -11,6 +11,7 @@
   import { navigate, pathOf, router } from "$lib/router.svelte";
   import { search, SORT_OPTIONS } from "$lib/stores/search.svelte";
   import { player } from "$lib/stores/player.svelte";
+  import { session } from "$lib/stores/session.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Checkbox } from "$lib/components/ui/checkbox";
   import type { Column } from "$lib/components/app/DataTable.svelte";
@@ -45,11 +46,15 @@
   });
 
   onMount(() => {
-    void search.loadSources();
+    // 全账号搜索用不到音乐源列表：不拉这一趟。
+    if (!session.globalSearch) void search.loadSources();
   });
 </script>
 
-<PageHeader title={t("search.title")} lede={t("search.lede")}>
+<PageHeader
+  title={t("search.title")}
+  lede={session.globalSearch ? t("search.ledeGlobal") : t("search.lede")}
+>
   {#snippet aside()}
     {#if search.searched && search.results.length > 0}
       <span class="tabular text-caption text-muted-foreground">
@@ -62,7 +67,7 @@
   {/snippet}
 </PageHeader>
 
-{#if search.enabledSources.length === 0}
+{#if !session.globalSearch && search.enabledSources.length === 0}
   <EmptyState title={t("search.needSources")} hint={t("dashboard.needSourcesHint")}>
     {#snippet actions()}
       <Button size="lg" onclick={() => navigate(pathOf("sources"))}>
@@ -102,20 +107,20 @@
       </Button>
     </form>
 
-    {#if search.enabledSources.length > 0}
-      {#snippet pill(active: boolean, label: string, onclick: () => void)}
-        <button
-          type="button"
-          class="ui-transition rounded-full px-3 py-1 text-caption {active
-            ? 'bg-primary-soft text-primary'
-            : 'border border-border text-muted-foreground hover:bg-rule hover:text-foreground'}"
-          aria-pressed={active}
-          {onclick}
-        >
-          {label}
-        </button>
-      {/snippet}
+    {#snippet pill(active: boolean, label: string, onclick: () => void)}
+      <button
+        type="button"
+        class="ui-transition rounded-full px-3 py-1 text-caption {active
+          ? 'bg-primary-soft text-primary'
+          : 'border border-border text-muted-foreground hover:bg-rule hover:text-foreground'}"
+        aria-pressed={active}
+        {onclick}
+      >
+        {label}
+      </button>
+    {/snippet}
 
+    {#if !session.globalSearch && search.enabledSources.length > 0}
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-caption text-muted-foreground">{t("search.filterSources")}</span>
         {@render pill(
@@ -131,16 +136,16 @@
           )}
         {/each}
       </div>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="text-caption text-muted-foreground">{t("search.sortLabel")}</span>
-        {#each SORT_OPTIONS as option (option)}
-          {@render pill(search.sort === option, t(`search.sort.${option}`), () =>
-            search.setSort(option),
-          )}
-        {/each}
-      </div>
     {/if}
+
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-caption text-muted-foreground">{t("search.sortLabel")}</span>
+      {#each SORT_OPTIONS as option (option)}
+        {@render pill(search.sort === option, t(`search.sort.${option}`), () =>
+          search.setSort(option),
+        )}
+      {/each}
+    </div>
   </div>
 </SectionCard>
 
@@ -170,10 +175,16 @@
   </Note>
 {/if}
 
-{#if search.needSources}
+{#if session.globalSearch}
+  <Note>{t("search.globalScope")}</Note>
+{/if}
+
+{#if search.needSources && !session.globalSearch}
   <Note tone="wait">{t("search.needSources")}</Note>
 {:else if search.searched && search.results.length === 0}
-  <EmptyState title={t("search.resultsNone")} />
+  <EmptyState
+    title={session.globalSearch ? t("search.resultsNoneGlobal") : t("search.resultsNone")}
+  />
 {:else if !search.searched}
   <p class="max-w-[40ch] text-body text-muted-foreground">{t("search.idleHint")}</p>
 {:else}

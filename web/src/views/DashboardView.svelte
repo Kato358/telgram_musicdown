@@ -179,7 +179,7 @@
   <Note tone="fail">{error}</Note>
 {/if}
 
-{#if sourceCount === 0 && queue.tasks.length === 0}
+{#if !session.globalSearch && sourceCount === 0 && queue.tasks.length === 0}
   <EmptyState title={t("dashboard.needSourcesTitle")} hint={t("dashboard.needSourcesHint")}>
     {#snippet actions()}
       <Button size="lg" onclick={() => navigate(pathOf("sources"))}>
@@ -202,7 +202,11 @@
     }}
   />
 
-  <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-5">
+  <div
+    class="grid grid-cols-2 gap-4 {session.globalSearch
+      ? 'sm:grid-cols-3'
+      : 'sm:grid-cols-4'} sm:gap-5"
+  >
     <StatCard
       label={t("dashboard.statTasks")}
       value={formatCount(queue.activeCount)}
@@ -227,14 +231,16 @@
       icon={HardDriveIcon}
       href={`${pathOf("downloads")}?status=success`}
     />
-    <StatCard
-      label={t("dashboard.statSources")}
-      value={formatCount(stats.data?.sources.enabled ?? null)}
-      hint={t("dashboard.statSourcesHint", { n: stats.data?.sources.total ?? 0 })}
-      tone="amber"
-      icon={RadioTowerIcon}
-      href={pathOf("sources")}
-    />
+    {#if !session.globalSearch}
+      <StatCard
+        label={t("dashboard.statSources")}
+        value={formatCount(stats.data?.sources.enabled ?? null)}
+        hint={t("dashboard.statSourcesHint", { n: stats.data?.sources.total ?? 0 })}
+        tone="amber"
+        icon={RadioTowerIcon}
+        href={pathOf("sources")}
+      />
+    {/if}
   </div>
 
   <DataTable {columns}>

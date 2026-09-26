@@ -27,6 +27,9 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
             has_api_id=secrets.api_id != 0,
             has_api_hash=bool(secrets.api_hash),
             has_bot_token=bool(secrets.bot_token),
+            # 搜索模式（FR-SEARCH-01）：向导据此决定第 3 步要不要摆音乐源配置，
+            # 控制台据此决定导航里有没有「音乐源」。取运行中服务的值 = 唯一事实源。
+            search_mode=ctx.search.settings.mode,
             proxy=(
                 None
                 if proxy is None

@@ -40,6 +40,15 @@ DEFAULT_SEARCH_SYNC_WINDOW_MS = 4000
 DEFAULT_SEARCH_PAGE_SIZE = 20
 SEARCH_MAX_PAGE_SIZE = 100
 
+# ---- 搜索模式（FR-SEARCH-01，v0.14）----
+# sources = 逐源扇出：只搜「已添加且启用」的音乐源，结果按源分门别类；
+# global  = searchGlobal：一次请求搜账号加入的全部对话，不需要音乐源（也可能带出没配过的频道）。
+# 默认 sources：既有部署的行为不变，换模式是用户显式动作。
+SEARCH_MODE_SOURCES = "sources"
+SEARCH_MODE_GLOBAL = "global"
+SEARCH_MODES = (SEARCH_MODE_SOURCES, SEARCH_MODE_GLOBAL)
+DEFAULT_SEARCH_MODE = SEARCH_MODE_SOURCES
+
 
 def _int_setting(store: SettingsRepo, key: str, default: int) -> int:
     raw = store.get_setting(key)
@@ -103,22 +112,36 @@ class SearchCacheSettings:
 
 @dataclass(slots=True, frozen=True)
 class SearchSettings:
-    """搜索运行配置（FR-SEARCH-01/03）：缓存 + 扇出 + 同步窗口 + 分页。
+    """搜索运行配置（FR-SEARCH-01/03）：模式 + 缓存 + 扇出 + 同步窗口 + 分页。
 
-    字段都有缺省值：测试与「无 store 场景」直接 ``SearchSettings()`` 即可，
-    装配路径走 ``load_search_settings(store)`` 让 settings 表覆盖。
+    ``mode`` 决定走哪条链路（见文件头 SEARCH_MODE_*）：``sources`` 逐源扇出、
+    ``global`` 一次 searchGlobal。字段都有缺省值：测试与「无 store 场景」直接
+    ``SearchSettings()`` 即可，装配路径走 ``load_search_settings(store)`` 让 settings 表覆盖。
     """
 
     cache: SearchCacheSettings = field(default_factory=SearchCacheSettings)
+    mode: str = DEFAULT_SEARCH_MODE
     fanout: int = DEFAULT_SEARCH_FANOUT
     sync_window_sec: float = DEFAULT_SEARCH_SYNC_WINDOW_MS / 1000
     page_size: int = DEFAULT_SEARCH_PAGE_SIZE
     max_page_size: int = SEARCH_MAX_PAGE_SIZE
 
+    @property
+    def global_mode(self) -> bool:
+        """是否走 searchGlobal（免音乐源）。调用点读这个，不各自比字符串。"""
+        return self.mode == SEARCH_MODE_GLOBAL
+
+
+def _mode_setting(store: SettingsRepo) -> str:
+    """settings 表里的搜索模式；认不出的值回退默认（不因为一个错字就让搜索失效）。"""
+    raw = store.get_setting("search_mode")
+    return raw if raw in SEARCH_MODES else DEFAULT_SEARCH_MODE
+
 
 def load_search_settings(store: SettingsRepo) -> SearchSettings:
     """搜索配置（settings 表现读）；装配时用缺省值，保存设置后由容器刷新。"""
     return SearchSettings(
+        mode=_mode_setting(store),
         cache=SearchCacheSettings(
             ttl_sec=_int_setting(store, "search_cache_ttl_sec", DEFAULT_SEARCH_CACHE_TTL_SEC),
             negative_ttl_sec=_int_setting(

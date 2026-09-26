@@ -29,6 +29,7 @@ class FakeUserClient:
         *,
         content: bytes = b"x" * 100,
         dialogs: list[dict[str, Any]] | None = None,
+        global_messages: list[dict[str, Any]] | None = None,
     ) -> None:
         self.messages = messages
         self.content = content
@@ -36,6 +37,10 @@ class FakeUserClient:
         self.flood_queue: list[int] = []  # download_media 前依次弹出的 FloodWait
         self.size_override: int | None = None  # 注入大小不符
         self.download_calls = 0
+        # 全局搜索（FR-SEARCH-01 global 模式）：脚本化的「账号全部对话」命中集
+        self.global_messages = global_messages or []
+        self.global_calls = 0
+        self.global_error: Exception | None = None
 
     async def get_chat(self, entity: str | int) -> dict[str, Any]:
         return {
@@ -57,6 +62,17 @@ class FakeUserClient:
             for m in self.messages
             if query.lower() in str(m.get("audio", {}).get("title", "")).lower()
         ][offset : offset + limit]
+
+    async def search_global(self, query: str, limit: int) -> list[dict[str, Any]]:
+        """全局搜索：跨对话返回命中（与 search_messages 同一套「服务端匹配」口径）。"""
+        self.global_calls += 1
+        if self.global_error is not None:
+            raise self.global_error
+        return [
+            m
+            for m in self.global_messages
+            if query.lower() in str(m.get("audio", {}).get("title", "")).lower()
+        ][:limit]
 
     async def get_messages(
         self, chat_id: int, message_ids: list[int]
@@ -93,10 +109,12 @@ def make_audio_message(
     size: int = 100,
     mime: str = "audio/mpeg",
     voice: bool = False,
+    chat_id: int = -100123,
+    chat_title: str | None = None,
 ) -> dict[str, Any]:
     """构造音频消息 dict（协议面形态）。"""
     return {
-        "chat_id": -100123,
+        "chat_id": chat_id,
         "message_id": message_id,
         "audio": {
             "title": title,
@@ -111,11 +129,12 @@ def make_audio_message(
         "voice": voice,
         "caption": "周杰伦 - 晴天",
         "message_date": "2026-01-01T00:00:00+00:00",
+        "chat_title": chat_title,
     }
 
 
 def make_audio_document_message(message_id: int, *, title: str = "夜的第七章") -> dict[str, Any]:
-    """MIME 为 audio/* 的 document（FR-SRC-02 里 media_scope 的第二档）。"""
+    """MIME 为 audio/* 的 document：``is_audio_message`` 认的第二档（FR-SEARCH-02）。"""
     return {
         "chat_id": -100123,
         "message_id": message_id,

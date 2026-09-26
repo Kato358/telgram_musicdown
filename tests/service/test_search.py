@@ -10,6 +10,8 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from app.appsettings import SearchCacheSettings, SearchSettings
 from app.db.models import Source
 from app.db.store import Store
@@ -28,6 +30,8 @@ class RecordingClient:
         *,
         delays: dict[int, float] | None = None,
         errors: dict[int, Exception] | None = None,
+        global_results: list[dict[str, Any]] | None = None,
+        global_error: Exception | None = None,
     ) -> None:
         self.results = results
         self.delays = delays or {}
@@ -35,6 +39,10 @@ class RecordingClient:
         self.calls: list[int] = []  # 每次上游调用的 chat_id（按序列，便于断言「没再打」）
         self.active = 0
         self.max_active = 0
+        # 全局搜索（FR-SEARCH-01 global 模式）：脚本化的跨对话命中集
+        self.global_results = global_results or []
+        self.global_error = global_error
+        self.global_calls: list[str] = []  # 每次 searchGlobal 的关键词
 
     def calls_for(self, chat_id: int) -> int:
         return self.calls.count(chat_id)
@@ -55,6 +63,18 @@ class RecordingClient:
         finally:
             self.active -= 1
 
+    async def search_global(self, query: str, limit: int) -> list[dict[str, Any]]:
+        """searchGlobal：一次调用覆盖全部对话（上游已按 Audio 过滤，这里按标题模拟服务端匹配）。"""
+        self.global_calls.append(query)
+        if self.global_error is not None:
+            raise self.global_error
+        matched = [
+            m
+            for m in self.global_results
+            if query.lower() in str(m.get("audio", {}).get("title", "")).lower()
+        ]
+        return matched[:limit]
+
 
 def _new_store(tmp_path: Path, *chat_ids: int) -> tuple[Store, list[int]]:
     store = Store(tmp_path / "app.db")
@@ -74,9 +94,13 @@ def _service(
     fanout: int = 4,
     window: float = 1.0,
     cache: SearchCacheSettings | None = None,
+    mode: str = "sources",
 ) -> SearchService:
     settings = SearchSettings(
-        cache=cache or SearchCacheSettings(), fanout=fanout, sync_window_sec=window
+        cache=cache or SearchCacheSettings(),
+        fanout=fanout,
+        sync_window_sec=window,
+        mode=mode,
     )
     return SearchService(store, client, SearchCache(store, settings.cache), settings)
 
@@ -408,4 +432,119 @@ async def test_unknown_sort_falls_back_to_relevance(tmp_path: Path) -> None:
 
     assert resp.meta["sort"] == "relevance"
     assert [c.message_id for c in resp.results] == [1, 2]
+    await service.aclose()
+
+
+# ---- 全局模式（FR-SEARCH-01 global，v0.14）----
+
+
+def _global_tracks(spec: list[tuple[int, int]], *, title: str = "晴天") -> list[dict[str, Any]]:
+    """(chat_id, 条数) → 跨对话的命中集（频道名随 chat_id 生成，供归源断言）。"""
+    return [
+        make_audio_message(
+            chat_id * 1000 + i,
+            title=title,
+            chat_id=chat_id,
+            chat_title=f"频道{chat_id}",
+        )
+        for chat_id, count in spec
+        for i in range(count)
+    ]
+
+
+async def test_global_mode_needs_no_sources(tmp_path: Path) -> None:
+    # 全局模式的立身之本：一个源都没配也能搜（范围 = 账号加入的对话）
+    store, _ = _new_store(tmp_path)  # 不添加任何源
+    client = RecordingClient({}, global_results=_global_tracks([(-1001, 2), (-1002, 1)]))
+    service = _service(store, client, mode="global")
+
+    resp = await service.search("晴天")
+
+    assert len(resp.results) == 3
+    assert resp.meta["mode"] == "global"
+    assert "reason" not in resp.meta  # 不是「没有启用源」那个早退
+    assert client.calls == []  # 逐源链路一次都没走
+    assert len(client.global_calls) == 1  # 一次请求覆盖全部对话
+    assert {c.channel_title for c in resp.results} == {"频道-1001", "频道-1002"}
+    await service.aclose()
+
+
+async def test_global_mode_hits_cache_on_repeat(tmp_path: Path) -> None:
+    store, _ = _new_store(tmp_path)
+    client = RecordingClient({}, global_results=_global_tracks([(-1001, 3)]))
+    service = _service(store, client, mode="global")
+
+    first = await service.search("晴天")
+    second = await service.search("晴天")
+
+    assert len(client.global_calls) == 1
+    assert second.results == first.results
+    assert first.meta["cache"] == {"hits": 0, "misses": 1}
+    assert second.meta["cache"] == {"hits": 1, "misses": 0}
+    await service.aclose()
+
+
+async def test_global_mode_flood_wait_is_visible(tmp_path: Path) -> None:
+    # 全局模式没有「逐源不可达」这一档：限流就是整次失败，如实报出来，不静默给空结果
+    store, _ = _new_store(tmp_path)
+    client = RecordingClient(
+        {}, global_error=SourceUnreachableError("flood_wait", "FloodWait 30s")
+    )
+    service = _service(store, client, mode="global")
+
+    with pytest.raises(SourceUnreachableError) as exc:
+        await service.search("晴天")
+
+    assert exc.value.reason == "flood_wait"
+    await service.aclose()
+
+
+async def test_global_mode_source_ids_filter_by_chat(tmp_path: Path) -> None:
+    # 全局结果按全局时间序、无法限定源集合：传了 source_ids 就在本地按 chat_id 过滤
+    store, ids = _new_store(tmp_path, -1001)
+    client = RecordingClient({}, global_results=_global_tracks([(-1001, 1), (-1002, 1)]))
+    service = _service(store, client, mode="global")
+
+    resp = await service.search("晴天", source_ids=[ids[0]])
+
+    assert [c.chat_id for c in resp.results] == [-1001]
+    await service.aclose()
+
+
+async def test_global_mode_pagination_deepens_window(tmp_path: Path) -> None:
+    store, _ = _new_store(tmp_path)
+    client = RecordingClient({}, global_results=_global_tracks([(-1001, 30)]))
+    service = _service(store, client, mode="global")
+
+    page0 = await service.search("晴天", page=0, page_size=20)
+    page1 = await service.search("晴天", page=1, page_size=20)
+
+    ids0 = {c.message_id for c in page0.results}
+    ids1 = {c.message_id for c in page1.results}
+    assert len(ids0) == 20
+    assert len(ids1) == 10
+    assert ids0.isdisjoint(ids1)
+    assert page0.meta["has_more"] is True
+    assert page1.meta["has_more"] is False
+    assert len(client.global_calls) == 2  # 深一页要把窗口从 20 提到 40
+    await service.aclose()
+
+
+async def test_apply_settings_switches_pipeline(tmp_path: Path) -> None:
+    # 设置页保存搜索模式后即时生效（FR-CFG-03）：同一次运行内从逐源切到全局
+    store, _ = _new_store(tmp_path, -1001)
+    client = RecordingClient(
+        {-1001: _tracks(-1001, 2)}, global_results=_global_tracks([(-1001, 5)])
+    )
+    service = _service(store, client)
+
+    by_source = await service.search("晴天")
+    assert len(by_source.results) == 2
+
+    service.apply_settings(SearchSettings(mode="global"))
+    by_global = await service.search("晴天")
+
+    assert len(by_global.results) == 5
+    assert by_global.meta["mode"] == "global"
+    assert len(client.global_calls) == 1
     await service.aclose()
