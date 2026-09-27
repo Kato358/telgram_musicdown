@@ -61,7 +61,8 @@ export const zhCN: Dict = {
     removed: "已移除记录",
     play: "播放",
     playing: "播放中",
-    empty: "曲库还是空的。下载完成的音乐会自动出现在这里，也可以点「重新扫描」检索 downloads 目录。",
+    empty:
+      "曲库还是空的。下载完成的音乐会自动出现在这里，也可以点「重新扫描」检索 downloads 目录。",
     none: "没有符合筛选条件的曲目。",
     loadingMore: "加载中…",
     loadedAll: "已加载全部 {n} 首",
@@ -297,8 +298,7 @@ export const zhCN: Dict = {
     onlineSection: "在线音乐源",
     onlineHint: "搜索会带上这些平台的曲目；逐平台启停，全关就等于不用在线源。",
     onlineBy: "ChKSz",
-    onlineKeyMissing:
-      "还没配置 ChKSz API Key：开关照样能拨，但要配好 Key 才真的搜得到这些平台。",
+    onlineKeyMissing: "还没配置 ChKSz API Key：开关照样能拨，但要配好 Key 才真的搜得到这些平台。",
     onlineKeyAction: "去设置配 Key",
     onlineEnabledList: "已启用：{providers}",
     onlineNone: "一个都没启用",
@@ -323,8 +323,6 @@ export const zhCN: Dict = {
     chkszKey: "ChKSz API Key",
     chkszKeyHint: "在 api.chksz.com 登录后，账户页复制以 chksz_ 开头的 Key。",
     chkszKeySet: "已配置。留空保存不会改动它。",
-    chkszKeySave: "保存 Key",
-    chkszKeySaved: "已保存 API Key",
     chkszDownloadQuality: "下载默认音质",
     chkszDownloadQualityHint: "单首下载时可在弹窗里改；批量「下载所选」按这一档。",
     chkszPreviewQuality: "试听音质",
@@ -357,6 +355,9 @@ export const zhCN: Dict = {
     save: "保存更改",
     saving: "保存中",
     saved: "已保存",
+    savedRestart: "已保存；密钥已写入 config.yaml，已连上的客户端要重启服务后才按新配置生效。",
+    unsaved: "有未保存的更改",
+    notSaved: "没保存：{items}",
     downloadSection: "下载与试听",
     maxTasks: "并发下载数",
     maxTasksHint: "超出即排队；越大越容易触发 Telegram 限流。",
@@ -392,10 +393,6 @@ export const zhCN: Dict = {
     botToken: "bot_token",
     botTokenPlaceholder: "123456:ABC-DEF…（留空表示不改动）",
     botTokenHint: "从 @BotFather 复制；换新 token 直接粘贴覆盖。",
-    botSave: "保存 Bot 配置",
-    botSaving: "保存中",
-    botSaved: "已写入 config.yaml；未启动的 Bot 会在下次登录后自动启动。",
-    botSavedRestart: "已写入 config.yaml；Bot 还在用旧 token 运行，重启服务后按新 token 启动。",
     botTokenInvalid: "bot_token 形如 123456:ABC-DEF…（从 @BotFather 复制）",
 
     proxySection: "代理",
@@ -410,12 +407,6 @@ export const zhCN: Dict = {
     proxyUser: "用户名（可选）",
     proxyPass: "密码（可选）",
     proxyKeep: "用户名与密码不回显：留空即沿用已存的值。",
-    proxySave: "保存代理",
-    proxySaving: "保存中",
-    proxySaved: "已写入 config.yaml；现在没有已连上的客户端，下一次连接就用新代理。",
-    proxySavedRestart: "已写入 config.yaml；已连上的客户端要重启服务后才按新代理重连。",
-    proxySavedDirect: "已清除代理段，改回直连；已连上的客户端要重启服务后才断开代理。",
-    proxyInvalid: "没保存：{items}",
     proxyHostRequired: "勾了代理就要填地址",
     proxyPortInvalid: "代理端口是 1–65535",
 
@@ -595,8 +586,7 @@ export const zhCN: Dict = {
     codeSent: "验证码已发到 Telegram 应用（点开 Telegram 看，不是短信）。收不到就检查代理。",
     alreadyLoggedIn: "这个会话仍然有效，不用再登录。",
     needKeysFirst: "还不能登录：先回第 1 步保存 api_id / api_hash，没有它们连不上 Telegram。",
-    sourcesBanner:
-      "频道/群组/用户都行，公开的可以直接粘链接；这里只把源加进来，搜索是实时的。",
+    sourcesBanner: "频道/群组/用户都行，公开的可以直接粘链接；这里只把源加进来，搜索是实时的。",
     tabRec: "从我的对话中推荐",
     tabManual: "手动添加链接",
     tablistLabel: "添加方式",
@@ -649,7 +639,8 @@ export const zhCN: Dict = {
     submit: "登录",
     submitting: "正在登录…",
     failed: "登录失败",
-    where: "口令存在服务器的 config.yaml 中；忘记时可在服务器上查看或修改该文件的 web_login_secret。",
+    where:
+      "口令存在服务器的 config.yaml 中；忘记时可在服务器上查看或修改该文件的 web_login_secret。",
   },
 
   common: {
@@ -833,7 +824,8 @@ export const en: Dict = {
     selectRow: "Select “{title}”",
     downloadSelected: "Download selected",
     floodwait: "Telegram rate limit: search again later, or use fewer sources.",
-    partial: "Some sources are still being searched; showing what is back so far. Search again shortly for the complete set.",
+    partial:
+      "Some sources are still being searched; showing what is back so far. Search again shortly for the complete set.",
     listSep: ", ",
     loadMore: "Load more",
     loadingMore: "Loading",
@@ -940,7 +932,8 @@ export const en: Dict = {
     linkPlaceholder: "@channel or https://t.me/xxx",
     add: "Add source",
     adding: "Checking",
-    addHint: "Adding only registers the source: nothing is fetched, search is live, and the library grows when you download.",
+    addHint:
+      "Adding only registers the source: nothing is fetched, search is live, and the library grows when you download.",
     enabled: "Enabled",
     remove: "Remove source",
     removeTitle: "Remove “{title}”?",
@@ -977,7 +970,8 @@ export const en: Dict = {
     dirTemplateHint: "Leave empty to save files directly in the root folder, no subdirectories.",
     fileTemplate: "File template",
     dateFormat: "Date format",
-    dateFormatHint: "Shapes {date} by default (e.g. %Y-%m). Override per template with {date:%Y-%m-%d}.",
+    dateFormatHint:
+      "Shapes {date} by default (e.g. %Y-%m). Override per template with {date:%Y-%m-%d}.",
     preview: "Preview",
     chkszSection: "Online music sources",
     chkszHint: "With ChKSz connected, search also covers NetEase, QQ Music and Kugou.",
@@ -988,8 +982,6 @@ export const en: Dict = {
     chkszKeyHint:
       "Sign in at api.chksz.com and copy the key starting with chksz_ from your account page.",
     chkszKeySet: "Already set. Saving with the field empty leaves it unchanged.",
-    chkszKeySave: "Save key",
-    chkszKeySaved: "API Key saved",
     chkszDownloadQuality: "Default download quality",
     chkszDownloadQualityHint: "Per-track download can override this; batch download uses it.",
     chkszPreviewQuality: "Preview quality",
@@ -1024,6 +1016,10 @@ export const en: Dict = {
     save: "Save changes",
     saving: "Saving",
     saved: "Saved",
+    savedRestart:
+      "Saved; keys were written to config.yaml — connected clients pick them up after a service restart.",
+    unsaved: "Unsaved changes",
+    notSaved: "Not saved: {items}",
     downloadSection: "Downloads and preview",
     maxTasks: "Concurrent downloads",
     maxTasksHint: "Extras queue up. Higher values hit Telegram rate limits sooner.",
@@ -1062,11 +1058,6 @@ export const en: Dict = {
     botToken: "bot_token",
     botTokenPlaceholder: "123456:ABC-DEF… (leave empty to keep the current one)",
     botTokenHint: "Copy it from @BotFather; paste a new token to replace the current one.",
-    botSave: "Save bot config",
-    botSaving: "Saving",
-    botSaved: "Written to config.yaml; a bot that is not running starts on the next sign-in.",
-    botSavedRestart:
-      "Written to config.yaml; the running bot still uses the old token and picks up the new one after a service restart.",
     botTokenInvalid: "bot_token looks like 123456:ABC-DEF… (copy it from @BotFather)",
 
     proxySection: "Proxy",
@@ -1082,15 +1073,6 @@ export const en: Dict = {
     proxyUser: "Username (optional)",
     proxyPass: "Password (optional)",
     proxyKeep: "Username and password are never echoed back; leave empty to keep the stored ones.",
-    proxySave: "Save proxy",
-    proxySaving: "Saving",
-    proxySaved:
-      "Written to config.yaml; no client is connected right now, so the next connection uses the new proxy.",
-    proxySavedRestart:
-      "Written to config.yaml; connected clients pick up the new proxy after a service restart.",
-    proxySavedDirect:
-      "The proxy block is cleared, back to a direct connection; connected clients drop the proxy after a service restart.",
-    proxyInvalid: "Not saved: {items}",
     proxyHostRequired: "a proxy needs a host",
     proxyPortInvalid: "proxy port must be 1–65535",
 
@@ -1108,17 +1090,20 @@ export const en: Dict = {
     language: "Language",
     theme: "Appearance",
     webLogout: "Sign out of console",
-    webLogoutHint: "Clears this browser's session cookie and returns to the sign-in page; your Telegram account and downloaded files are untouched.",
+    webLogoutHint:
+      "Clears this browser's session cookie and returns to the sign-in page; your Telegram account and downloaded files are untouched.",
 
     searchModeSection: "Search mode",
-    searchModeHint: "Picks which search pipeline runs; switching applies immediately and is reversible.",
+    searchModeHint:
+      "Picks which search pipeline runs; switching applies immediately and is reversible.",
     searchModeSources: "Per-source search",
     searchModeSourcesDesc:
       "Queries each channel separately: results are grouped by source, one failing channel never hides the others, and channels you never added stay out. More channels mean more requests and a higher chance of Telegram rate limits.",
     searchModeGlobal: "Global search",
     searchModeGlobalDesc:
       "One request covers every chat your account has joined: no matter how many channels, it costs a single call, is rarely rate limited, and can surface channels you never added. The trade-offs: results come mixed in time order, you cannot restrict them to specific channels, and one failure fails the whole search.",
-    searchModeSourcesNote: "The Sources page is available: search runs only inside the sources you added.",
+    searchModeSourcesNote:
+      "The Sources page is available: search runs only inside the sources you added.",
     searchModeGlobalNote:
       "The Sources page is hidden: search covers every chat your account has joined, so no sources are needed.",
     searchModeSaved: "Switched to “{mode}”",
@@ -1337,7 +1322,8 @@ export const en: Dict = {
     submit: "Sign in",
     submitting: "Signing in…",
     failed: "Sign-in failed",
-    where: "The password lives in config.yaml on the server; if you forgot it, read or edit web_login_secret there.",
+    where:
+      "The password lives in config.yaml on the server; if you forgot it, read or edit web_login_secret there.",
   },
 
   common: {

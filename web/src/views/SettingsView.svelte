@@ -1,18 +1,25 @@
 <script lang="ts">
-  /** 设置：账号与连接（Telegram 账号 / Bot / 代理）、落盘命名、下载并发与试听缓存、界面偏好
+  /** 设置：搜索模式 / 在线音乐源 / 落盘命名 / 下载与试听 / 账号与连接（账号 / Bot / 代理）/ 界面 / 重新初始化
    * （FR-SET-01/02、FR-AUTH-02/03/04、FR-OPS-02）。
    *
-   * 桌面端（xl+）1:1 双栏：左栏「落盘命名 + 下载并发 + 界面」，右栏「账号 / Bot / 代理 / 重置」；
-   * 窄屏退回单栏，区块顺序不变。
+   * 桌面端（xl+）1:1 双栏：左栏「搜索模式 + 在线音乐源 + 落盘命名 + 下载与试听」（音乐来源与落盘），
+   * 右栏「账号 / Bot / 代理 / 界面 / 重置」（账号与偏好）；窄屏退回单栏，区块顺序不变。
    *
-   * 命名模板改动即时预览（防抖 200ms，POST /api/settings/preview-path），但只有「保存更改」写库；
+   * 全页只有顶部一条保存：任何改动（模板 / 并发 / 缓存上限 / 在线源音质 / Bot token / 代理）都先进
+   * dirty 态、顶部浮出「有未保存的更改」+ 保存按钮，点它才写库。dirty 由三部分合成——settings 表字段的
+   * 指纹、两个密钥框非空、代理表单与已加载基线的差异（proxyFingerprint/proxyBase，避免「原样重存」把已存
+   * 的用户名密码抹掉）。密钥走 `POST /api/setup/secrets` 写 config.yaml（与 settings 表的 PUT 同一次保存
+   * 里先后发出）：留空 = 不改动，用户名密码不回显（NFR-02）；已连上的客户端由返回的 restart_required 决定
+   * 提示重启还是即时生效。
+   *
+   * 例外：搜索模式与「启用在线源」批量开关仍是点选即写库（设计规范 v3.17/v3.19），不进 dirty 指纹。
+   *
+   * 命名模板改动即时预览（防抖 200ms，POST /api/settings/preview-path），写库同上走统一保存；
    * 预览用后端内置的真实歌曲示例（响应里带落盘根 root，前端淡显区分根与渲染段）。
    * 模板字段定义来自 GET /api/settings/template-fields（字段名 + 示例值，说明文案在 i18n），
-   * 界面只列常用白名单 COMMON_FIELDS，点按字段插入到最后聚焦的模板框。缓存上限在库里是字节字符串，界面按 MB 编辑，保存时换算。
-   * 界面两项只存本机浏览器。
+   * 界面只列常用白名单 COMMON_FIELDS，点按字段插入到最后聚焦的模板框；面板默认折叠（字段多、属参考性内容）。
+   * 缓存上限在库里是字节字符串，界面按 MB 编辑，保存时换算。界面两项只存本机浏览器。
    *
-   * 密钥类改动（bot_token / 代理）走 `POST /api/setup/secrets` 写 config.yaml：留空 = 不改动，
-   * 用户名密码不回显（NFR-02）；已连上的客户端由返回的 restart_required 决定提示重启还是即时生效。
    * 「退出登录」与「重新执行初始化」都会清掉登录态，故做完立刻跳回向导（放行判据含登录）。
    *
    * 缓存占用（试听 + 封面）与上限同屏：占用取 `GET /api/settings/cache`（磁盘实际字节），
@@ -20,6 +27,7 @@
    */
   import { onMount } from "svelte";
   import BotIcon from "@lucide/svelte/icons/bot";
+  import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
   import CircleUserIcon from "@lucide/svelte/icons/circle-user";
   import CloudIcon from "@lucide/svelte/icons/cloud";
   import DownloadIcon from "@lucide/svelte/icons/download";
@@ -119,8 +127,13 @@
 
   let saving = $state(false);
   let saveError = $state("");
+  /** 统一保存的成败回执：成功落在顶部（dirty 收起后显示），失败单列。 */
+  let saveNote: Feedback | null = $state(null);
   /** 已保存值的指纹：编辑后与当前指纹不等即「有未保存改动」，成功提示随之收起。 */
   let savedKey = $state<string | null>(null);
+
+  /** 模板字段面板默认折叠：它是参考性内容，展开才占版面。 */
+  let fieldsOpen = $state(false);
 
   // ---- 搜索模式（FR-SEARCH-01）：点按即写库，不走「保存更改」----
 
@@ -217,7 +230,6 @@
   let chkszDownloadQuality = $state<QualityTier>("hires");
   let chkszPreviewQuality = $state<QualityTier>("320k");
   let chkszKey = $state("");
-  let savingChkszKey = $state(false);
   let savingChkszToggle = $state(false);
   let chkszNote: Feedback | null = $state(null);
   /** 三个平台（键 + 名字 + 各自开关态）来自 `/api/sources/online`：批量开关按接口给的键写库，
@@ -236,8 +248,6 @@
   });
   let hasChkszKey = $state(false);
   let botToken = $state("");
-  let botNote = $state<Feedback | null>(null);
-  let savingBot = $state(false);
 
   let useProxy = $state(false);
   let proxyScheme = $state("socks5");
@@ -245,8 +255,8 @@
   let proxyPort = $state("1080");
   let proxyUser = $state("");
   let proxyPass = $state("");
-  let proxyNote = $state<Feedback | null>(null);
-  let savingProxy = $state(false);
+  /** 代理表单的已加载基线：与当前表单指纹不等即「代理有改动」，统一保存才把它发出去。 */
+  let proxyBase = $state("");
 
   let resetOpen = $state(false);
   let resetting = $state(false);
@@ -268,7 +278,20 @@
     });
   });
 
-  /** 表单初值取服务端状态：代理回填地址端口，用户名密码留空（留空 = 沿用已存值）。 */
+  /** 代理表单指纹：地址端口 trim 后比较，用户名密码也算（非空即改动）。 */
+  function proxyFingerprint(): string {
+    return [
+      useProxy,
+      proxyScheme,
+      proxyHost.trim(),
+      proxyPort.trim(),
+      proxyUser.trim(),
+      proxyPass,
+    ].join("\u0000");
+  }
+
+  /** 表单初值取服务端状态：代理回填地址端口，用户名密码留空（留空 = 沿用已存值）；
+   *  回填完把指纹记成基线，用户不动它就是「无改动」。 */
   function applyConnectionState() {
     const proxy = status?.proxy ?? null;
     useProxy = Boolean(proxy?.hostname);
@@ -277,6 +300,7 @@
     proxyPort = proxy ? String(proxy.port) : "1080";
     proxyUser = "";
     proxyPass = "";
+    proxyBase = proxyFingerprint();
   }
 
   async function loadConnection() {
@@ -285,6 +309,9 @@
       applyConnectionState();
     } catch (err) {
       accountNote = { tone: "fail", text: errorText(err, t("common.error")) };
+      // 拿不到服务端状态也别让代理这块永远「无基线」——那样改完代理永远不 dirty、也就永远存不下去。
+      // 只补空基线，不回填表单：失败不该抹掉用户已经敲进去的值。
+      if (proxyBase === "") proxyBase = proxyFingerprint();
     }
   }
 
@@ -305,84 +332,20 @@
     }
   }
 
-  async function saveBot() {
-    if (savingBot) return;
-    const token = botToken.trim();
-    if (token !== "" && !BOT_TOKEN_RE.test(token)) {
-      botNote = { tone: "fail", text: t("settings.botTokenInvalid") };
-      return;
-    }
-    if (token === "") return; // 按钮已禁用，留空只是保留现值
-    savingBot = true;
-    botNote = null;
-    try {
-      const resp = await api.post<{ restart_required: boolean }>("/api/setup/secrets", {
-        bot_token: token,
-      });
-      botToken = "";
-      await loadConnection();
-      botNote = {
-        tone: "done",
-        text: t(resp.restart_required ? "settings.botSavedRestart" : "settings.botSaved"),
-      };
-    } catch (err) {
-      botNote = { tone: "fail", text: errorText(err, t("common.error")) };
-    } finally {
-      savingBot = false;
-    }
-  }
-
-  /** 前端只做即时反馈；判据在服务端（同一套规则，见 app/services/setup.py）。 */
-  function proxyProblems(): string[] {
+  /** 密钥类的保存前校验（前端只做即时反馈，判据在服务端，同一套规则见 app/services/setup.py）：
+   *  bot_token 非空才校验格式，代理按勾选与否校验地址端口——两者并进同一条「没保存：…」。 */
+  function secretProblems(): string[] {
     const problems: string[] = [];
-    if (!useProxy) return problems;
-    if (proxyHost.trim() === "") problems.push(t("settings.proxyHostRequired"));
-    const port = Number(proxyPort.trim());
-    if (!PORT_RE.test(proxyPort.trim()) || port < 1 || port > MAX_PORT) {
-      problems.push(t("settings.proxyPortInvalid"));
+    const token = botToken.trim();
+    if (token !== "" && !BOT_TOKEN_RE.test(token)) problems.push(t("settings.botTokenInvalid"));
+    if (useProxy) {
+      if (proxyHost.trim() === "") problems.push(t("settings.proxyHostRequired"));
+      const port = Number(proxyPort.trim());
+      if (!PORT_RE.test(proxyPort.trim()) || port < 1 || port > MAX_PORT) {
+        problems.push(t("settings.proxyPortInvalid"));
+      }
     }
     return problems;
-  }
-
-  async function saveProxy() {
-    if (savingProxy) return;
-    const problems = proxyProblems();
-    if (problems.length > 0) {
-      proxyNote = {
-        tone: "fail",
-        text: t("settings.proxyInvalid", { items: problems.join("、") }),
-      };
-      return;
-    }
-    savingProxy = true;
-    proxyNote = null;
-    try {
-      const proxy: SetupProxyInput | null = useProxy
-        ? {
-            scheme: proxyScheme,
-            hostname: proxyHost.trim(),
-            port: Number(proxyPort.trim()),
-            ...(proxyUser.trim() ? { username: proxyUser.trim() } : {}),
-            ...(proxyPass ? { password: proxyPass } : {}),
-          }
-        : null;
-      const resp = await api.post<{ restart_required: boolean }>("/api/setup/secrets", { proxy });
-      await loadConnection();
-      proxyNote = {
-        tone: "done",
-        text: t(
-          !useProxy
-            ? "settings.proxySavedDirect"
-            : resp.restart_required
-              ? "settings.proxySavedRestart"
-              : "settings.proxySaved",
-        ),
-      };
-    } catch (err) {
-      proxyNote = { tone: "fail", text: errorText(err, t("common.error")) };
-    } finally {
-      savingProxy = false;
-    }
   }
 
   async function confirmReset() {
@@ -431,8 +394,14 @@
     // 在线源（SDD §2.7）：平台开关与两档音质都在 settings 表，热更新不必重启。
     // CSV 直接读原值：空串是「三个平台全关」的合法值，不能像模板那样被 pick 换成缺省。
     chkszProviders = values.chksz_providers ?? "";
-    chkszDownloadQuality = tierOf(pick(values, "chksz_download_quality"), DEFAULTS.chksz_download_quality);
-    chkszPreviewQuality = tierOf(pick(values, "chksz_preview_quality"), DEFAULTS.chksz_preview_quality);
+    chkszDownloadQuality = tierOf(
+      pick(values, "chksz_download_quality"),
+      DEFAULTS.chksz_download_quality,
+    );
+    chkszPreviewQuality = tierOf(
+      pick(values, "chksz_preview_quality"),
+      DEFAULTS.chksz_preview_quality,
+    );
   }
 
   function fingerprint(): string {
@@ -447,11 +416,21 @@
     ].join("\u0000");
   }
 
-  const dirty = $derived(savedKey === null || fingerprint() !== savedKey);
+  /** 未保存改动 = settings 表指纹变了 / 密钥框填了内容 / 代理表单偏离已加载基线；未加载完不算 dirty。 */
+  const dirty = $derived(
+    loaded &&
+      (savedKey === null ||
+        fingerprint() !== savedKey ||
+        botToken.trim() !== "" ||
+        chkszKey.trim() !== "" ||
+        (proxyBase !== "" && proxyFingerprint() !== proxyBase)),
+  );
 
   async function load() {
     try {
       apply(await api.get<Record<string, string>>("/api/settings"));
+      // 落库初值即已保存基线：不这么做，页面一打开就挂着「未保存」提示
+      savedKey = fingerprint();
       // 阶梯是静态文档，与开关分开取；三家平台共用同一张语义档位表
       const resp = await api.get<QualitiesResponse>("/api/settings/qualities");
       chkszTiers = resp.providers["163"] ?? [];
@@ -477,21 +456,13 @@
 
   /** 库里存的是语义档位；认不出就落回缺省，别把一个错值塞进下载请求。 */
   function tierOf(raw: string | undefined, fallback: string): QualityTier {
-    const known: QualityTier[] = [
-    "128k",
-    "320k",
-    "lossless",
-    "hires",
-    "master",
-    "sky",
-    "jyeffect",
-  ];
+    const known: QualityTier[] = ["128k", "320k", "lossless", "hires", "master", "sky", "jyeffect"];
     return known.includes(raw as QualityTier) ? (raw as QualityTier) : (fallback as QualityTier);
   }
 
   /** 批量开关（不是逐平台开关）：开 = 接口给的三个平台全写进去，关 = 写空串。
    *
-   *  点按即写库（与搜索模式同一做法）：它没有「保存更改」这一步，所以不进 dirty 指纹。
+   *  点按即写库（与搜索模式同一做法）：顶层那条统一保存管不到它，所以不进 dirty 指纹。
    *  写完重取一遍在线源——那张卡的「已启用平台」行与逐平台开关都跟着变。
    */
   async function toggleChksz(checked: boolean) {
@@ -509,25 +480,6 @@
       chkszNote = { tone: "fail", text: errorText(err, t("common.error")) };
     } finally {
       savingChkszToggle = false;
-    }
-  }
-
-  /** Key 单独存 config.yaml（不入库，NFR-02）：留空 = 不改动，服务端不回显明文。 */
-  async function saveChkszKey() {
-    if (savingChkszKey) return;
-    const key = chkszKey.trim();
-    if (key === "") return;
-    savingChkszKey = true;
-    chkszNote = null;
-    try {
-      await api.post("/api/setup/secrets", { chksz_api_key: key });
-      chkszKey = "";
-      hasChkszKey = true;
-      chkszNote = { tone: "done", text: t("settings.chkszKeySaved") };
-    } catch (err) {
-      chkszNote = { tone: "fail", text: errorText(err, t("common.error")) };
-    } finally {
-      savingChkszKey = false;
     }
   }
 
@@ -608,7 +560,7 @@
     else fileTemplate = next;
   }
 
-  /** 模板改动只影响预览，写库要等「保存更改」。 */
+  /** 模板改动只影响预览，写库要等顶部那条统一保存。 */
   $effect(() => {
     const dir = dirTemplate;
     const file = fileTemplate;
@@ -617,10 +569,19 @@
     return () => clearTimeout(timer);
   });
 
+  /** 页面唯一的保存：先把 settings 表那 7 个键 PUT 上去，再把这次填了的密钥
+   *  （bot_token / chksz_api_key 非空才带）与有改动的代理 POST 到 config.yaml。
+   *  校验不过就只报错、一个字节都不发；密钥写成功后再清空输入框并重取连接态。 */
   async function save() {
     if (saving) return;
+    const problems = secretProblems();
+    if (problems.length > 0) {
+      saveError = t("settings.notSaved", { items: problems.join(t("settings.listSep")) });
+      return;
+    }
     saving = true;
     saveError = "";
+    saveNote = null;
     try {
       const values: Record<string, string> = {
         dir_template: dirTemplate,
@@ -633,7 +594,42 @@
       };
       apply(await api.put<Record<string, string>>("/api/settings", { values }));
       savedKey = fingerprint();
+
+      const token = botToken.trim();
+      const key = chkszKey.trim();
+      const secret: Record<string, unknown> = {};
+      if (token !== "") secret.bot_token = token;
+      if (key !== "") secret.chksz_api_key = key;
+      if (proxyBase !== "" && proxyFingerprint() !== proxyBase) {
+        const proxy: SetupProxyInput | null = useProxy
+          ? {
+              scheme: proxyScheme,
+              hostname: proxyHost.trim(),
+              port: Number(proxyPort.trim()),
+              ...(proxyUser.trim() ? { username: proxyUser.trim() } : {}),
+              ...(proxyPass ? { password: proxyPass } : {}),
+            }
+          : null;
+        secret.proxy = proxy;
+      }
+
+      let restart = false;
+      if (Object.keys(secret).length > 0) {
+        const resp = await api.post<{ restart_required: boolean }>("/api/setup/secrets", secret);
+        restart = resp.restart_required;
+        if (token !== "") botToken = "";
+        if (key !== "") {
+          chkszKey = "";
+          hasChkszKey = true;
+        }
+        await loadConnection(); // 代理表单与账号/Bot 状态灯跟着新配置走（顺带刷新 proxyBase）
+      }
+
       void loadCacheStats(); // 上限可能刚被改：占用条目的「/ 上限」要跟着走
+      saveNote = {
+        tone: "done",
+        text: t(restart ? "settings.savedRestart" : "settings.saved"),
+      };
     } catch (err) {
       saveError = errorText(err, t("common.error"));
     } finally {
@@ -685,8 +681,27 @@
   <Note tone="fail">{loadError}</Note>
 {/if}
 
+<!-- 全页唯一的保存入口：有任何未保存改动就浮在内容顶部，跟着滚动，不随卡片跑到屏幕外 -->
+{#if dirty}
+  <div
+    class="card sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-5"
+  >
+    <span class="text-body font-medium">{t("settings.unsaved")}</span>
+    <Button size="sm" disabled={saving} onclick={() => void save()}>
+      {saving ? t("settings.saving") : t("settings.save")}
+    </Button>
+  </div>
+{:else if saveNote}
+  <Note tone="done">{saveNote.text}</Note>
+{/if}
+
+{#if saveError}
+  <Note tone="fail">{saveError}</Note>
+{/if}
+
 <div class="grid items-start gap-4 md:gap-6 xl:grid-cols-2">
-  <!-- 桌面端（xl+）1:1 双栏：左栏「搜索模式 + 落盘命名 + 下载 + 界面」，右栏「账号 / Bot / 代理 / 重置」；窄屏退回单栏，顺序不变 -->
+  <!-- 桌面端（xl+）1:1 双栏：左栏「搜索模式 + 在线音乐源 + 落盘命名 + 下载与试听」（音乐来源与落盘），
+       右栏「账号 / Bot / 代理 / 界面 / 重置」（账号与偏好）；窄屏退回单栏，区块顺序不变 -->
   <div class="flex min-w-0 flex-col gap-4 md:gap-6">
     <SectionCard
       title={t("settings.searchModeSection")}
@@ -723,200 +738,7 @@
       </div>
     </SectionCard>
 
-    <SectionCard
-      title={t("settings.pathSection")}
-      hint={t("settings.pathHint")}
-      icon={FolderTreeIcon}
-    >
-      <div class="flex flex-col gap-4">
-        <div class="grid gap-4 sm:grid-cols-2">
-          <Field
-            label={t("settings.dirTemplate")}
-            for="setting-dir-template"
-            hint={t("settings.dirTemplateHint")}
-          >
-            <Input
-              id="setting-dir-template"
-              class="tabular"
-              bind:value={dirTemplate}
-              onfocus={() => (lastTemplate = "dir")}
-              onmousedown={() => (lastTemplate = "dir")}
-            />
-          </Field>
-
-          <Field label={t("settings.fileTemplate")} for="setting-file-template">
-            <Input
-              id="setting-file-template"
-              class="tabular"
-              bind:value={fileTemplate}
-              onfocus={() => (lastTemplate = "file")}
-              onmousedown={() => (lastTemplate = "file")}
-            />
-          </Field>
-        </div>
-
-        <Field
-          label={t("settings.dateFormat")}
-          for="setting-date-format"
-          hint={t("settings.dateFormatHint")}
-        >
-          <Input id="setting-date-format" class="tabular w-40" bind:value={dateFormat} />
-        </Field>
-
-        <div class="rounded-control border border-border bg-surface-subtle">
-          <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-3 pt-2.5">
-            <span class="text-caption font-semibold">{t("settings.templateFieldsTitle")}</span>
-            <span class="text-caption text-faint-foreground"
-              >{t("settings.templateFieldsHint")}</span
-            >
-          </div>
-          {#if fieldDocs.length > 0}
-            <div class="grid gap-x-6 px-2 py-1.5">
-              {#each fieldDocs as doc (doc.field)}
-                <button
-                  type="button"
-                  class="ui-transition flex min-w-0 items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-rule"
-                  onclick={() => insertField(doc.field)}
-                  title={`{${doc.field}} — ${fieldLabel(doc.field)}`}
-                >
-                  <code class="shrink-0 text-code text-primary">{`{${doc.field}}`}</code>
-                  <span class="min-w-0 flex-1 truncate text-caption text-muted-foreground">
-                    {fieldLabel(doc.field)}
-                  </span>
-                  <span
-                    class="max-w-36 shrink-0 truncate text-caption text-faint-foreground"
-                    title={doc.example}
-                  >
-                    {doc.example}
-                  </span>
-                </button>
-              {/each}
-            </div>
-          {/if}
-          <div class="flex flex-col gap-1 border-t border-border px-3 py-2.5">
-            {#each TEMPLATE_FILTERS as filter (filter.syntax)}
-              <div class="flex min-w-0 items-baseline gap-2">
-                <code class="shrink-0 text-code">{filter.syntax}</code>
-                <span class="min-w-0 flex-1 truncate text-caption text-muted-foreground">
-                  {t(filter.key)}
-                </span>
-                <code class="shrink-0 text-caption text-faint-foreground">{filter.example}</code>
-              </div>
-            {/each}
-          </div>
-        </div>
-
-        <div class="flex flex-col gap-1.5">
-          <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <span class="text-caption text-muted-foreground">{t("settings.preview")}</span>
-            {#if fieldSample?.title}
-              <span class="text-caption text-faint-foreground">
-                {t("settings.previewSample", {
-                  artist: fieldSample.artist ?? "",
-                  title: fieldSample.title,
-                })}
-              </span>
-            {/if}
-          </div>
-          {#if previewParts}
-            <code
-              class="rounded-control border border-border bg-surface-subtle p-3 text-code break-all"
-              ><span class="text-faint-foreground">{previewParts.root}</span><span
-                >{previewParts.rest}</span
-              ></code
-            >
-          {:else if !loadError}
-            <p
-              class="rounded-control border border-border bg-surface-subtle p-3 text-code break-all text-faint-foreground"
-            >
-              {t("common.loading")}
-            </p>
-          {/if}
-        </div>
-
-        {#if previewError}
-          <Note tone="fail">{previewError}</Note>
-        {/if}
-
-        <div class="flex items-center gap-3">
-          <Button size="lg" disabled={saving || !loaded} onclick={() => void save()}>
-            {saving ? t("settings.saving") : t("settings.save")}
-          </Button>
-          {#if savedKey !== null && !dirty}
-            <Note tone="done">{t("settings.saved")}</Note>
-          {/if}
-        </div>
-
-        {#if saveError}
-          <Note tone="fail">{saveError}</Note>
-        {/if}
-      </div>
-    </SectionCard>
-
-    <SectionCard title={t("settings.downloadSection")} icon={DownloadIcon}>
-      <div class="flex flex-col gap-4">
-        <div class="grid gap-4 sm:grid-cols-2">
-          <Field
-            label={t("settings.maxTasks")}
-            for="setting-max-tasks"
-            hint={t("settings.maxTasksHint")}
-          >
-            <Input
-              id="setting-max-tasks"
-              type="number"
-              min="1"
-              class="tabular w-32"
-              bind:value={maxTasks}
-            />
-          </Field>
-
-          <Field
-            label={t("settings.previewCache")}
-            for="setting-preview-cache"
-            hint={t("settings.previewCacheHint")}
-          >
-            <Input
-              id="setting-preview-cache"
-              type="number"
-              min="64"
-              class="tabular w-32"
-              bind:value={cacheMb}
-            />
-          </Field>
-        </div>
-
-        <!-- 占用与上限同屏：改完上限保存即刷新上面那行数字，「清理缓存」只删缓存目录 -->
-        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border pt-4">
-          <div class="min-w-0">
-            <p class="text-body font-medium">{t("settings.cacheUsage")}</p>
-            <p class="min-w-0 text-caption text-muted-foreground">
-              {cacheDetail ?? t("common.loading")}
-            </p>
-          </div>
-          <div class="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={clearing || cacheStats === null || cacheStats.total_bytes === 0}
-              onclick={() => void clearCache()}
-            >
-              {clearing ? t("settings.cacheClearing") : t("settings.cacheClear")}
-            </Button>
-            {#if cacheNote}
-              <Note tone={cacheNote.tone}>{cacheNote.text}</Note>
-            {/if}
-          </div>
-        </div>
-
-        <p class="text-caption text-muted-foreground">{t("settings.restartHint")}</p>
-      </div>
-    </SectionCard>
-
-    <SectionCard
-      title={t("settings.chkszSection")}
-      hint={t("settings.chkszHint")}
-      icon={CloudIcon}
-    >
+    <SectionCard title={t("settings.chkszSection")} hint={t("settings.chkszHint")} icon={CloudIcon}>
       <div class="flex flex-col gap-4">
         <Field
           label={t("settings.chkszEnabled")}
@@ -924,14 +746,16 @@
           hint={t("settings.chkszEnabledHint")}
         >
           <div class="flex items-center gap-3">
-            <!-- 批量开关：开 = 三个平台全开，关 = 全停；逐平台的开关在音乐源页 -->
+            <!-- 批量开关：开 = 三个平台全开，关 = 全停；逐平台的开关在音乐源页。点按即写库，不进 dirty -->
             <Switch
               id="setting-chksz-enabled"
               checked={chkszEnabled}
               disabled={savingChkszToggle}
               onCheckedChange={(checked) => void toggleChksz(checked)}
             />
-            <span class="text-body">{chkszEnabled ? t("settings.chkszOn") : t("settings.chkszOff")}</span>
+            <span class="text-body"
+              >{chkszEnabled ? t("settings.chkszOn") : t("settings.chkszOff")}</span
+            >
           </div>
         </Field>
 
@@ -939,29 +763,20 @@
           {t("sources.onlineEnabledList", { providers: chkszEnabledTitles })}
         </p>
 
-        <!-- Key 只写不回显：服务端只回「有没有」（NFR-02），留空 = 不改动 -->
+        <!-- Key 只写不回显：服务端只回「有没有」（NFR-02），留空 = 不改动；提交走顶部统一保存 -->
         <Field
           label={t("settings.chkszKey")}
           for="setting-chksz-key"
           hint={hasChkszKey ? t("settings.chkszKeySet") : t("settings.chkszKeyHint")}
         >
-          <div class="flex flex-wrap items-center gap-3">
-            <Input
-              id="setting-chksz-key"
-              type="password"
-              autocomplete="off"
-              class="w-72"
-              placeholder={hasChkszKey ? "••••••••" : "chksz_…"}
-              bind:value={chkszKey}
-            />
-            <Button
-              size="sm"
-              disabled={savingChkszKey || chkszKey.trim() === ""}
-              onclick={() => void saveChkszKey()}
-            >
-              {savingChkszKey ? t("settings.saving") : t("settings.chkszKeySave")}
-            </Button>
-          </div>
+          <Input
+            id="setting-chksz-key"
+            type="password"
+            autocomplete="off"
+            class="w-72"
+            placeholder={hasChkszKey ? "••••••••" : "chksz_…"}
+            bind:value={chkszKey}
+          />
         </Field>
 
         {#if chkszEnabled}
@@ -1020,53 +835,194 @@
     </SectionCard>
 
     <SectionCard
-      title={t("settings.interfaceSection")}
-      hint={t("settings.interfaceHint")}
-      icon={PaletteIcon}
+      title={t("settings.pathSection")}
+      hint={t("settings.pathHint")}
+      icon={FolderTreeIcon}
     >
       <div class="flex flex-col gap-4">
-        <Field label={t("settings.language")} for="setting-language">
-          <Select type="single" value={i18n.locale} items={LOCALES} onValueChange={changeLocale}>
-            <SelectTrigger id="setting-language" class="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {#each LOCALES as locale (locale.value)}
-                <SelectItem value={locale.value}>{locale.label}</SelectItem>
-              {/each}
-            </SelectContent>
-          </Select>
-        </Field>
-
-        <Field label={t("settings.theme")} for="setting-appearance">
-          <Select
-            type="single"
-            value={theme.preference}
-            items={appearanceItems}
-            onValueChange={changeAppearance}
+        <div class="grid gap-4 sm:grid-cols-2">
+          <Field
+            label={t("settings.dirTemplate")}
+            for="setting-dir-template"
+            hint={t("settings.dirTemplateHint")}
           >
-            <SelectTrigger id="setting-appearance" class="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {#each THEME_OPTIONS as option (option.value)}
-                <SelectItem value={option.value}>{t(option.label)}</SelectItem>
-              {/each}
-            </SelectContent>
-          </Select>
+            <Input
+              id="setting-dir-template"
+              class="tabular"
+              bind:value={dirTemplate}
+              onfocus={() => (lastTemplate = "dir")}
+              onmousedown={() => (lastTemplate = "dir")}
+            />
+          </Field>
+
+          <Field label={t("settings.fileTemplate")} for="setting-file-template">
+            <Input
+              id="setting-file-template"
+              class="tabular"
+              bind:value={fileTemplate}
+              onfocus={() => (lastTemplate = "file")}
+              onmousedown={() => (lastTemplate = "file")}
+            />
+          </Field>
+        </div>
+
+        <Field
+          label={t("settings.dateFormat")}
+          for="setting-date-format"
+          hint={t("settings.dateFormatHint")}
+        >
+          <Input id="setting-date-format" class="tabular w-40" bind:value={dateFormat} />
         </Field>
 
-        {#if session.web?.required}
-          <div class="flex items-center justify-between gap-3 border-t border-border pt-4">
-            <div class="min-w-0">
-              <p class="text-body font-medium">{t("settings.webLogout")}</p>
-              <p class="text-caption text-muted-foreground">{t("settings.webLogoutHint")}</p>
+        <div class="rounded-control border border-border bg-surface-subtle">
+          <button
+            type="button"
+            class="ui-transition flex w-full flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-control px-3 py-2.5 text-left hover:bg-rule"
+            aria-expanded={fieldsOpen}
+            onclick={() => (fieldsOpen = !fieldsOpen)}
+          >
+            <span class="flex items-center gap-1.5">
+              <ChevronDownIcon
+                class="ui-transition size-3.5 text-muted-foreground {fieldsOpen
+                  ? ''
+                  : '-rotate-90'}"
+              />
+              <span class="text-caption font-semibold">{t("settings.templateFieldsTitle")}</span>
+            </span>
+            <span class="text-caption text-faint-foreground"
+              >{t("settings.templateFieldsHint")}</span
+            >
+          </button>
+          {#if fieldsOpen}
+            {#if fieldDocs.length > 0}
+              <div class="grid gap-x-6 px-2 py-1.5">
+                {#each fieldDocs as doc (doc.field)}
+                  <button
+                    type="button"
+                    class="ui-transition flex min-w-0 items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-rule"
+                    onclick={() => insertField(doc.field)}
+                    title={`{${doc.field}} — ${fieldLabel(doc.field)}`}
+                  >
+                    <code class="shrink-0 text-code text-primary">{`{${doc.field}}`}</code>
+                    <span class="min-w-0 flex-1 truncate text-caption text-muted-foreground">
+                      {fieldLabel(doc.field)}
+                    </span>
+                    <span
+                      class="max-w-36 shrink-0 truncate text-caption text-faint-foreground"
+                      title={doc.example}
+                    >
+                      {doc.example}
+                    </span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+            <div class="flex flex-col gap-1 border-t border-border px-3 py-2.5">
+              {#each TEMPLATE_FILTERS as filter (filter.syntax)}
+                <div class="flex min-w-0 items-baseline gap-2">
+                  <code class="shrink-0 text-code">{filter.syntax}</code>
+                  <span class="min-w-0 flex-1 truncate text-caption text-muted-foreground">
+                    {t(filter.key)}
+                  </span>
+                  <code class="shrink-0 text-caption text-faint-foreground">{filter.example}</code>
+                </div>
+              {/each}
             </div>
-            <Button variant="outline" size="sm" onclick={() => void session.webLogout()}>
-              {t("settings.webLogout")}
-            </Button>
+          {/if}
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <span class="text-caption text-muted-foreground">{t("settings.preview")}</span>
+            {#if fieldSample?.title}
+              <span class="text-caption text-faint-foreground">
+                {t("settings.previewSample", {
+                  artist: fieldSample.artist ?? "",
+                  title: fieldSample.title,
+                })}
+              </span>
+            {/if}
           </div>
+          {#if previewParts}
+            <code
+              class="rounded-control border border-border bg-surface-subtle p-3 text-code break-all"
+              ><span class="text-faint-foreground">{previewParts.root}</span><span
+                >{previewParts.rest}</span
+              ></code
+            >
+          {:else if !loadError}
+            <p
+              class="rounded-control border border-border bg-surface-subtle p-3 text-code break-all text-faint-foreground"
+            >
+              {t("common.loading")}
+            </p>
+          {/if}
+        </div>
+
+        {#if previewError}
+          <Note tone="fail">{previewError}</Note>
         {/if}
+      </div>
+    </SectionCard>
+
+    <SectionCard title={t("settings.downloadSection")} icon={DownloadIcon}>
+      <div class="flex flex-col gap-4">
+        <div class="grid gap-4 sm:grid-cols-2">
+          <Field
+            label={t("settings.maxTasks")}
+            for="setting-max-tasks"
+            hint={t("settings.maxTasksHint")}
+          >
+            <Input
+              id="setting-max-tasks"
+              type="number"
+              min="1"
+              class="tabular w-32"
+              bind:value={maxTasks}
+            />
+          </Field>
+
+          <Field
+            label={t("settings.previewCache")}
+            for="setting-preview-cache"
+            hint={t("settings.previewCacheHint")}
+          >
+            <Input
+              id="setting-preview-cache"
+              type="number"
+              min="64"
+              class="tabular w-32"
+              bind:value={cacheMb}
+            />
+          </Field>
+        </div>
+
+        <!-- 占用与上限同屏：改完上限保存即刷新上面那行数字，「清理缓存」只删缓存目录 -->
+        <div
+          class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border pt-4"
+        >
+          <div class="min-w-0">
+            <p class="text-body font-medium">{t("settings.cacheUsage")}</p>
+            <p class="min-w-0 text-caption text-muted-foreground">
+              {cacheDetail ?? t("common.loading")}
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={clearing || cacheStats === null || cacheStats.total_bytes === 0}
+              onclick={() => void clearCache()}
+            >
+              {clearing ? t("settings.cacheClearing") : t("settings.cacheClear")}
+            </Button>
+            {#if cacheNote}
+              <Note tone={cacheNote.tone}>{cacheNote.text}</Note>
+            {/if}
+          </div>
+        </div>
+
+        <p class="text-caption text-muted-foreground">{t("settings.restartHint")}</p>
       </div>
     </SectionCard>
   </div>
@@ -1142,27 +1098,14 @@
           for="setting-bot-token"
           hint={t("settings.botTokenHint")}
         >
-          <div class="flex items-center gap-2">
-            <Input
-              id="setting-bot-token"
-              class="min-w-0 flex-1"
-              autocomplete="off"
-              placeholder={t("settings.botTokenPlaceholder")}
-              bind:value={botToken}
-            />
-            <Button
-              size="lg"
-              disabled={savingBot || botToken.trim() === ""}
-              onclick={() => void saveBot()}
-            >
-              {savingBot ? t("settings.botSaving") : t("settings.botSave")}
-            </Button>
-          </div>
+          <Input
+            id="setting-bot-token"
+            class="min-w-0 flex-1"
+            autocomplete="off"
+            placeholder={t("settings.botTokenPlaceholder")}
+            bind:value={botToken}
+          />
         </Field>
-
-        {#if botNote}
-          <Note tone={botNote.tone}>{botNote.text}</Note>
-        {/if}
       </div>
     </SectionCard>
 
@@ -1232,15 +1175,58 @@
             </Field>
           </div>
         {/if}
+      </div>
+    </SectionCard>
 
-        <div class="flex items-center gap-3">
-          <Button size="lg" disabled={savingProxy} onclick={() => void saveProxy()}>
-            {savingProxy ? t("settings.proxySaving") : t("settings.proxySave")}
-          </Button>
+    <SectionCard
+      title={t("settings.interfaceSection")}
+      hint={t("settings.interfaceHint")}
+      icon={PaletteIcon}
+    >
+      <div class="flex flex-col gap-4">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <Field label={t("settings.language")} for="setting-language">
+            <Select type="single" value={i18n.locale} items={LOCALES} onValueChange={changeLocale}>
+              <SelectTrigger id="setting-language" class="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {#each LOCALES as locale (locale.value)}
+                  <SelectItem value={locale.value}>{locale.label}</SelectItem>
+                {/each}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field label={t("settings.theme")} for="setting-appearance">
+            <Select
+              type="single"
+              value={theme.preference}
+              items={appearanceItems}
+              onValueChange={changeAppearance}
+            >
+              <SelectTrigger id="setting-appearance" class="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {#each THEME_OPTIONS as option (option.value)}
+                  <SelectItem value={option.value}>{t(option.label)}</SelectItem>
+                {/each}
+              </SelectContent>
+            </Select>
+          </Field>
         </div>
 
-        {#if proxyNote}
-          <Note tone={proxyNote.tone}>{proxyNote.text}</Note>
+        {#if session.web?.required}
+          <div class="flex items-center justify-between gap-3 border-t border-border pt-4">
+            <div class="min-w-0">
+              <p class="text-body font-medium">{t("settings.webLogout")}</p>
+              <p class="text-caption text-muted-foreground">{t("settings.webLogoutHint")}</p>
+            </div>
+            <Button variant="outline" size="sm" onclick={() => void session.webLogout()}>
+              {t("settings.webLogout")}
+            </Button>
+          </div>
         {/if}
       </div>
     </SectionCard>
