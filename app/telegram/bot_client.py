@@ -39,7 +39,7 @@ from app.utils.linkparse import parse_link
 
 logger = logging.getLogger(__name__)
 
-SESSION_NAME = "musicdown-bot"  # 会话文件名（sessions/musicdown-bot.session）
+SESSION_NAME = "musicdown-bot"  # 会话文件名（data/sessions/musicdown-bot.session）
 
 
 class BotClient:

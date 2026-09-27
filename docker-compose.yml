@@ -16,15 +16,15 @@ services:
       - TGM_WEB_PORT=8787
       - TGM_BASE_DIR=/data
       # 部署路径（FR-CFG-02）：绝对路径，与下方 volumes 一致
-      - TGM_SAVE_DIRECTORY=/data/downloads
-      - TGM_SESSION_DIRECTORY=/data/sessions
-      - TGM_TEMP_DIRECTORY=/data/temp
+      - TGM_SAVE_DIRECTORY=/data/data/downloads
+      - TGM_SESSION_DIRECTORY=/data/data/sessions
+      - TGM_TEMP_DIRECTORY=/data/data/temp
       # - TGM_API_ID=123456
       # - TGM_API_HASH=abcdef
       # - TGM_BOT_TOKEN=123:abc
     volumes:
-      - ./downloads:/data/downloads    # 曲库落盘（save_path）
-      - ./sessions:/data/sessions      # TG 会话文件
-      - ./temp:/data/temp              # 下载中转 + 试听缓存（temp/preview）
-      - ./data:/data/data              # SQLite（app.db）
+      - ./downloads:/data/data/downloads    # 曲库落盘（save_path）
+      - ./sessions:/data/data/sessions      # TG 会话文件
+      - ./temp:/data/data/temp              # 下载中转 + 试听缓存（temp/preview）
+      - ./data:/data/data                   # SQLite（app.db）+ 会话/中转/日志
       # - ./config.yaml:/data/config.yaml  # 可选：持久化密钥文件（需先 touch config.yaml 再 up）

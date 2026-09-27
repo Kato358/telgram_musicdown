@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 MAX_DIALOG_SCAN = 200  # 候选源扫描上限：一次 get_dialogs，不做逐会话额外请求（FR-SRC-05）
 CONNECT_TIMEOUT_SEC = 30  # Kurigram 对连不上的代理会无限重试，故本层给硬超时（FR-AUTH-03）
-SESSION_NAME = "musicdown"  # 会话文件名（sessions/musicdown.session）；登出按此名删除
+SESSION_NAME = "musicdown"  # 会话文件名（data/sessions/musicdown.session）；登出按此名删除
 
 
 

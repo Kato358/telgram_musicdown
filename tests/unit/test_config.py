@@ -17,9 +17,10 @@ def _write_config(base: Path, text: str) -> None:
 def test_defaults_are_relative_to_base_dir(tmp_path: Path) -> None:
     dirs = app_dirs(tmp_path)
     assert dirs["save_path"] == tmp_path / "downloads"
-    assert dirs["sessions"] == tmp_path / "sessions"
-    assert dirs["temp"] == tmp_path / "temp"
-    assert dirs["preview"] == tmp_path / "temp" / "preview"
+    assert dirs["sessions"] == tmp_path / "data" / "sessions"
+    assert dirs["temp"] == tmp_path / "data" / "temp"
+    assert dirs["preview"] == tmp_path / "data" / "temp" / "preview"
+    assert dirs["logs"] == tmp_path / "data" / "logs"
     assert all(d.is_dir() for d in dirs.values())
 
 
@@ -28,7 +29,7 @@ def test_config_file_relative_values_create_under_base(tmp_path: Path) -> None:
     dirs = app_dirs(tmp_path)
     assert dirs["save_path"] == tmp_path / "downloads"
     assert dirs["sessions"] == tmp_path / "tg"
-    assert dirs["temp"] == tmp_path / "temp"  # 未配置项保持默认
+    assert dirs["temp"] == tmp_path / "data" / "temp"  # 未配置项保持默认
     assert (tmp_path / "downloads").is_dir()
 
 

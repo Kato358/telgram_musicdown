@@ -11,11 +11,8 @@ dist/
 
 config.yaml
 .env
-sessions/
 data/
-temp/
 downloads/
-logs/
 library/
 .testenv
 

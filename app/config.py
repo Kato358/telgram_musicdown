@@ -159,8 +159,8 @@ class PathConfig:
     """部署路径布局（FR-CFG-02）；相对值以 TGM_BASE_DIR 为基准，绝对路径原样使用。"""
 
     save_directory: str = "downloads"
-    session_directory: str = "sessions"
-    temp_directory: str = "temp"
+    session_directory: str = "data/sessions"
+    temp_directory: str = "data/temp"
 
 
 def load_path_config(base_dir: Path) -> PathConfig:
@@ -194,9 +194,9 @@ def resolve_dir(value: str, root: Path) -> Path:
 def app_dirs(base_dir: Path | None = None, paths: PathConfig | None = None) -> dict[str, Path]:
     """FR-CFG-02 路径布局；目录按需创建。
 
-    save/session/temp 三目录可由 config.yaml 或同名 TGM_* env 覆盖为绝对路径
-    （如 /data/downloads、/data/sessions、/data/temp）；preview 跟随 temp，
-    data/logs 固定相对 base_dir。
+    save 可由 config.yaml 或 TGM_SAVE_DIRECTORY 覆盖为绝对路径（如 /data/downloads）；
+    sessions/temp/logs 默认收在 data/ 下（data/sessions、data/temp、data/logs），
+    sessions/temp 也可由 config.yaml 或同名 TGM_* env 覆盖为绝对路径；preview 跟随 temp。
     """
     root = base_dir or Path.cwd()
     cfg = paths or load_path_config(root)
@@ -208,7 +208,7 @@ def app_dirs(base_dir: Path | None = None, paths: PathConfig | None = None) -> d
         "preview": temp / "preview",
         "sessions": resolve_dir(cfg.session_directory, root),
         "data": root / "data",
-        "logs": root / "logs",
+        "logs": root / "data" / "logs",
     }
     for d in dirs.values():
         d.mkdir(parents=True, exist_ok=True)

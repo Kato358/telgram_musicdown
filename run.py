@@ -12,7 +12,7 @@
 环境变量（可选，均可被外部覆盖）：
     TGM_WEB_HOST  默认 127.0.0.1（本机免密；改 0.0.0.0 必须设 TGM_WEB_LOGIN_SECRET）
     TGM_WEB_PORT  默认 8787
-    TGM_BASE_DIR  默认脚本所在目录（数据布局：downloads/ sessions/ data/ logs/ temp/；
+    TGM_BASE_DIR  默认脚本所在目录（数据布局：downloads/ data/sessions/ data/logs/ data/temp/；
                   可用 config.yaml 的 save/session/temp_directory 或同名 TGM_* env 改为绝对路径）
 
 与 Linux/Docker 的 run.sh 对应；Docker 部署见 docker-compose.yml。

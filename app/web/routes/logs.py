@@ -93,7 +93,7 @@ def resolve_log_file(logs_dir: Path, name: str) -> Path:
 
 def register(app: FastAPI, ctx: RouteContext) -> None:
     """注册日志路由。"""
-    logs_dir = ctx.base_dir / "logs"
+    logs_dir = ctx.base_dir / "data" / "logs"
 
     @app.get("/api/logs")
     async def logs_ep(

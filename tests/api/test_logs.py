@@ -59,8 +59,8 @@ def client(tmp_path: Path) -> TestClient:
         web_host="127.0.0.1",
         web_login_secret="",
     )
-    logs_dir = tmp_path / "logs"
-    logs_dir.mkdir(exist_ok=True)
+    logs_dir = tmp_path / "data" / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
     (logs_dir / "app.log").write_text(SAMPLE, encoding="utf-8")
     (logs_dir / "app.log.1").write_text(
         "2026-09-25 11:00:00,000 INFO app old line\n", encoding="utf-8"
@@ -111,7 +111,6 @@ def test_logs_clear_truncates_current_file_only(client: TestClient) -> None:
 
 def test_log_tail_window_reports_truncation(client: TestClient, tmp_path: Path) -> None:
     # 窗口截掉文件开头时如实标记，前端据此提示「更早日志请下载」
-    logs_dir = tmp_path / "logs"
-    (logs_dir / "app.log").write_text(SAMPLE, encoding="utf-8")
+    (tmp_path / "data" / "logs" / "app.log").write_text(SAMPLE, encoding="utf-8")
     r = client.get("/api/logs", params={"window": 48})
     assert r.json()["truncated"] is True
