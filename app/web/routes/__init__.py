@@ -12,6 +12,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -89,6 +90,13 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
         static_dir=static_dir,
     )
     app = FastAPI(title="telegram-musicdown")
+
+    # 前端产物是原文发给浏览器的：StaticFiles 自己不压缩，部署里也没有反代，
+    # 于是首屏 616 kB JS + 82 kB CSS 一个字节不少地过网（gzip 后约 189 kB/15 kB）。
+    # 这里统一压：JS/CSS/字体/JSON 都吃得到，且 starlette 的 GZipMiddleware 默认把
+    # text/event-stream 排除在外（DEFAULT_EXCLUDED_CONTENT_TYPES），/api/events 的
+    # 实时流不会被缓存住。已自带 content-encoding 的响应也会跳过，不会压第二遍。
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
