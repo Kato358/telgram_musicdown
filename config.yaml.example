@@ -1,0 +1,39 @@
+# telegram-musicdown config.yaml 示例（FR-CFG-01）
+#
+# 复制为 config.yaml 后填写；本文件仅作模板，不含真实密钥（NFR-02）。
+# 同名 TGM_* 环境变量优先级高于本文件（如 TGM_API_ID）。
+
+# ── Telegram 密钥（必填）──────────────────────────────────────
+# https://my.telegram.org 申请；bot_token 来自 @BotFather（可选，留空则仅用户登录）。
+api_id: 123456
+api_hash: 0123456789abcdef0123456789abcdef
+bot_token: "123456789:AAExampleBotTokenReplaceMe"
+
+# ── ChKSz 在线音源（可选）─────────────────────────────────────
+# 不填走官方默认地址；自建部署改 base_url。
+chksz_api_key: ""
+chksz_base_url: https://api.chksz.com
+
+# ── Web 控制台（可选）─────────────────────────────────────────
+web_host: 127.0.0.1
+web_port: 8787
+# 登录口令；非 127.0.0.1 绑定且未设口令时仍会强制登录。
+web_login_secret: ""
+# false = 显式关闭登录（含 0.0.0.0 部署），自行承担暴露面。
+web_login_enabled: true
+
+# ── 部署路径（FR-CFG-02，可选）────────────────────────────────
+# 相对值以运行目录（TGM_BASE_DIR）为基准，绝对路径原样使用。
+save_directory: downloads
+session_directory: data/sessions
+temp_directory: data/temp
+
+# ── 代理（FR-AUTH-03，可选）───────────────────────────────────
+# User 与 Bot 共用；scheme 支持 socks5 / http。
+proxy:
+  enable_proxy: true
+  scheme: socks5
+  hostname: 127.0.0.1
+  port: 1080
+  username: null
+  password: null

@@ -3,6 +3,11 @@
 # 首次部署：docker compose up -d 后浏览器打开 http://<host>:8787
 # Web 内完成初始化：api_id / api_hash / bot_token / proxy / 登录 TG（生成会话）。
 # 密钥写入容器内 /data/config.yaml（= TGM_BASE_DIR/config.yaml，未挂卷则随容器重建丢失）。
+#
+# 目录布局（FR-CFG-02，与 app.config.app_dirs 默认一致）：
+#   TGM_BASE_DIR=/data；save=downloads、session=data/sessions、temp=data/temp 相对 /data 解析：
+#   曲库 /data/downloads、会话 /data/data/sessions、中转 /data/data/temp、日志与 SQLite /data/data。
+#   会话/temp/日志默认收在 data/ 下，不再单独挂卷。
 services:
   musicdown:
     build: .
@@ -15,16 +20,17 @@ services:
       - TGM_WEB_HOST=0.0.0.0
       - TGM_WEB_PORT=8787
       - TGM_BASE_DIR=/data
-      # 部署路径（FR-CFG-02）：绝对路径，与下方 volumes 一致
-      - TGM_SAVE_DIRECTORY=/data/data/downloads
-      - TGM_SESSION_DIRECTORY=/data/data/sessions
-      - TGM_TEMP_DIRECTORY=/data/data/temp
+      # 部署路径（FR-CFG-02）：相对值以 TGM_BASE_DIR 为基准，绝对路径原样使用
+      # - TGM_SAVE_DIRECTORY=downloads
+      # - TGM_SESSION_DIRECTORY=data/sessions
+      # - TGM_TEMP_DIRECTORY=data/temp
       # - TGM_API_ID=123456
       # - TGM_API_HASH=abcdef
       # - TGM_BOT_TOKEN=123:abc
     volumes:
-      - ./downloads:/data/data/downloads    # 曲库落盘（save_path）
-      - ./sessions:/data/data/sessions      # TG 会话文件
-      - ./temp:/data/data/temp              # 下载中转 + 试听缓存（temp/preview）
-      - ./data:/data/data                   # SQLite（app.db）+ 会话/中转/日志
-      # - ./config.yaml:/data/config.yaml  # 可选：持久化密钥文件（需先 touch config.yaml 再 up）
+      - ./downloads:/data/downloads              # 曲库落盘（save_path）
+      - ./data:/data/data                        # TG 会话 + 中转/试听缓存 + 日志 + SQLite（app.db）
+      # - ./config.yaml:/data/config.yaml        # 可选：持久化密钥文件（需先 touch config.yaml 再 up）
+      # 绝对路径覆盖示例（config.yaml / env 同名键均可）：
+      # - /mnt/nas/music:/mnt/music
+      # environment: TGM_SAVE_DIRECTORY=/mnt/music
