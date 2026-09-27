@@ -283,6 +283,12 @@ export const zhCN: Dict = {
     adding: "正在校验",
     addHint: "只把源加进来：不做任何拉取，搜索是实时的，入库在你点下载时才发生。",
     enabled: "启用",
+    /** 卡片状态词：启停与失败各一个词，详情挂 title（§8 灯 + 词）。 */
+    stateOn: "已启用",
+    stateOff: "已停用",
+    stateFailed: "保存失败",
+    hintOn: "参与搜索与下载",
+    hintOff: "已停用，不参与搜索",
     remove: "移除源",
     removeTitle: "移除「{title}」？",
     removeBody: "移除后不再搜索该频道。已下载的历史记录保留，除非勾选一并删除。",
@@ -940,6 +946,11 @@ export const en: Dict = {
     addHint:
       "Adding only registers the source: nothing is fetched, search is live, and the library grows when you download.",
     enabled: "Enabled",
+    stateOn: "Enabled",
+    stateOff: "Disabled",
+    stateFailed: "Not saved",
+    hintOn: "Takes part in search and downloads",
+    hintOff: "Off: takes no part in search",
     remove: "Remove source",
     removeTitle: "Remove “{title}”?",
     removeBody:

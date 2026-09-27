@@ -32,10 +32,8 @@
   } from "$lib/components/ui/dialog";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
-  import { Switch } from "$lib/components/ui/switch";
-  import DataTable, { ROW_CLASS, type Column } from "$lib/components/app/DataTable.svelte";
+  import SourceCard from "$lib/components/app/SourceCard.svelte";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
-  import Lamp from "$lib/components/app/Lamp.svelte";
   import Note from "$lib/components/app/Note.svelte";
   import PageHeader from "$lib/components/app/PageHeader.svelte";
   import SectionCard from "$lib/components/app/SectionCard.svelte";
@@ -68,23 +66,15 @@
   /** 统计卡的数字就地从已拉到的源列表里算：同一份事实不为统计再打一次接口。 */
   const enabledCount = $derived(rows.filter((row) => row.enabled).length);
 
-  /** 表头与数据行引用同一份列定义，列宽因此天然对齐（设计规范 §5.4）。 */
-  const columns = $derived<Column[]>([
-    { key: "source", label: t("table.source"), class: "min-w-0 flex-1" },
-    { key: "enabled", label: t("table.enabled"), class: "hidden w-28 shrink-0 sm:flex" },
-    { key: "actions", label: "", class: "flex w-[168px] shrink-0 items-center justify-end gap-2" },
-  ]);
-
-  /** 在线源表：两列，没有「移除源」那一列——平台是内建的，只能启停。 */
-  const onlineColumns = $derived<Column[]>([
-    { key: "source", label: t("table.source"), class: "min-w-0 flex-1" },
-    { key: "enabled", label: t("table.enabled"), class: "flex w-28 shrink-0 items-center gap-2" },
-  ]);
-
   /** 频道句柄：后端存的是不含 @ 的 username。 */
   function handleOf(row: SourceRow): string | null {
     if (!row.username) return null;
     return row.username.startsWith("@") ? row.username : `@${row.username}`;
+  }
+
+  /** 标题悬停的完整身份：卡面只有 160px，长名与 chat id 收进提示里。 */
+  function identityOf(row: SourceRow): string {
+    return [row.title, handleOf(row), row.telegram_chat_id].filter(Boolean).join(" · ");
   }
 
   function setNote(id: number, tone: Tone, text: string) {
@@ -286,47 +276,25 @@
           <EmptyState title={t("sources.empty")} />
         {/if}
       {:else}
-        <DataTable {columns}>
+        <ul
+          class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] items-start gap-2.5 max-[640px]:grid-cols-1"
+        >
           {#each rows as row (row.id)}
-            {@const handle = handleOf(row)}
-            {@const note = notes[row.id] ?? null}
-            <li class="{ROW_CLASS} hover:bg-rule">
-              <div class="flex min-w-0 flex-1 items-center gap-3">
-                <Lamp tone={row.enabled ? "done" : "idle"} />
-
-                <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <p class="truncate text-body font-medium">{row.title}</p>
-                  <p class="truncate text-code text-muted-foreground">
-                    {handle ? `${handle} | ${row.telegram_chat_id}` : row.telegram_chat_id}
-                  </p>
-                  {#if note}
-                    <Note tone={note.tone} class="mt-1">{note.text}</Note>
-                  {/if}
-                </div>
-              </div>
-
-              {#key switchEpoch}
-                <div class="hidden w-28 shrink-0 items-center gap-2 sm:flex">
-                  <Label for={`source-enabled-${row.id}`} class="text-caption text-muted-foreground">
-                    {t("sources.enabled")}
-                  </Label>
-                  <Switch
-                    id={`source-enabled-${row.id}`}
-                    checked={row.enabled}
-                    aria-label={t("sources.enabled")}
-                    onCheckedChange={(checked) => void patch(row, { enabled: checked })}
-                  />
-                </div>
-              {/key}
-
-              <div class="flex w-[168px] shrink-0 items-center justify-end gap-2">
-                <Button variant="destructive" size="xs" onclick={() => openRemove(row)}>
-                  {t("sources.remove")}
-                </Button>
-              </div>
-            </li>
+            <SourceCard
+              switchId={`source-enabled-${row.id}`}
+              title={row.title}
+              meta={handleOf(row) ?? String(row.telegram_chat_id)}
+              mono
+              tooltip={identityOf(row)}
+              enabled={row.enabled}
+              error={notes[row.id]?.text ?? null}
+              removable
+              epoch={switchEpoch}
+              onToggle={(checked) => void patch(row, { enabled: checked })}
+              onRemove={() => openRemove(row)}
+            />
           {/each}
-        </DataTable>
+        </ul>
       {/if}
     </div>
   </SectionCard>
@@ -354,38 +322,22 @@
     {/if}
 
     {#if online}
-      <DataTable columns={onlineColumns}>
+      <ul
+        class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] items-start gap-2.5 max-[640px]:grid-cols-1"
+      >
         {#each online.providers as row (row.id)}
-          {@const note = notes[row.id] ?? null}
-          <li class="{ROW_CLASS} hover:bg-rule">
-            <div class="flex min-w-0 flex-1 items-center gap-3">
-              <Lamp tone={row.enabled ? "done" : "idle"} />
-
-              <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                <p class="truncate text-body font-medium">{row.title}</p>
-                <p class="truncate text-code text-muted-foreground">{t("sources.onlineBy")}</p>
-                {#if note}
-                  <Note tone={note.tone} class="mt-1">{note.text}</Note>
-                {/if}
-              </div>
-            </div>
-
-            {#key switchEpoch}
-              <div class="flex w-28 shrink-0 items-center gap-2">
-                <Label for={`online-enabled-${row.id}`} class="text-caption text-muted-foreground">
-                  {t("sources.enabled")}
-                </Label>
-                <Switch
-                  id={`online-enabled-${row.id}`}
-                  checked={row.enabled}
-                  aria-label={t("sources.enabled")}
-                  onCheckedChange={(checked) => void patchOnline(row, checked)}
-                />
-              </div>
-            {/key}
-          </li>
+          <!-- 在线平台是内建的：只启停，没有 × -->
+          <SourceCard
+            switchId={`online-enabled-${row.provider}`}
+            title={row.title}
+            meta={t("sources.onlineBy")}
+            enabled={row.enabled}
+            error={notes[row.id]?.text ?? null}
+            epoch={switchEpoch}
+            onToggle={(checked) => void patchOnline(row, checked)}
+          />
         {/each}
-      </DataTable>
+      </ul>
     {:else if !onlineError}
       <p class="text-caption text-muted-foreground">{t("common.loading")}</p>
     {/if}
