@@ -15,7 +15,7 @@
   import MusicIcon from "@lucide/svelte/icons/music";
   import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
   import { api, errorText } from "$lib/api/client";
-  import { fetchAllLocalTracks, fetchLocalPage, LIBRARY_PAGE_SIZE } from "$lib/api/library";
+  import { fetchAllLocalTracks, fetchLocalPage, LIBRARY_PAGE_SIZE, trackIdOfLocal } from "$lib/api/library";
   import type { LocalLibraryResponse, LocalTrackRow } from "$lib/api/types";
   import { formatBitrate, formatSize } from "$lib/format";
   import { t } from "$lib/i18n/index.svelte";
@@ -249,7 +249,7 @@
     error = "";
     try {
       const tracks = await fetchAllLocalTracks(activeFilter);
-      const index = tracks.findIndex((track) => track.id === `local-${row.id}`);
+      const index = tracks.findIndex((track) => track.id === trackIdOfLocal(row));
       if (index >= 0) player.play(tracks, index);
     } catch (err) {
       error = errorText(err, t("common.error"));
@@ -404,7 +404,7 @@
       </li>
     {:else}
       {#each items as row (row.id)}
-        {@const playing = player.current?.id === `local-${row.id}`}
+        {@const playing = player.isPlaying(trackIdOfLocal(row))}
         <LibraryRow
           {columns}
           {row}

@@ -76,10 +76,21 @@ export function fetchLocalPage(
   return api.get<LocalLibraryResponse>(`/api/local-library?${localQuery(filter, limit, offset)}`);
 }
 
+/** 一首歌的播放标识：同一份文件在下载页是一条 history 记录、在曲库页是一条 local_tracks 行，
+ *  两页的 id 空间不同（`12` vs `local-3`）。播放器只认一个 key，`isPlaying(id)` 要跨页面
+ *  认出「正在响的就是这首」，所以按「这份文件是哪次下载落下来的」统一挂到 history id 上。
+ *
+ *  前提是那条记录还在（记录被删时外键 `ON DELETE SET NULL` 会把 history_id 清空，重扫也会把
+ *  同一路径重新挂回新记录）。记录不在时退回 `local-<id>`：下载页里已经没有它，退回去
+ *  不会和任何行撞车——那时这首歌只在这一个页面里存在。 */
+export function trackIdOfLocal(row: LocalTrackRow): string {
+  return row.history_id === null ? `local-${row.id}` : String(row.history_id);
+}
+
 /** 曲库行 → 播放器 Track：流与封面都走曲库行自己的端点（封面 = 内嵌 > api 兜底）。 */
 export function localRowToTrack(row: LocalTrackRow): Track {
   return {
-    id: `local-${row.id}`,
+    id: trackIdOfLocal(row),
     title: row.title ?? row.file_name,
     artist: row.artist,
     streamUrl: `/api/local-library/${row.id}/stream`,

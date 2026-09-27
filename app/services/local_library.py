@@ -84,6 +84,9 @@ class LocalLibraryService:
         if not self.save_path.is_dir():
             return {"added": 0, "updated": 0, "missing": 0, "total": 0}
         db_rows = self.store.local_track_paths()
+        # save_path → history id：台账行挂回下载记录。链接只认这一份快照（_read_track 不再
+        # 回头捡行上的旧值）：文件没变、记录换了（记录删掉后又下了同一首）也要刷新到新记录——
+        # 前端按 history id 认「正在播的同一首歌」（下载页一行 = 一条 history）。
         history_ids = {
             os.path.normcase(path): track_id
             for path, track_id in self.store.history_paths_by_id().items()
@@ -94,11 +97,18 @@ class LocalLibraryService:
             rel = absolute.relative_to(self.save_path).as_posix()
             seen.add(rel)
             row = db_rows.get(rel)
-            if row is not None and row.mtime == stat.st_mtime and row.file_size == stat.st_size:
+            # 这份文件现在属于哪次下载：本次扫描的 history 快照说了算（见下方注释）
+            linked = history_ids.get(os.path.normcase(str(absolute)))
+            if (
+                row is not None
+                and row.mtime == stat.st_mtime
+                and row.file_size == stat.st_size
+                and row.history_id == linked
+            ):
                 if row.missing == 1 and row.id is not None:
                     revived.append(row.id)  # 删过的文件又回来了
-                continue  # 没变：台账照旧，标签不重读
-            track = self._read_track(absolute, rel, stat, row, history_ids)
+                continue  # 文件与链接都没变：台账照旧，标签不重读
+            track = self._read_track(absolute, rel, stat, row, linked)
             self.store.upsert_local_track(track)
             if row is None:
                 added += 1
@@ -141,9 +151,13 @@ class LocalLibraryService:
         rel: str,
         stat: os.stat_result,
         row: LocalTrack | None,
-        history_ids: dict[str, int],
+        history_id: int | None,
     ) -> LocalTrack:
-        """读一个文件的标签与流信息 → 台账行（标签缺值回退文件名/目录名）。"""
+        """读一个文件的标签与流信息 → 台账行（标签缺值回退文件名/目录名）。
+
+        ``history_id`` 由调用方按本次扫描的 history 快照给出：这里不回头捡行上的旧值——
+        链接是「这份文件现在属于哪次下载」，只认当下的事实（文件没变、记录换了也要跟着换）。
+        """
         facts = self.tags.media_facts(absolute)
         title = artist = album = None
         try:
@@ -158,7 +172,6 @@ class LocalLibraryService:
             # 落盘模板默认按歌手建目录：根直下的文件不硬编目录名
             parent = absolute.parent.name
             artist = parent if absolute.parent != self.save_path else None
-        norm = os.path.normcase(str(absolute))
         return LocalTrack(
             id=row.id if row else None,
             rel_path=rel,
@@ -172,6 +185,6 @@ class LocalLibraryService:
             bitrate=facts["bitrate"],
             mtime=stat.st_mtime,
             missing=0,
-            history_id=history_ids.get(norm, row.history_id if row else None),
+            history_id=history_id,
             first_seen_at=row.first_seen_at if row else "",
         )

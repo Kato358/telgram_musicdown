@@ -254,7 +254,7 @@
   >
     {#each search.results as item, index (search.keyOf(item))}
       {@const key = search.keyOf(item)}
-      {@const playing = player.current?.id === key}
+      {@const playing = player.isPlaying(key)}
       <TrackRow
         {columns}
         {index}

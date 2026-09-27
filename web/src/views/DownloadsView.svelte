@@ -565,7 +565,7 @@
       </li>
     {:else}
       {#each rows as row (row.id)}
-        {@const playing = player.current?.id === String(row.id)}
+        {@const playing = player.isPlaying(String(row.id))}
         {@const rowFeedback = flash && flash.id === row.id ? flash : null}
         <DownloadRow
           {columns}

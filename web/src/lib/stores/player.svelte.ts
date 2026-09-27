@@ -28,8 +28,10 @@ export interface Track {
 const THEME_COLOR = { light: "#0b7a55", dark: "#4fb08a" } as const;
 
 class Player {
-  /** 正在响的那首 Track.id：行高亮据此判断自己是不是当前行。 */
+  /** 播放器当前挂着的那首 Track.id：暂停后仍然指着它（播放条还要显示它）。
+   *  单看这个字段判断不出「正在响」——那是 playing 的事，行件一律走 isPlaying。 */
   currentId = $state<string | null>(null);
+  /** 音频元素此刻在响（`play` / `pause` / `ended` / `error` 事件的事实，不乐观置位）。 */
   playing = $state(false);
 
   #ap: APlayer | null = null;
@@ -39,13 +41,18 @@ class Player {
   #generation = 0;
   /** 分块没到位时收到的播放意图，实例建好后补播。 */
   #queued: { tracks: Track[]; index: number } | null = null;
-  /** 当前列表的上下文：APlayer 的列表只存 url/name，行高亮还得靠 id 对回 Track。 */
+  /** 当前列表的上下文：APlayer 的列表只存 url/name，行的 id 得靠下标对回 Track
+   *  （listswitch 换算 currentId、点播时找目标下标、判断上下文是否同一份）。 */
   #tracks: Track[] = [];
   /** 盯 APlayer 歌词容器的空/非空：没有歌词时把面板整个收掉（见 mount）。 */
   #lrcObserver: MutationObserver | null = null;
 
-  get current(): Track | null {
-    return this.#tracks.find((track) => track.id === this.currentId) ?? null;
+  /** 这一行此刻是不是**正在响**：行高亮与播放键图标/词共用这一条判据。
+   *
+   *  只看 currentId 是不够的：暂停、播完、播放失败之后它仍然指着刚才那首，
+   *  行件会一直画成「播放中」，与音频的真实状态对不上。 */
+  isPlaying(id: string): boolean {
+    return this.playing && this.currentId === id;
   }
 
   /** PlayerHost 挂载时创建实例；外壳常驻，一次就够。
@@ -94,6 +101,8 @@ class Player {
     });
     this.#ap = ap;
 
+    // playing 只在这里被写：四个事件都是音频元素的事实（APlayer 的 audioEvents 直接转发
+    // DOM 事件），所以行件的「播放中」画的是真在响，不是「点过播放」。
     ap.on("play", () => (this.playing = true));
     ap.on("pause", () => (this.playing = false));
     // loop=all 时下一首的 play 事件会接上，这里只是循环关尽的兜底
@@ -146,11 +155,11 @@ class Player {
     this.playing = false;
   }
 
-  /** 播放入口：行内播放键 / 试听 / 播放所选都汇到这一个方法。
+  /** 播放入口：行内播放键 / 播放所选都汇到这一个方法。
    *
-   * - 上下文（列表）换了就整列重建；
-   * - 点的是当前正在响的那首：按钮此刻就是「暂停」，只暂停，不从头重放；
-   * - 其余一律从这首的开头播。
+   * - 点的是当前这一首（同一个 id = 同一份文件，下载页与曲库页共用它）：只是暂停 / 续播——
+   *   不重建列表、不 seek(0)。进度是同一份，重建列表只会把同一个文件从头再拉一遍；
+   * - 换了别的轨：上下文（列表）换了就整列重建，然后从这首的开头播。
    */
   play(tracks: Track[], index: number) {
     const track = tracks[index];
@@ -164,8 +173,9 @@ class Player {
       return;
     }
 
-    if (track.id === this.currentId && this.playing) {
-      ap.pause();
+    if (track.id === this.currentId) {
+      if (this.playing) ap.pause();
+      else ap.play(); // 续播：不 seek、不换 src（此刻元素里就是这份文件）
       return;
     }
 
@@ -182,7 +192,9 @@ class Player {
     }
     ap.play();
     this.currentId = track.id;
-    this.playing = true;
+    // 这里不动 playing：状态只由音频元素的事件置位（见 mount 的事件桥）。
+    // 乐观置位过的话，浏览器拒绝播放（NotAllowedError，APlayer 自己吞掉只改它自己的按键）
+    // 或流打不开时，行键会先画成「暂停」——那正是「按键状态与实际播放不一致」的另一半。
   }
 
   /** 页面卸载（pagehide）时调用：先把在播的音频停住。

@@ -139,6 +139,58 @@ def test_scan_links_history_row(tmp_path: Path) -> None:
     assert row.history_id == history_id
 
 
+def test_history_link_follows_the_current_record(tmp_path: Path) -> None:
+    # 链接是「这份文件现在属于哪次下载」，重扫负责把它对齐到当下的事实：
+    # 记录被删（外键 SET NULL）后不能留在行上；同一路径重新下载后（文件一个字节没变、
+    # 重扫因此跳过它）也必须重新挂回新记录——前端按 history id 认「正在播的同一首歌」。
+    store = Store(tmp_path / "app.db")
+    sunny = make_tagged_mp3(tmp_path, "周杰伦/晴天.mp3", "晴天", "周杰伦")
+    seven = make_tagged_mp3(tmp_path, "周杰伦/七里香.mp3", "七里香", "周杰伦")
+
+    def add_history(target: Path, message_id: int) -> int:
+        return store.upsert_history(
+            History(
+                id=None,
+                chat_id=-1009,
+                message_id=message_id,
+                title=target.stem,
+                save_path=str(target),
+                status="success",
+            )
+        )
+
+    sunny_id = add_history(sunny, 42)
+    seven_id = add_history(seven, 43)
+    svc = make_service(tmp_path, store)
+    svc.scan_sync()
+    assert {row.rel_path: row.history_id for row in store.list_local_tracks()} == {
+        "周杰伦/晴天.mp3": sunny_id,
+        "周杰伦/七里香.mp3": seven_id,
+    }
+
+    # 删掉七里香那条记录（表里 id 最大的一条，下一个下载会拿到同一个 id）
+    assert store.delete_history(seven_id)
+    svc.scan_sync()
+    links = {row.rel_path: row.history_id for row in store.list_local_tracks()}
+    assert links["周杰伦/七里香.mp3"] is None, "记录没了，链接不能留在行上"
+    assert links["周杰伦/晴天.mp3"] == sunny_id
+
+    # 新下的一首拿到复用的 id：七里香不能因此挂到别人的记录上
+    other = make_tagged_mp3(tmp_path, "周深/大鱼.mp3", "大鱼", "周深")
+    assert add_history(other, 44) == seven_id
+    svc.scan_sync()
+    links = {row.rel_path: row.history_id for row in store.list_local_tracks()}
+    assert links["周杰伦/七里香.mp3"] is None
+    assert links["周深/大鱼.mp3"] == seven_id
+
+    # 七里香重新下载（同一条路径）：链接跟着走回新记录
+    again = add_history(seven, 45)
+    svc.scan_sync()
+    links = {row.rel_path: row.history_id for row in store.list_local_tracks()}
+    assert links["周杰伦/七里香.mp3"] == again
+    assert again != seven_id
+
+
 async def test_rescan_publishes_event(tmp_path: Path) -> None:
     store = Store(tmp_path / "app.db")
     make_tagged_mp3(tmp_path, "周杰伦/晴天.mp3", "晴天", "周杰伦")
