@@ -11,7 +11,9 @@ from app.appsettings import (
     DEFAULT_FILE_TEMPLATE,
     AppSettings,
     load_app_settings,
+    load_chksz_settings,
     load_template_config,
+    save_chksz_providers,
 )
 from app.container import Overrides, build_container
 from app.db.models import Source, Task
@@ -154,3 +156,63 @@ async def test_container_registry_searches_with_injected_client(tmp_path: Path) 
         assert fake.download_calls == 0  # 搜索不该走下载客户端
     finally:
         container.close()
+
+
+def test_chksz_providers_default_off_and_saved_in_canonical_order(tmp_path: Path) -> None:
+    """逐平台开关（SDD §2.7）：空表 = 全关；落库顺序恒定、认不出的键丢掉。
+
+    顺序恒定不是洁癖：界面按它摆行、搜索按它扇出，而「同一组平台两次写入产出同一个
+    字符串」才让 settings 表可比对、让文档里的样例作数。
+    """
+    store = Store(tmp_path / "app.db")
+
+    assert load_chksz_settings(store).providers == ()
+    assert load_chksz_settings(store).enabled is False
+
+    saved = save_chksz_providers(store, ["kugo", "163", "not-a-provider"])
+
+    assert saved == ("163", "kugo")
+    assert load_chksz_settings(store).providers == ("163", "kugo")
+    assert load_chksz_settings(store).enabled is True
+
+
+def _legacy_db_with_master_switch(path: Path, value: str | None) -> None:
+    """造一个 v6 的库：只有 settings 与 schema_version（migration 007 只碰这两张表）。"""
+    import sqlite3  # noqa: PLC0415  只有这个用例需要手搓老库
+
+    conn = sqlite3.connect(path)
+    try:
+        conn.executescript(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);"
+            "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);"
+            "INSERT INTO schema_version (version) VALUES (6);"
+        )
+        if value is not None:
+            conn.execute("INSERT INTO settings (key, value) VALUES ('chksz_enabled', ?)", (value,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(
+    ("legacy", "expected"),
+    [("true", "163,qq,kugo"), ("on", "163,qq,kugo"), ("false", ""), (None, "")],
+)
+def test_migration_007_moves_old_master_switch_into_providers(
+    tmp_path: Path, legacy: str | None, expected: str
+) -> None:
+    """老库打开后：旧的布尔总开关迁进 ``chksz_providers`` 并删掉（migration 007）。
+
+    迁移前那个布尔是唯一事实，迁移后逐平台开关是唯一事实；两条路都不能丢用户已经做过的
+    选择——开着就三个平台全开，关着或从未写过就全关。认法沿用旧 ``_bool_setting``。
+    """
+    db = tmp_path / f"legacy-{legacy}.db"
+    _legacy_db_with_master_switch(db, legacy)
+
+    store = Store(db)
+    try:
+        values = store.all_settings()
+        assert values["chksz_providers"] == expected
+        assert "chksz_enabled" not in values
+    finally:
+        store.close()

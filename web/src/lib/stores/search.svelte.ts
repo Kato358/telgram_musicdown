@@ -101,6 +101,19 @@ class SearchStore {
     return this.sources.filter((source) => !source.online);
   }
 
+  /** 本轮搜索的 `source_ids`。
+   *
+   *  逐源模式原样回勾选（空 = 不限制）；全账号模式下**频道 scope 不参与筛选，只认在线源**——
+   *  频道不在全账号链路里，把它们的 scope 发上去只会把全局结果整片筛没，留下勾了却搜不到的假象。
+   *  只留在线源后为空 = 不限制（后端照旧追加扇出在线平台）。
+   */
+  get activeSourceIds(): number[] | undefined {
+    const ids = session.globalSearch
+      ? this.selected.filter((id) => this.onlineSources.some((source) => source.id === id))
+      : this.selected;
+    return ids.length > 0 ? ids : undefined;
+  }
+
   isOnline(item: SearchResult): boolean {
     return item.provider !== "telegram";
   }
@@ -131,18 +144,12 @@ class SearchStore {
   async runSearch() {
     const keyword = this.query.trim();
     if (!keyword) return;
-    // 全账号模式绕开音乐源：先入为主的源勾选不能把全局结果缩成某几个对话。
-    if (session.globalSearch) this.selected = [];
     this.searching = true;
     this.error = "";
     try {
       const resp = await api.post<SearchResponse>("/api/search", {
         q: keyword,
-        source_ids: session.globalSearch
-          ? undefined
-          : this.selected.length > 0
-            ? this.selected
-            : undefined,
+        source_ids: this.activeSourceIds,
         sort: this.sort,
         page: 0,
       });
@@ -175,11 +182,7 @@ class SearchStore {
       const next = this.page + 1;
       const resp = await api.post<SearchResponse>("/api/search", {
         q: keyword,
-        source_ids: session.globalSearch
-          ? undefined
-          : this.selected.length > 0
-            ? this.selected
-            : undefined,
+        source_ids: this.activeSourceIds,
         sort: this.sort,
         page: next,
       });

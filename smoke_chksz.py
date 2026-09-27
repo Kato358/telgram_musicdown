@@ -75,7 +75,7 @@ async def probe_download(client: ChkszClient) -> int:
     store = Store(base / "app.db")
     tg = _NoTelegram()
     registry = SourceRegistry(store, tg, tg, chksz_client=client)  # type: ignore[arg-type]
-    registry.apply_chksz(True, TIER)
+    registry.apply_chksz(tuple(PROVIDER_SCOPES), TIER)
     service = DownloadService(
         store,
         tg,  # type: ignore[arg-type]

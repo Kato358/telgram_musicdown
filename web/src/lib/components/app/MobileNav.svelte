@@ -18,7 +18,6 @@
   import { navigate, NAV_ROUTES, pathOf, router, type RouteKey } from "$lib/router.svelte";
   import { events } from "$lib/stores/events.svelte";
   import { queue } from "$lib/stores/queue.svelte";
-  import { session } from "$lib/stores/session.svelte";
   import Badge from "./Badge.svelte";
 
   const ICONS: Record<RouteKey, Component> = {
@@ -40,9 +39,6 @@
     if (key === "logs") return events.errors.length;
     return 0;
   }
-
-  /** 全账号搜索模式下没有音乐源概念：抽屉导航同步收起「音乐源」一项。 */
-  const nav = $derived(NAV_ROUTES.filter((route) => route.key !== "sources" || !session.globalSearch));
 
   function go(path: string) {
     close();
@@ -92,7 +88,7 @@
     </div>
 
     <div class="flex flex-col gap-0.5">
-      {#each nav as route (route.key)}
+      {#each NAV_ROUTES as route (route.key)}
         {@const active = router.key === route.key}
         {@const Icon = ICONS[route.key]}
         <button

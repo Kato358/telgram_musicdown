@@ -133,7 +133,8 @@ export const zhCN: Dict = {
     title: "搜索",
     lede: "只在已启用音乐源内搜索音频。",
     ledeGlobal: "搜账号加入的全部对话里的音频，不需要音乐源。",
-    globalScope: "全账号搜索：范围是你账号加入的全部对话，可能包含未添加为音乐源的频道。",
+    globalScope:
+      "全账号搜索：范围是你账号加入的全部对话，可能包含未添加为音乐源的频道；已启用的在线源（网易云 / QQ 音乐 / 酷狗）也一并搜。",
     formTitle: "搜索条件",
     formHint: "关键词加搜索范围；回车即搜。",
     placeholder: "关键词，如：周杰伦 晴天",
@@ -141,8 +142,9 @@ export const zhCN: Dict = {
     running: "搜索中",
     filterSources: "搜索范围",
     allSources: "全部启用源",
+    allSourcesGlobal: "全部结果",
     sortLabel: "排序",
-    onlineBadge: "在线",
+    onlineBy: "ChKSz",
     qualityTitle: "选择音质",
     qualityBest: "最高",
     qualityHint: "这首歌未必有这一档；真拿不到时会降级并如实标出实际格式。",
@@ -156,7 +158,8 @@ export const zhCN: Dict = {
     idleHint: "输入关键词回车搜索。结果可直接试听，或加入下载队列。",
     resultsCount: "找到 {n} 首",
     resultsNone: "没找到匹配的曲目。换个关键词，或换一个已启用的音乐源。",
-    resultsNoneGlobal: "没找到匹配的曲目。换个关键词，或确认账号已加入有歌的频道。",
+    resultsNoneGlobal:
+      "没找到匹配的曲目。换个关键词，或确认账号已加入有歌的频道，或到「音乐源」页打开在线音乐源。",
     needSources: "还没有音乐源。",
     needSourcesAction: "去添加源",
     preview: "试听",
@@ -267,6 +270,9 @@ export const zhCN: Dict = {
   sources: {
     title: "音乐源",
     lede: "账号已加入、并允许搜索与下载的频道。",
+    ledeGlobal: "当前是全账号搜索：频道源不在这里，页面只剩在线音乐源（两种模式下都参与搜索）。",
+    tgSection: "TG 音乐源",
+    tgHint: "账号已加入的 Telegram 频道；只在「逐源搜索」模式下参与搜索。",
     empty: "还没有音乐源。粘贴频道链接或 @用户名添加。",
     linkLabel: "频道链接",
     linkPlaceholder: "@channel 或 https://t.me/xxx",
@@ -286,8 +292,16 @@ export const zhCN: Dict = {
     statEnabled: "已启用",
     statEnabledHint: "参与搜索",
     globalModeNotice:
-      "当前是「全账号搜索」模式：搜索不经过音乐源。下面的配置要切回「逐源搜索」才会参与搜索。",
+      "当前是「全账号搜索」模式：频道音乐源不参与搜索，已在这一页收起（配置都保留）。要管理它们请切回逐源搜索。",
     globalModeBack: "去设置切回逐源搜索",
+    onlineSection: "在线音乐源",
+    onlineHint: "搜索会带上这些平台的曲目；逐平台启停，全关就等于不用在线源。",
+    onlineBy: "ChKSz",
+    onlineKeyMissing:
+      "还没配置 ChKSz API Key：开关照样能拨，但要配好 Key 才真的搜得到这些平台。",
+    onlineKeyAction: "去设置配 Key",
+    onlineEnabledList: "已启用：{providers}",
+    onlineNone: "一个都没启用",
   },
 
   settings: {
@@ -304,7 +318,8 @@ export const zhCN: Dict = {
     chkszSection: "在线音乐源",
     chkszHint: "接入 ChKSz 后，搜索里多出网易云 / QQ 音乐 / 酷狗三个平台。",
     chkszEnabled: "启用在线源",
-    chkszEnabledHint: "关掉后搜索只剩已添加的音乐源频道，在线平台不再消耗额度。",
+    chkszEnabledHint:
+      "这是三个平台的批量开关：开 = 网易云 / QQ 音乐 / 酷狗全开，关 = 全部停用。逐平台的开关在「音乐源」页。",
     chkszKey: "ChKSz API Key",
     chkszKeyHint: "在 api.chksz.com 登录后，账户页复制以 chksz_ 开头的 Key。",
     chkszKeySet: "已配置。留空保存不会改动它。",
@@ -778,7 +793,7 @@ export const en: Dict = {
     lede: "Searches audio inside enabled sources only.",
     ledeGlobal: "Searches audio across every chat your account has joined; no sources needed.",
     globalScope:
-      "Global search: the scope is every chat your account has joined, including channels you never added as sources.",
+      "Global search: the scope is every chat your account has joined, including channels you never added as sources; enabled online sources are searched as well.",
     formTitle: "Search criteria",
     formHint: "Keyword and scope; press Enter to search.",
     placeholder: "Keywords, e.g. Jay Chou Qing Tian",
@@ -786,8 +801,9 @@ export const en: Dict = {
     running: "Searching",
     filterSources: "Scope",
     allSources: "All enabled",
+    allSourcesGlobal: "All results",
     sortLabel: "Sort",
-    onlineBadge: "Online",
+    onlineBy: "ChKSz",
     qualityTitle: "Choose quality",
     qualityBest: "Best",
     qualityHint:
@@ -803,29 +819,10 @@ export const en: Dict = {
     resultsCount: "{n} tracks found",
     resultsNone: "No matching tracks. Try another keyword, or enable another source.",
     resultsNoneGlobal:
-      "No matching tracks. Try another keyword, or make sure your account joined channels that post music.",
+      "No matching tracks. Try another keyword, check that your account joined channels that post music, or turn on online sources on the Sources page.",
     needSources: "No sources yet.",
     needSourcesAction: "Add a source",
     preview: "Preview",
-    chkszSection: "Online music sources",
-    chkszHint: "With ChKSz connected, search also covers NetEase, QQ Music and Kugou.",
-    chkszEnabled: "Enable online sources",
-    chkszEnabledHint:
-      "Turn off to search only your added channels; online platforms stop using quota.",
-    chkszKey: "ChKSz API Key",
-    chkszKeyHint:
-      "Sign in at api.chksz.com and copy the key starting with chksz_ from your account page.",
-    chkszKeySet: "Already set. Saving with the field empty leaves it unchanged.",
-    chkszKeySave: "Save key",
-    chkszKeySaved: "API Key saved",
-    chkszDownloadQuality: "Default download quality",
-    chkszDownloadQualityHint: "Per-track download can override this; batch download uses it.",
-    chkszPreviewQuality: "Preview quality",
-    chkszPreviewQualityHint:
-      "Preview is only to confirm the track; no need to pull the highest tier.",
-    chkszGetKey: "The key is write-only and never stored in the database.",
-    chkszOn: "On",
-    chkszOff: "Off",
     buffering: "Buffering",
     download: "Download",
     selectMode: "Select",
@@ -934,6 +931,10 @@ export const en: Dict = {
   sources: {
     title: "Sources",
     lede: "Channels this account joined and can search and download from.",
+    ledeGlobal:
+      "Global search is on: channel sources are not listed here — only online sources, which take part in both modes.",
+    tgSection: "Telegram sources",
+    tgHint: "Telegram channels your account joined; they only take part in per-source search.",
     empty: "No sources yet. Paste a channel link or @username.",
     linkLabel: "Channel link",
     linkPlaceholder: "@channel or https://t.me/xxx",
@@ -954,8 +955,17 @@ export const en: Dict = {
     statEnabled: "Enabled",
     statEnabledHint: "in search scope",
     globalModeNotice:
-      "Global search is on: search does not go through sources. These settings only take effect after switching back to per-source search.",
+      "Global search is on: channel sources do not take part, so that section is hidden here (its config is kept). Switch back to per-source search to manage them.",
     globalModeBack: "Switch back in settings",
+    onlineSection: "Online music sources",
+    onlineHint:
+      "Search also covers these platforms; switch each one on or off — all off means no online sources.",
+    onlineBy: "ChKSz",
+    onlineKeyMissing:
+      "No ChKSz API key yet: the switches still flip, but these platforms only return results once a key is set.",
+    onlineKeyAction: "Set the key",
+    onlineEnabledList: "Enabled: {providers}",
+    onlineNone: "none enabled",
   },
 
   settings: {
@@ -969,6 +979,25 @@ export const en: Dict = {
     dateFormat: "Date format",
     dateFormatHint: "Shapes {date} by default (e.g. %Y-%m). Override per template with {date:%Y-%m-%d}.",
     preview: "Preview",
+    chkszSection: "Online music sources",
+    chkszHint: "With ChKSz connected, search also covers NetEase, QQ Music and Kugou.",
+    chkszEnabled: "Enable online sources",
+    chkszEnabledHint:
+      "This is the batch switch for all platforms: on enables NetEase, QQ Music and Kugou together, off stops all of them. Per-platform switches live on the Sources page.",
+    chkszKey: "ChKSz API Key",
+    chkszKeyHint:
+      "Sign in at api.chksz.com and copy the key starting with chksz_ from your account page.",
+    chkszKeySet: "Already set. Saving with the field empty leaves it unchanged.",
+    chkszKeySave: "Save key",
+    chkszKeySaved: "API Key saved",
+    chkszDownloadQuality: "Default download quality",
+    chkszDownloadQualityHint: "Per-track download can override this; batch download uses it.",
+    chkszPreviewQuality: "Preview quality",
+    chkszPreviewQualityHint:
+      "Preview is only to confirm the track; no need to pull the highest tier.",
+    chkszGetKey: "The key is write-only and never stored in the database.",
+    chkszOn: "On",
+    chkszOff: "Off",
     previewSample: "Sample track: {artist} - {title}",
     templateFieldsTitle: "Template fields",
     templateFieldsHint:

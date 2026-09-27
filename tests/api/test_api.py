@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from app.config import SecretConfig, load_secrets
 from app.db.models import History, Task
 from app.db.store import Store
-from app.domain import TemplateConfig
+from app.domain import PROVIDER_SCOPES, TemplateConfig
 from app.errors import SourceUnreachableError, WebAuthConfigError
 from app.events import Event, EventBus
 from app.services.download import DownloadService
@@ -1221,12 +1221,37 @@ def test_search_sources_endpoint_lists_online_sources_with_negative_scopes(
     client: TestClient,
 ) -> None:
     # 前端把「网易云」当成一颗普通药丸来勾选，scope 就是负号，没有第二套选择器
-    client.app.state.registry.apply_chksz(True, "hires")
+    client.app.state.registry.apply_chksz(tuple(PROVIDER_SCOPES), "hires")
     body = client.get("/api/search/sources").json()
     online = [s for s in body["sources"] if s["online"]]
     assert {s["title"] for s in online} == {"网易云", "QQ 音乐", "酷狗"}
     assert {s["id"] for s in online} == {-1, -2, -3}
     assert {s["provider"] for s in online} == {"163", "qq", "kugo"}
+
+
+def test_online_sources_endpoint_lists_three_platforms_and_toggles(client: TestClient) -> None:
+    # 音乐源页要「看得见、能逐个开关」：没启用的平台也在清单里，否则无从打开它
+    body = client.get("/api/sources/online").json()
+    assert [p["provider"] for p in body["providers"]] == ["163", "qq", "kugo"]
+    assert [p["id"] for p in body["providers"]] == [-1, -2, -3]
+    assert [p["title"] for p in body["providers"]] == ["网易云", "QQ 音乐", "酷狗"]
+    assert all(p["enabled"] is False for p in body["providers"])
+    # 有没有 Key 只回布尔，不回明文（NFR-02）
+    assert body["has_key"] is False
+
+    row = client.put("/api/sources/online/163", json={"enabled": True}).json()
+    assert row["enabled"] is True and row["title"] == "网易云"
+    # 搜索页那份清单是同一套 scope 的另一个视图：启用了才进
+    online = [s for s in client.get("/api/search/sources").json()["sources"] if s["online"]]
+    assert [s["provider"] for s in online] == ["163"]
+
+    assert client.put("/api/sources/online/163", json={"enabled": False}).json()["enabled"] is False
+    assert [s for s in client.get("/api/search/sources").json()["sources"] if s["online"]] == []
+
+
+def test_unknown_online_provider_is_rejected(client: TestClient) -> None:
+    # 平台键是后端的事实（PROVIDER_SCOPES）：前端拼错不该悄悄写进 settings 表
+    assert client.put("/api/sources/online/nope", json={"enabled": True}).status_code == 404
 
 
 def test_download_accepts_online_provider_ref_and_quality(client: TestClient) -> None:
@@ -1256,19 +1281,23 @@ def test_download_accepts_online_provider_ref_and_quality(client: TestClient) ->
 
 
 def test_saving_settings_refreshes_online_source_toggles(client: TestClient) -> None:
-    # 保存即生效（FR-CFG-03）：开关与两档音质不必重启
+    # 保存即生效（FR-CFG-03）：启用平台与两档音质不必重启
     r = client.put(
         "/api/settings",
         json={
             "values": {
-                "chksz_enabled": True,
+                "chksz_providers": "163,qq,kugo",
                 "chksz_download_quality": "master",
                 "chksz_preview_quality": "128k",
             }
         },
     )
     assert r.status_code == 200
-    assert client.app.state.registry._chksz_enabled is True  # noqa: SLF001
+    assert {s.provider for s in client.app.state.registry.online_sources()} == {
+        "163",
+        "qq",
+        "kugo",
+    }
     assert client.app.state.downloads.default_quality == "master"
     assert client.app.state.preview.preview_quality == "128k"
 

@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.appsettings import OnlineSourceKey
+from app.appsettings import OnlineSourceKey, SearchSettings
 from app.chksz.client import ChkszClient, ChkszError
 from app.chksz.quality import ladder, native_value, normalize, tier_of
 from app.chksz.source import ChkszSource
@@ -41,6 +41,10 @@ from tests.fakes import (
     fake_registry,
     make_audio_message,
 )
+
+# 三个平台全开：逐平台开关（settings 的 chksz_providers）之前的写法是 apply_chksz(True, …)，
+# 现在启用集是唯一的开关，测试里显式给全集。
+ALL_PROVIDERS = tuple(PROVIDER_SCOPES)
 
 # 下面几段是 2026-09-27 对 api.chksz.com **实测抓下来的原始响应体**，不是照文档抄的。
 # 文档没写的两处正是这里与文档对不上、代码栽了的地方：
@@ -380,7 +384,7 @@ def add_channel(store: Store, title: str = "Music Channel") -> int:
 def search_over(store: Store, tg: FakeUserClient, chksz: FakeChkszClient) -> SearchService:
     """在线源已启用的搜索服务。"""
     registry = fake_registry(store, tg, chksz)
-    registry.apply_chksz(True, "hires")
+    registry.apply_chksz(ALL_PROVIDERS, "hires")
     return SearchService(store, tg, registry=registry)
 
 
@@ -398,7 +402,7 @@ async def test_online_sources_follow_key_written_after_start(tmp_path: Path) -> 
         UnconnectedTelegramClient(),
         UnconnectedTelegramClient(),
         online_key=lambda: OnlineSourceKey(api_key=holder["key"], base_url="https://chksz.test"),
-        chksz_enabled=True,
+        chksz_providers=ALL_PROVIDERS,
     )
     try:
         assert registry.online_sources() == []
@@ -485,6 +489,67 @@ async def test_bad_key_marks_source_unreachable_not_whole_search(tmp_path: Path)
     assert resp.meta["unreachable"][0]["reason"] == "invalid_key"
 
 
+async def test_only_enabled_platforms_are_listed_and_searched(tmp_path: Path) -> None:
+    """逐平台开关：关掉的平台既不该进清单，也不该白打它的额度（音乐源页能逐个关）。"""
+    store = Store(tmp_path / "app.db")
+    add_channel(store)
+    tg = FakeUserClient([make_audio_message(1, title="晴天")])
+    chksz = FakeChkszClient(rows={"163": ROWS_163, "qq": ROWS_QQ, "kugo": ROWS_KUGO})
+    registry = fake_registry(store, tg, chksz)
+    registry.apply_chksz(("kugo", "163"), "hires")  # 故意倒着给：清单顺序仍是 scope 顺序
+    service = SearchService(store, tg, registry=registry)
+
+    assert [source.provider for source in registry.online_sources()] == ["163", "kugo"]
+
+    resp = await service.search("晴天", page_size=50)
+
+    assert {c.provider for c in resp.results} == {"telegram", "163", "kugo"}
+    assert {call[0] for call in chksz.search_calls} == {"163", "kugo"}
+
+
+async def test_global_mode_also_fans_out_online_sources(tmp_path: Path) -> None:
+    """全账号模式不再「绕过在线源」：searchGlobal 覆盖不到平台，故追加扇出合成一页。"""
+    store = Store(tmp_path / "app.db")
+    tg = FakeUserClient(
+        [],
+        global_messages=[
+            make_audio_message(1, title="晴天", chat_id=-1009, chat_title="频道A"),
+        ],
+    )
+    chksz = FakeChkszClient(rows={"163": ROWS_163, "qq": ROWS_QQ, "kugo": ROWS_KUGO})
+    registry = fake_registry(store, tg, chksz)
+    registry.apply_chksz(ALL_PROVIDERS, "hires")
+    service = SearchService(store, tg, registry=registry, settings=SearchSettings(mode="global"))
+
+    resp = await service.search("晴天", page_size=50)
+
+    assert resp.meta["mode"] == "global"
+    assert tg.global_calls == 1  # Telegram 那一次仍是「一次覆盖全部对话」
+    assert {c.provider for c in resp.results} == {"telegram", "163", "qq", "kugo"}
+    assert {call[0] for call in chksz.search_calls} == {"163", "qq", "kugo"}
+    assert resp.meta["unreachable"] == []
+
+
+async def test_global_mode_online_scope_keeps_only_that_platform(tmp_path: Path) -> None:
+    """全账号模式下勾在线源 = 只看那个平台：频道 scope 不在选中集里，telegram 结果整体让位。"""
+    store = Store(tmp_path / "app.db")
+    tg = FakeUserClient(
+        [],
+        global_messages=[
+            make_audio_message(1, title="晴天", chat_id=-1009, chat_title="频道A"),
+        ],
+    )
+    chksz = FakeChkszClient(rows={"163": ROWS_163, "qq": ROWS_QQ, "kugo": ROWS_KUGO})
+    registry = fake_registry(store, tg, chksz)
+    registry.apply_chksz(ALL_PROVIDERS, "hires")
+    service = SearchService(store, tg, registry=registry, settings=SearchSettings(mode="global"))
+
+    resp = await service.search("晴天", source_ids=[PROVIDER_SCOPES["qq"]], page_size=50)
+
+    assert {c.provider for c in resp.results} == {"qq"}
+    assert {call[0] for call in chksz.search_calls} == {"qq"}
+
+
 # ---- 下载 ----
 
 
@@ -495,7 +560,7 @@ def downloads(tmp_path: Path) -> Callable[..., tuple[DownloadService, Store]]:
     def build(chksz: FakeChkszClient, quality: str = "hires") -> tuple[DownloadService, Store]:
         store = Store(tmp_path / "app.db")
         registry = fake_registry(store, FakeUserClient([]), chksz)
-        registry.apply_chksz(True, quality)
+        registry.apply_chksz(ALL_PROVIDERS, quality)
         service = DownloadService(
             store,
             FakeUserClient([]),
@@ -631,7 +696,7 @@ async def test_preview_uses_its_own_quality(tmp_path: Path) -> None:
     store = Store(tmp_path / "app.db")
     chksz = FakeChkszClient(detail=DETAIL_163, content=b"c" * 30)
     registry = fake_registry(store, FakeUserClient([]), chksz)
-    registry.apply_chksz(True, "hires")
+    registry.apply_chksz(ALL_PROVIDERS, "hires")
     preview = PreviewService(
         store, registry, EventBus(), tmp_path / "preview", preview_quality="320k"
     )
@@ -651,7 +716,7 @@ async def test_preview_cache_key_does_not_collide_with_telegram(tmp_path: Path) 
     chksz = FakeChkszClient(detail=DETAIL_163, content=b"c" * 30)
     tg = FakeUserClient([make_audio_message(7)], content=b"t" * 10)
     registry = fake_registry(store, tg, chksz)
-    registry.apply_chksz(True, "flac")
+    registry.apply_chksz(ALL_PROVIDERS, "flac")
     preview = PreviewService(store, registry, EventBus(), tmp_path / "preview")
 
     online = await preview.request_preview(PROVIDER_SCOPES["163"], 7, provider="163", ref="r1")

@@ -94,13 +94,13 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
 
     # 三个服务共用一份来源索引：同一个来源在搜索里叫 A、在下载里必须还是 A。
     # 在线源客户端由索引按**现读**的 Key 惰性建（见 SourceRegistry._online_client）：
-    # 开关与 Key 都是运行期可变的，启动时建一次就会「开关开着、搜索里什么都没有」。
+    # 启用平台与 Key 都是运行期可变的，启动时建一次就会「开关开着、搜索里什么都没有」。
     registry = SourceRegistry(
         store,
         user_client,
         media_client,
         online_key=lambda: load_online_source_key(base_dir),
-        chksz_enabled=settings.chksz.enabled,
+        chksz_providers=settings.chksz.providers,
         download_quality=settings.chksz.download_quality,
     )
 

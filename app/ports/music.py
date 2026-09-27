@@ -142,11 +142,11 @@ class MusicSourceIndexProto(Protocol):
         ...
 
     def online_sources(self) -> list[MusicSourceProto]:
-        """清单里的在线源那一段（设置页保存后即时开关，界面据此摆药丸）。"""
+        """清单里的在线源那一段（逐平台开关保存后即时变，界面据此摆药丸）。"""
         ...
 
-    def apply_chksz(self, enabled: bool, download_quality: str) -> None:
-        """就地切换在线源开关与默认档位（FR-CFG-03：吃的是设置页保存后的当前值）。"""
+    def apply_chksz(self, providers: tuple[str, ...], download_quality: str) -> None:
+        """就地切换启用的在线平台与默认档位（FR-CFG-03：吃的是刚保存的当前值）。"""
         ...
 
 

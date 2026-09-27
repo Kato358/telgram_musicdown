@@ -8,7 +8,9 @@
 - ``sources``（默认）：逐源并发扇出（``asyncio.Semaphore`` 封顶），每源先查二级缓存、
   同键经 singleflight 合并，``sync_window_sec`` 内回来的进响应、超窗的转后台补齐；
 - ``global``：一次 ``messages.searchGlobal`` 覆盖账号加入的全部对话——**不需要音乐源**，
-  请求数从 N 降到 1，代价是结果按全局时间序、单次上游失败即整次失败。
+  请求数从 N 降到 1，代价是结果按全局时间序、单次上游失败即整次失败。在线源不在
+  Telegram 对话里，searchGlobal 覆盖不到，故这条链路**追加扇出**已启用的在线平台，
+  两类结果合成一页（否则换个模式在线源就整批不见了）。
 
 缓存层在 ``services/search_cache.py``，纯规则在 ``domain.py``；本模块只管编排。
 """
@@ -252,22 +254,43 @@ class SearchService:
         sort: str,
         refresh: bool,
     ) -> SearchResponse:
-        """searchGlobal 链路：一次上游调用覆盖账号全部对话，本地归源/筛选/排序/切页。
+        """searchGlobal 链路：一次上游调用覆盖账号全部对话，**并追加扇出已启用的在线源**。
+
+        在线源不是 Telegram 对话，searchGlobal 覆盖不到它们，故这一模式下它们是逐源扇出
+        （与逐源模式共用同一套缓存 / 合并 / 去重 / 切页），两类结果合成一页——「换个搜索
+        模式在线源就不见了」是这一版要修掉的毛病（SDD §2.7）。
 
         与逐源模式的三点语义差异（都是 searchGlobal 的固有限制，不是实现取舍）：
         - **不需要音乐源**：取数范围 = 账号加入的对话，故「没有启用源」不是错误；
-        - **无法限定源集合**：结果按全局时间序，故 ``source_ids`` 只能在取回后按
-          ``chat_id`` 过滤（界面在全局模式下不提供源选择，这是给 API 调用方的入口）；
-        - **单次失败即整次失败**：没有「逐源不可达」这一档，FloodWait 直接以错误透出。
+        - **无法限定源集合**：结果按全局时间序，故 ``source_ids`` 里的频道 id 只能在取回后
+          按 ``chat_id`` 过滤（也正因如此，只勾在线源时 telegram 结果会被整体滤掉）；
+        - **单次失败即整次失败**：Telegram 那一次调用没有「逐源不可达」这一档，FloodWait
+          直接以错误透出；在线源仍各自得失，落在 ``meta.unreachable``。
         """
         need = (page + 1) * size
+        online = self._online_targets(source_ids)
+        # 取数范围带上在线平台集合：平台开了关了就是另一批结果，翻页前缀不能沿用旧的
+        scope = "global" if not online else "global:" + ",".join(str(t.scope_id) for t in online)
         snapshot_key = _snapshot_key(
-            keyword, "global", sort, page_size=size, fields=fields, filters=filters
+            keyword, scope, sort, page_size=size, fields=fields, filters=filters
         )
         if refresh:
             self._snapshots.drop(snapshot_key)
+
+        tasks = {
+            target.scope_id: asyncio.create_task(
+                self._source_result(target, keyword, need, refresh=refresh)
+            )
+            for target in online
+        }
+        global_task = asyncio.create_task(self._global_result(keyword, need, refresh=refresh))
+        done: set[asyncio.Task[CachedSourceResult]] = set()
+        if tasks:
+            # 在线源走同步窗口（超窗转后台补齐，与逐源模式同一套），Telegram 那次调用照旧
+            # 等到底：它的结果就是这条链路的主体，没回来就没有「已回来的那部分」可言。
+            done, _ = await asyncio.wait(set(tasks.values()), timeout=self.settings.sync_window_sec)
         try:
-            window = await self._global_result(keyword, need, refresh=refresh)
+            window = await global_task
         except SourceUnreachableError as e:
             if e.reason == "flood_wait":
                 raise SourceUnreachableError(
@@ -288,25 +311,68 @@ class SearchService:
                 s.telegram_chat_id for s in self.store.list_sources() if s.id in set(source_ids)
             }
             cards = [card for card in cards if card.chat_id in wanted]
+
+        per_online: list[CachedSourceResult] = []
+        unreachable: list[dict[str, Any]] = []
+        pending_sources: list[int] = []
+        for target in online:
+            task = tasks[target.scope_id]
+            if task not in done:
+                pending_sources.append(target.scope_id)
+                self._track_background(task)
+                continue
+            try:
+                per_online.append(task.result())
+            except SourceUnreachableError as e:
+                unreachable.append({"source_id": target.scope_id, "reason": e.reason})
+            except Exception:  # noqa: BLE001  单源崩掉只该让它缺席，不该废掉整次搜索
+                logger.exception("search failed source_id=%s", target.scope_id)
+                unreachable.append({"source_id": target.scope_id, "reason": "error"})
+        for result in per_online:
+            cards.extend(
+                card
+                for card in result.items
+                if parsed.matches(card) and matches_fields(card, tokens, fields)
+            )
+
         ordered = dedupe_cards(sort_cards(cards, sort, keyword))
         ordered = self._snapshots.resolve(snapshot_key, ordered)
         start = page * size
+        online_hits = sum(1 for result in per_online if result.from_cache)
         return SearchResponse(
             results=ordered[start : start + size],
             meta={
-                "unreachable": [],
-                "partial": False,
-                "pending_sources": [],
+                "unreachable": unreachable,
+                "partial": bool(pending_sources),
+                "pending_sources": pending_sources,
                 "page": page,
                 "page_size": size,
                 # 上游还有更深的结果：全局搜索的「还有更多」只能靠窗口是否取满来判断
-                "has_more": start + size < len(ordered) or window.has_more,
+                "has_more": start + size < len(ordered)
+                or window.has_more
+                or bool(pending_sources)
+                or any(result.has_more for result in per_online),
                 "sort": sort if sort in SEARCH_SORTS else "relevance",
                 "filters": parsed.active,
-                "cache": {"hits": int(window.from_cache), "misses": int(not window.from_cache)},
+                "cache": {
+                    "hits": online_hits + int(window.from_cache),
+                    "misses": len(per_online) - online_hits + int(not window.from_cache),
+                },
                 "mode": SEARCH_MODE_GLOBAL,
             },
         )
+
+    def _online_targets(self, source_ids: list[int] | None) -> list[MusicSourceProto]:
+        """本轮的在线源：启用的平台里被 ``source_ids`` 点名的那些（没点名 = 全部启用平台）。
+
+        负号 scope 与频道源的 id 在同一个选择器里出现，故这里只做一次集合判定——不认
+        「在线 / 频道」两种参数形态。
+        """
+        return [
+            target
+            for target in self.registry.online_sources()
+            if source_ids is None or target.scope_id in source_ids
+        ]
 
     async def _global_result(self, keyword: str, need: int, *, refresh: bool) -> CachedSourceResult:
         """全局取数窗口：缓存够深就直接用，否则合并一次上游调用并写回缓存。

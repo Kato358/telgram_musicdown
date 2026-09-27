@@ -31,6 +31,8 @@
   import { api, errorText } from "$lib/api/client";
   import type {
     CacheStats,
+    OnlineSourceRow,
+    OnlineSourcesResponse,
     QualityOption,
     QualityTier,
     QualitiesResponse,
@@ -61,6 +63,7 @@
     SelectTrigger,
     SelectValue,
   } from "$lib/components/ui/select";
+  import { Switch } from "$lib/components/ui/switch";
   import Field from "$lib/components/app/Field.svelte";
   import Lamp from "$lib/components/app/Lamp.svelte";
   import Note from "$lib/components/app/Note.svelte";
@@ -206,17 +209,31 @@
   let logoutOpen = $state(false);
   let loggingOut = $state(false);
 
-  /** 在线源 ChKSz（SDD §2.7）：开关与两档音质走 settings 表，Key 走 config.yaml。 */
-  let chkszEnabled = $state(false);
+  /** 在线源 ChKSz（SDD §2.7）：两档音质走 settings 表，Key 走 config.yaml。
+   *
+   *  这里的平台开关是**批量**语义：`chksz_providers`（CSV）里有平台就是「开着」。
+   *  逐平台启停在音乐源页，这一页只负责「全开 / 全停」。 */
+  let chkszProviders = $state("");
   let chkszDownloadQuality = $state<QualityTier>("hires");
   let chkszPreviewQuality = $state<QualityTier>("320k");
   let chkszKey = $state("");
   let savingChkszKey = $state(false);
+  let savingChkszToggle = $state(false);
   let chkszNote: Feedback | null = $state(null);
+  /** 三个平台（键 + 名字 + 各自开关态）来自 `/api/sources/online`：批量开关按接口给的键写库，
+   *  前端不硬编码 163/qq/kugo——服务端加平台，这一页不用改。 */
+  let onlineProviders = $state<OnlineSourceRow[]>([]);
   /** 各在线源平台的音质阶梯（服务端发的语义档位表）。 */
   let chkszTiers = $state<QualityOption[]>([]);
   /** bits-ui 的 Select 要 {value,label}；语义档位就是 value。 */
   const chkszTierItems = $derived(chkszTiers.map((o) => ({ value: o.tier, label: o.label })));
+  /** 开关显示态 = 库里的 CSV 里有平台（批量写的就是它，读也读它）。 */
+  const chkszEnabled = $derived(chkszProviders.trim().length > 0);
+  /** 当前启用平台名（音乐源页逐个启停的结果）：一个都没有就直说，不留一行空白。 */
+  const chkszEnabledTitles = $derived.by(() => {
+    const titles = onlineProviders.filter((row) => row.enabled).map((row) => row.title);
+    return titles.length > 0 ? titles.join(t("search.listSep")) : t("sources.onlineNone");
+  });
   let hasChkszKey = $state(false);
   let botToken = $state("");
   let botNote = $state<Feedback | null>(null);
@@ -411,8 +428,9 @@
     dateFormat = pick(values, "date_format");
     maxTasks = pick(values, "max_download_task");
     cacheMb = toMb(pick(values, "preview_cache_max_bytes"));
-    // 在线源（SDD §2.7）：开关与两档音质都在 settings 表，热更新不必重启
-    chkszEnabled = truthy(values.chksz_enabled);
+    // 在线源（SDD §2.7）：平台开关与两档音质都在 settings 表，热更新不必重启。
+    // CSV 直接读原值：空串是「三个平台全关」的合法值，不能像模板那样被 pick 换成缺省。
+    chkszProviders = values.chksz_providers ?? "";
     chkszDownloadQuality = tierOf(pick(values, "chksz_download_quality"), DEFAULTS.chksz_download_quality);
     chkszPreviewQuality = tierOf(pick(values, "chksz_preview_quality"), DEFAULTS.chksz_preview_quality);
   }
@@ -424,7 +442,6 @@
       dateFormat,
       maxTasks,
       cacheMb,
-      chkszEnabled,
       chkszDownloadQuality,
       chkszPreviewQuality,
     ].join("\u0000");
@@ -439,6 +456,7 @@
       const resp = await api.get<QualitiesResponse>("/api/settings/qualities");
       chkszTiers = resp.providers["163"] ?? [];
       hasChkszKey = session.setup?.has_chksz_key ?? false;
+      await loadOnlineProviders();
       loadError = "";
       loaded = true;
     } catch (err) {
@@ -446,8 +464,15 @@
     }
   }
 
-  function truthy(raw: string | undefined): boolean {
-    return raw === "true" || raw === "1" || raw === "on";
+  /** 平台键与平台名都只从接口拿：批量开关要按服务端认得的键写库。
+   *  拉不到不算页面级失败（其余设置照常），只在这一张卡里说。 */
+  async function loadOnlineProviders() {
+    try {
+      onlineProviders = (await api.get<OnlineSourcesResponse>("/api/sources/online")).providers;
+    } catch (err) {
+      onlineProviders = [];
+      chkszNote = { tone: "fail", text: errorText(err, t("common.error")) };
+    }
   }
 
   /** 库里存的是语义档位；认不出就落回缺省，别把一个错值塞进下载请求。 */
@@ -462,6 +487,29 @@
     "jyeffect",
   ];
     return known.includes(raw as QualityTier) ? (raw as QualityTier) : (fallback as QualityTier);
+  }
+
+  /** 批量开关（不是逐平台开关）：开 = 接口给的三个平台全写进去，关 = 写空串。
+   *
+   *  点按即写库（与搜索模式同一做法）：它没有「保存更改」这一步，所以不进 dirty 指纹。
+   *  写完重取一遍在线源——那张卡的「已启用平台」行与逐平台开关都跟着变。
+   */
+  async function toggleChksz(checked: boolean) {
+    if (savingChkszToggle) return;
+    savingChkszToggle = true;
+    chkszNote = null;
+    try {
+      const csv = checked ? onlineProviders.map((row) => row.provider).join(",") : "";
+      const values = await api.put<Record<string, string>>("/api/settings", {
+        values: { chksz_providers: csv },
+      });
+      chkszProviders = values.chksz_providers ?? csv;
+      await loadOnlineProviders();
+    } catch (err) {
+      chkszNote = { tone: "fail", text: errorText(err, t("common.error")) };
+    } finally {
+      savingChkszToggle = false;
+    }
   }
 
   /** Key 单独存 config.yaml（不入库，NFR-02）：留空 = 不改动，服务端不回显明文。 */
@@ -580,7 +628,6 @@
         date_format: dateFormat,
         max_download_task: maxTasks,
         preview_cache_max_bytes: String(toBytes(cacheMb)),
-        chksz_enabled: String(chkszEnabled),
         chksz_download_quality: chkszDownloadQuality,
         chksz_preview_quality: chkszPreviewQuality,
       };
@@ -877,14 +924,20 @@
           hint={t("settings.chkszEnabledHint")}
         >
           <div class="flex items-center gap-3">
-            <Checkbox
+            <!-- 批量开关：开 = 三个平台全开，关 = 全停；逐平台的开关在音乐源页 -->
+            <Switch
               id="setting-chksz-enabled"
               checked={chkszEnabled}
-              onCheckedChange={(value) => (chkszEnabled = value === true)}
+              disabled={savingChkszToggle}
+              onCheckedChange={(checked) => void toggleChksz(checked)}
             />
             <span class="text-body">{chkszEnabled ? t("settings.chkszOn") : t("settings.chkszOff")}</span>
           </div>
         </Field>
+
+        <p class="text-caption text-muted-foreground">
+          {t("sources.onlineEnabledList", { providers: chkszEnabledTitles })}
+        </p>
 
         <!-- Key 只写不回显：服务端只回「有没有」（NFR-02），留空 = 不改动 -->
         <Field

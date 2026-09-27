@@ -142,6 +142,34 @@ class SourceUpdateRequest(BaseModel):
     enabled: bool | None = None
 
 
+class OnlineSourceRow(BaseModel):
+    """在线源平台行（`GET /api/sources/online`，SDD §2.7）。
+
+    ``id`` 就是搜索用的 scope（负号，见 `domain.PROVIDER_SCOPES`），与
+    `GET /api/search/sources` 同一套：界面把它当普通来源勾选，没有第二套选择器。
+    ``title`` 由服务端给——前端不认平台名，加平台不用改前端。
+    """
+
+    id: int
+    provider: str
+    title: str
+    enabled: bool
+
+
+class OnlineSourcesResponse(BaseModel):
+    """`GET /api/sources/online`：三个平台**恒在**（未启用的也要看得见才能打开），
+    另附「配没配 Key」——配了 Key 平台才会真的参与搜索，没配合不上就别装作能用。"""
+
+    has_key: bool = False
+    providers: list[OnlineSourceRow] = Field(default_factory=list)
+
+
+class OnlineSourceUpdateRequest(BaseModel):
+    """启停一个在线平台（`PUT /api/sources/online/{provider}`）：只有开关，没有别的配置。"""
+
+    enabled: bool = True
+
+
 class SearchRequest(BaseModel):
     q: str
     source_ids: list[int] | None = None

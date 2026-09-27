@@ -11,11 +11,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.config import DEFAULT_CHKSZ_BASE_URL, SecretConfig, load_secrets
-from app.domain import TemplateConfig
+from app.domain import PROVIDER_SCOPES, TemplateConfig
 from app.ports.repository import SettingsRepo
 
 # ---- 业务配置缺省值（原散落在 __main__ 装配代码里的字面量收口于此）----
@@ -64,37 +65,58 @@ def _str_setting(store: SettingsRepo, key: str, default: str) -> str:
     return store.get_setting(key) or default
 
 
-def _bool_setting(store: SettingsRepo, key: str, default: bool) -> bool:
-    """布尔取值：认 ``true/false/1/0/on/off/yes/no``（不区分大小写），认不出按 default。"""
-    raw = (store.get_setting(key) or "").strip().lower()
-    if raw in ("true", "1", "on", "yes"):
-        return True
-    if raw in ("false", "0", "off", "no"):
-        return False
-    return default
-
-
 # ---- 在线源 ChKSz（SDD §2.7）----
-# 开关与两档音质进 settings 表（热更新、不涉密）；API Key 只在 config.yaml（NFR-02）。
+# 逐平台开关与两档音质进 settings 表（热更新、不涉密）；API Key 只在 config.yaml（NFR-02）。
 # 试听默认 320k 是有意选的：试听只为判断「是不是这首歌、能不能听」，母带流又大又
 # 慢，试听位不该替用户把额度烧在最高档上；真要存就点下载，那时再选档。
 DEFAULT_CHKSZ_DOWNLOAD_QUALITY = "hires"
 DEFAULT_CHKSZ_PREVIEW_QUALITY = "320k"
+# 逐平台开关的存储键（v0.16）：启用哪些在线平台，**这一处就是唯一事实源**。
+# 原先的布尔总开关 ``chksz_enabled`` 已由 migration 007 迁进这里并删除——总开关 + 逐
+# 平台开关两层门，会让音乐源页的逐平台开关在总开关关着时点了没反应。
+CHKSZ_PROVIDERS_SETTING = "chksz_providers"
+
+
+def _providers_setting(store: SettingsRepo) -> tuple[str, ...]:
+    """settings 表里的启用平台集合：认不出的键丢掉，顺序恒为 ``PROVIDER_SCOPES``。
+
+    认不出的键不报错也不静默当平台用：旧版本写过别的键名、人手改过库，都只该让那一个
+    键失效，不该让搜索链路拿到一个 ``PROVIDER_LABELS`` 里没有的 provider。
+    """
+    raw = store.get_setting(CHKSZ_PROVIDERS_SETTING) or ""
+    wanted = {part.strip() for part in raw.split(",") if part.strip()}
+    return tuple(provider for provider in PROVIDER_SCOPES if provider in wanted)
+
+
+def save_chksz_providers(store: SettingsRepo, providers: Iterable[str]) -> tuple[str, ...]:
+    """写回启用平台（音乐源页逐平台开关与设置页总开关走同一处）。
+
+    写入顺序固定：同一组平台在不同写入次序下产出同一个字符串，settings 表才可比对、
+    文档里的样例才作数。返回真正落库的值（调用方据此刷新 ``SourceRegistry``）。
+    """
+    ordered = tuple(provider for provider in PROVIDER_SCOPES if provider in set(providers))
+    store.set_setting(CHKSZ_PROVIDERS_SETTING, ",".join(ordered))
+    return ordered
 
 
 @dataclass(slots=True, frozen=True)
 class ChkszSettings:
-    """在线源运行配置：开关 + 下载/试听默认档。"""
+    """在线源运行配置：启用的平台 + 下载/试听默认档。"""
 
-    enabled: bool = False
+    providers: tuple[str, ...] = ()
     download_quality: str = DEFAULT_CHKSZ_DOWNLOAD_QUALITY
     preview_quality: str = DEFAULT_CHKSZ_PREVIEW_QUALITY
+
+    @property
+    def enabled(self) -> bool:
+        """「在线源开着」= 至少一个平台启用；派生量，不再单独存一个总开关。"""
+        return bool(self.providers)
 
 
 def load_chksz_settings(store: SettingsRepo) -> ChkszSettings:
     """在线源配置（settings 表现读）；装配时用缺省值，保存设置后由容器刷新。"""
     return ChkszSettings(
-        enabled=_bool_setting(store, "chksz_enabled", False),
+        providers=_providers_setting(store),
         download_quality=_str_setting(
             store, "chksz_download_quality", DEFAULT_CHKSZ_DOWNLOAD_QUALITY
         ),

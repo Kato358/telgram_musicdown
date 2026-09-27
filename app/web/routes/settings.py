@@ -113,7 +113,7 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
         ctx.preview.max_bytes = preview_max_bytes(store)
         ctx.search.apply_settings(load_search_settings(store))
         chksz = load_chksz_settings(store)
-        ctx.registry.apply_chksz(chksz.enabled, chksz.download_quality)
+        ctx.registry.apply_chksz(chksz.providers, chksz.download_quality)
         ctx.downloads.default_quality = chksz.download_quality
         ctx.preview.preview_quality = chksz.preview_quality
         return store.all_settings()

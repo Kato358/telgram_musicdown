@@ -1,5 +1,7 @@
 <script lang="ts">
-  /** 搜索（设计规范 §10）：只在已启用源内搜音频（FR-SEARCH-01）。
+  /** 搜索（设计规范 §10）：逐源模式在已启用音乐源内搜，全账号模式搜账号加入的全部对话
+   *  （FR-SEARCH-01）；两种模式都带上已启用的在线源平台——它们是搜索范围那一行的药丸，
+   *  全账号模式下这一行只剩它们。
    *
    * 状态都在模块级 `search` store（lib/stores/search.svelte.ts），切页不丢：
    * 本组件只是视图层，回到搜索页时上次的关键词和结果列表原样还在。
@@ -31,6 +33,10 @@
   );
   const resultsCount = $derived(search.results.length);
 
+  /** 搜索范围一行的候选：逐源模式是全部可搜源；全账号模式只剩在线源——频道不在全账号
+   *  链路里（勾了也搜不到），而在线平台会被追加上扇出，所以它们留在这行当筛选。 */
+  const scopeOptions = $derived(session.globalSearch ? search.onlineSources : search.sources);
+
   /** 批量下载的起点：「下载所选」按钮的中心，整批飞片从这里级联起飞。 */
   function downloadSelected(event: MouseEvent) {
     const target = event.currentTarget as HTMLElement | null;
@@ -47,8 +53,8 @@
   });
 
   onMount(() => {
-    // 全账号搜索用不到音乐源列表：不拉这一趟。
-    if (!session.globalSearch) void search.loadSources();
+    // 两种模式都要这份清单：全账号模式下它只剩在线源，但那几颗药丸正是筛选入口。
+    void search.loadSources();
   });
 </script>
 
@@ -108,7 +114,7 @@
       </Button>
     </form>
 
-    {#snippet pill(active: boolean, label: string, onclick: () => void)}
+    {#snippet pill(active: boolean, label: string, onclick: () => void, sub?: string)}
       <button
         type="button"
         class="ui-transition rounded-full px-3 py-1 text-caption {active
@@ -117,23 +123,27 @@
         aria-pressed={active}
         {onclick}
       >
-        {label}
+        <span class="block">{label}</span>
+        {#if sub}
+          <span class="block text-code">{sub}</span>
+        {/if}
       </button>
     {/snippet}
 
-    {#if !session.globalSearch && search.sources.length > 0}
+    {#if scopeOptions.length > 0}
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-caption text-muted-foreground">{t("search.filterSources")}</span>
         {@render pill(
-          search.selected.length === 0,
-          t("search.allSources"),
+          search.activeSourceIds === undefined,
+          session.globalSearch ? t("search.allSourcesGlobal") : t("search.allSources"),
           () => (search.selected = []),
         )}
-        {#each search.sources as source (source.id)}
+        {#each scopeOptions as source (source.id)}
           {@render pill(
             search.selected.includes(source.id),
-            source.online ? `${t("search.onlineBadge")} ${source.title}` : source.title,
+            source.title,
             () => search.toggleSource(source.id),
+            source.online ? t("search.onlineBy") : undefined,
           )}
         {/each}
       </div>

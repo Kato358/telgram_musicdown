@@ -19,7 +19,6 @@
 import { events } from "$lib/stores/events.svelte";
 import { fly } from "$lib/stores/fly.svelte";
 import { queue } from "$lib/stores/queue.svelte";
-import { session } from "$lib/stores/session.svelte";
   import { stats } from "$lib/stores/stats.svelte";
   import Badge from "./Badge.svelte";
   import Link from "./Link.svelte";
@@ -41,9 +40,6 @@ import { session } from "$lib/stores/session.svelte";
     if (key === "logs") return events.errors.length;
     return 0;
   }
-
-  /** 全账号搜索模式下没有音乐源概念：导航收起「音乐源」一项。 */
-  const nav = $derived(NAV_ROUTES.filter((route) => route.key !== "sources" || !session.globalSearch));
 </script>
 
 <aside class="hidden shrink-0 flex-col border-r border-border bg-card lg:flex lg:w-[260px]">
@@ -64,7 +60,7 @@ import { session } from "$lib/stores/session.svelte";
     class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-3 lg:px-3"
     aria-label={t("app.navLabel")}
   >
-    {#each nav as route (route.key)}
+    {#each NAV_ROUTES as route (route.key)}
       {@const active = router.key === route.key}
       {@const Icon = ICONS[route.key]}
       <Link

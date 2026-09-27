@@ -48,7 +48,7 @@ class SourceRegistry:
         *,
         online_key: Callable[[], OnlineSourceKey] | None = None,
         chksz_client: ChkszClient | None = None,
-        chksz_enabled: bool = False,
+        chksz_providers: tuple[str, ...] = (),
         download_quality: str = "flac",
     ) -> None:
         self._sources = sources
@@ -56,36 +56,38 @@ class SourceRegistry:
         self._media = media_client
         self._online_key = online_key
         self._chksz_client = chksz_client
-        self._chksz_enabled = chksz_enabled
+        #: 启用的在线平台（settings 表现读，唯一事实源）；空集 = 在线源全关。
+        self._chksz_providers = frozenset(chksz_providers)
         self._download_quality = download_quality
         #: 按 (Key, 地址) 缓存的在线源客户端；配置换了就换一个（旧的退场时统一关）。
         self._chksz_clients: dict[tuple[str, str], ChkszClient] = {}
 
-    def apply_chksz(self, enabled: bool, download_quality: str) -> None:
-        """设置页保存后即时开关在线源并换默认档（FR-CFG-03：不必重启）。
+    def apply_chksz(self, providers: tuple[str, ...], download_quality: str) -> None:
+        """设置页/音乐源页保存后即时改启用平台并换默认档（FR-CFG-03：不必重启）。
 
         只翻这两个标志——客户端不在这里建：它是按 **现读的** Key 惰性建的
-        （见 :meth:`_online_client`），所以「先开开关、后补 Key」也能立刻用上。
+        （见 :meth:`_online_client`），所以「先开平台、后补 Key」也能立刻用上。
         """
-        self._chksz_enabled = enabled
+        self._chksz_providers = frozenset(providers)
         self._download_quality = download_quality
 
     def online_sources(self) -> list[MusicSourceProto]:
-        """在线源适配器（按 ``PROVIDER_SCOPES`` 的顺序）；未启用或没 Key 时为空。"""
+        """在线源适配器（按 ``PROVIDER_SCOPES`` 的顺序）；没启用平台或没 Key 时为空。"""
         client = self._online_client()
-        if not self._chksz_enabled or client is None:
+        if client is None:
             return []
         return [
             ChkszSource(provider, client, default_quality=self._download_quality)
             for provider in PROVIDER_SCOPES
+            if provider in self._chksz_providers
         ]
 
     def _online_client(self) -> ChkszClient | None:
         """在线源客户端：注入的优先（装配/测试），否则按**现读**的 Key 惰性建一个。
 
-        判据是「开关打开**且**配了 Key」——两件事都可能在本进程存活期间变化（设置页保存、
-        向导写 Key），而 Key 只在 config.yaml。启动时读一次就定死，等于「开关显示已开、
-        搜索里什么都没有」；这里按 (Key, 地址) 记账，改了就用新的那个。
+        Key 只在本进程存活期间可能变化（向导写 config.yaml），而启用平台那份配置在
+        settings 表里现读——两件事都不该在启动时读一次定死，否则症状是「页面上开着、
+        搜索里什么都没有」。这里按 (Key, 地址) 记账，改了就用新的那个。
         """
         if self._chksz_client is not None:
             return self._chksz_client

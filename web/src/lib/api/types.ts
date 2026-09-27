@@ -121,6 +121,23 @@ export interface SourceRow {
   enabled: boolean;
 }
 
+/** 在线源平台（`GET /api/sources/online`）：音乐源页逐平台启停的行。
+ *
+ *  `id` 就是搜索用的 scope——与 `SearchSource.id` 是同一套负号保留值（频道是 sources.id），
+ *  所以行上的开关拨完，搜索页药丸的勾选值不用换一套。三行恒定、顺序同后端 `PROVIDER_SCOPES`。 */
+export interface OnlineSourceRow {
+  id: number;
+  provider: string;
+  title: string;
+  enabled: boolean;
+}
+
+/** `GET /api/sources/online`：`has_key` 只是提示（没 Key 时开关照样拨得动，只是不生效）。 */
+export interface OnlineSourcesResponse {
+  has_key: boolean;
+  providers: OnlineSourceRow[];
+}
+
 export interface TaskRow {
   id: number;
   type: string;
