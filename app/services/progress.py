@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from time import monotonic
+from time import perf_counter
 from typing import Any
 
 from app.events import Event, EventBus
@@ -88,7 +88,8 @@ class ProgressReporter:
         self._total_bytes = total_bytes
         self._current_bytes = 0
         self._speed: float | None = None
-        self._last_sample_at = monotonic()
+        self._last_sample_at = perf_counter()
+        self._start_at = self._last_sample_at
         self._last_sample_bytes = 0
         self._last_emit_at = 0.0
         self._last_emit_bytes = 0
@@ -114,7 +115,7 @@ class ProgressReporter:
         if self._total_bytes is not None:
             current_bytes = min(current_bytes, self._total_bytes)
 
-        now = monotonic()
+        now = perf_counter()
         elapsed = now - self._last_sample_at
         if elapsed > 0:
             delta = current_bytes - self._last_sample_bytes
@@ -175,6 +176,12 @@ class ProgressReporter:
     async def flush(self) -> None:
         """收尾：把最后读数落库，未取消则 await 发布最终进度帧。"""
         cancelled = self._state.is_stopped(self._task_id)
+        # 快下载全部读数落在同一时钟刻度里时 elapsed 恒为 0，测不到瞬时速度。
+        # 完成帧的 speed 是展示契约（DB 与 UI 都要非空）：从未测到时按总耗时算平均。
+        if self._speed is None and self._current_bytes > 0:
+            total_elapsed = perf_counter() - self._start_at
+            if total_elapsed > 0:
+                self._speed = self._current_bytes / total_elapsed
         self._store.update_task(
             self._task_id,
             progress_bytes=self._current_bytes,
