@@ -9,8 +9,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # 无 remote 时 GHCR 路径回落到仓库名（创建 remote 后 IMAGE_NAME 自动对齐 owner/repo）
-  IMAGE_NAME: ${{ github.repository }}
 
 permissions:
   contents: read
@@ -38,14 +36,20 @@ jobs:
       - name: Mypy
         run: mypy
 
+      - name: Pytest collect-only
+        run: pytest --collect-only -q 2>&1 | tail -20
+
       - name: Pytest
-        run: pytest
+        run: pytest -ra --tb=long
 
   build:
     runs-on: ubuntu-latest
     needs: test
     steps:
       - uses: actions/checkout@v4
+      # GHA 表达式无 lower()，job 内用 bash 把 owner/repo 降小写写入 GITHUB_ENV
+      - name: Normalize image name
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -69,7 +73,9 @@ jobs:
 
       - name: Smoke test image
         run: |
+          # web_login_enabled=false：smoke 容器无凭据，0.0.0.0 无密码会被启动保护拒绝（WebAuthConfigError）
           docker run --rm -d --name tgm-smoke -p 8787:8787 \
+            -e TGM_WEB_LOGIN_ENABLED=false \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ci
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8787/ >/dev/null 2>&1; then
@@ -90,6 +96,9 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+      # GITHUB_ENV 按 job 隔离，publish 任务需重算
+      - name: Normalize image name
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Docker meta
         id: meta

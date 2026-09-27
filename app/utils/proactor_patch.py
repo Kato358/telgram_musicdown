@@ -13,20 +13,21 @@ from __future__ import annotations
 
 import contextlib
 import functools
-import sys
 from asyncio.proactor_events import _ProactorBasePipeTransport
+from typing import Any, cast
 
 
 def silence_proactor_connection_reset() -> None:
     """吞掉 Proactor 连接关闭时对已重置 socket ``shutdown`` 的报错（幂等）。"""
-    if sys.platform != "win32" or getattr(silence_proactor_connection_reset, "_applied", False):
+    if getattr(cast(Any, silence_proactor_connection_reset), "_applied", False):
         return
-    original = _ProactorBasePipeTransport._call_connection_lost  # type: ignore[attr-defined]
+    transport = cast(Any, _ProactorBasePipeTransport)
+    original = transport._call_connection_lost
 
     @functools.wraps(original)
-    def call_connection_lost(self: _ProactorBasePipeTransport, exc: BaseException | None) -> None:
+    def call_connection_lost(self: Any, exc: BaseException | None) -> None:
         with contextlib.suppress(ConnectionResetError, ConnectionAbortedError):
             original(self, exc)
 
-    _ProactorBasePipeTransport._call_connection_lost = call_connection_lost  # type: ignore[attr-defined]
-    silence_proactor_connection_reset._applied = True  # type: ignore[attr-defined]
+    transport._call_connection_lost = call_connection_lost
+    cast(Any, silence_proactor_connection_reset)._applied = True

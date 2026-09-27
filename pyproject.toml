@@ -21,6 +21,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "mypy>=1.8",
     "ruff>=0.4",
+    "types-PyYAML>=6.0",
 ]
 
 [tool.ruff]
@@ -70,6 +71,8 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# 裸 pytest 不把 cwd 注入 sys.path（python -m 才会）：tests 包跨目录互导必须显式给根。
+pythonpath = ["."]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
