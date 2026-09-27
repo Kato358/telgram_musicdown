@@ -22,20 +22,20 @@ from app.db.models import Source
 from app.db.store import Store
 from app.errors import SourceUnreachableError
 from app.services.search import SearchService
-from app.telegram import user_client
+from app.telegram import media
 from tests.fakes import fake_registry
 
 
 def test_floodwait_is_reported_as_rate_limit() -> None:
     # 限流不是权限：以前它落进兜底的 not_joined，界面于是说「先用该账号加入频道」
-    err = user_client._translate_rpc(FloodWait(value=30))
+    err = media.translate_rpc(FloodWait(value=30))
     assert err.reason == "flood_wait"
     assert "30" in err.message
 
 
 def test_rpc_reasons_keep_their_own_bucket() -> None:
-    assert user_client._translate_rpc(ChatAdminRequired()).reason == "banned"
-    assert user_client._translate_rpc(RPCError()).reason == "not_joined"
+    assert media.translate_rpc(ChatAdminRequired()).reason == "banned"
+    assert media.translate_rpc(RPCError()).reason == "not_joined"
 
 
 def test_banned_bucket_covers_kurigram_per_code_variants() -> None:
@@ -45,7 +45,7 @@ def test_banned_bucket_covers_kurigram_per_code_variants() -> None:
     （「先用该账号加入频道」），所以每个变体都要落进 banned。
     """
     for exc in (ChatAdminRequired403(), ChannelPrivate406(), UserBannedInChannel403()):
-        assert user_client._translate_rpc(exc).reason == "banned"
+        assert media.translate_rpc(exc).reason == "banned"
 
 
 class _RateLimitedClient:

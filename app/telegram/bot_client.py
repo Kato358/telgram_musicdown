@@ -1,7 +1,8 @@
 """BotClient：命令/链接/转发处理（FR-LINK-03/04/05，SDD §4.2）。
 
 - t.me 链接 → 解析入队 → 回复任务 id；完成后回复路径或原因。
-- 转发/直接上传音频 → 按全局模板保存。
+- 转发/直接上传音频 → 按全局模板保存。这条消息只有 bot 会话定位得到，故 meta 标记
+  ``via_bot``：取数按该标记走 bot 会话（见 ``app.telegram.media`` 的模块说明）。
 - 非授权用户消息忽略（allowed_user_ids，默认 me）。
 """
 
@@ -9,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from pyrogram import filters
@@ -17,14 +19,21 @@ from pyrogram.handlers import MessageHandler
 from pyrogram.types import Message
 
 from app.config import SecretConfig
-from app.domain import DownloadRequest, TrackMeta, card_to_meta
+from app.domain import (
+    DownloadRequest,
+    TrackMeta,
+    card_to_meta,
+    message_to_card,
+)
 from app.errors import AppError
 from app.services.download import DownloadQueueServiceProto
+from app.telegram.media import chat_id_of, message_dict
+from app.telegram.media import download_media as media_download
+from app.telegram.media import get_messages as media_get_messages
 from app.telegram.user_client import (
     CONNECT_TIMEOUT_SEC,
     _connect_error,
     _proxy_dict,
-    chat_id_of,
 )
 from app.utils.linkparse import parse_link
 
@@ -206,11 +215,7 @@ class BotClient:
 
     async def _handle_forwarded_audio(self, msg: Message) -> None:
         """转发/直接上传音频（FR-LINK-04）：不依赖源配置。"""
-        task_id = await self.downloads.enqueue(
-            DownloadRequest(
-                meta=TrackMeta(chat_id=chat_id_of(msg), message_id=msg.id)
-            )
-        )
+        task_id = await self.downloads.enqueue(DownloadRequest(meta=forwarded_meta(msg)))
         if task_id is None:
             await msg.reply("已存在，跳过")
             return
@@ -227,3 +232,34 @@ class BotClient:
 
     async def stop(self) -> None:
         await self.client.stop()
+
+    async def get_messages(self, chat_id: int, message_ids: list[int]) -> list[dict[str, Any]]:
+        """按 id 取消息 dict（转发入队的 meta 补全/取数都在这个会话上做）。"""
+        return await media_get_messages(self.client, chat_id, message_ids)
+
+    async def download_media(
+        self,
+        message_ref: dict[str, Any],
+        file_name: str,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> str | None:
+        """按 (chat_id, message_id) 下载到临时路径（FR-DL-01）；经 with_flood_retry（NFR-09）。"""
+        return await media_download(self.client, message_ref, file_name, progress)
+
+
+def forwarded_meta(msg: Message) -> TrackMeta:
+    """bot 私聊里转发的音频 → 入队元数据（FR-LINK-04）。
+
+    **必须标 ``via_bot``**：这条消息只存在于 bot 会话里。bot 看到的 ``chat.id`` 是发信
+    用户的 user_id，登录账号拿同一个 id 去 ``get_messages`` 落到的是它自己的收藏夹，
+    取回一条空消息——任务于是以 ``task crashed: This message doesn't contain any
+    downloadable media`` 收场。也不能改成交接 ``file_id`` 让登录账号下：Telegram 的
+    ``file_reference`` 按账号签发，跨账号调 ``upload.getFile`` 会被判
+    ``FILE_REFERENCE_EXPIRED``。消息在哪一侧看得见，就由那一侧去取。
+
+    顺带把 ext/大小/标题一并落进 meta：落盘扩展名、标签容器与完整性校验不必再回查
+    （登录账号那条消息本来就查不到）。
+    """
+    meta = card_to_meta(message_to_card(message_dict(msg)))
+    meta.via_bot = True
+    return meta

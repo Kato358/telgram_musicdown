@@ -73,6 +73,12 @@ class TrackMeta:
     message_date: str | None = None  # ISO-8601 UTC 文本（store 约定 §2.6）
     channel_title: str | None = None
     ext: str | None = None
+    #: 这条消息只有 **Bot 会话**定位得到（转发/直接上传进 bot 私聊的音频，FR-LINK-04）：
+    #: bot 侧 ``chat.id`` 是发信用户的 user_id，登录账号拿同一个 id 去 ``get_messages``
+    #: 落到自己的收藏夹、取回空消息。取数按该标记改走 bot 会话——不能改成交接
+    #: ``file_id``：Telegram 的 file_reference 按账号签发，跨账号会吃
+    #: ``FILE_REFERENCE_EXPIRED``。频道消息为 False。
+    via_bot: bool = False
     unique_id: str | None = None
 
     # 音频来源（默认 telegram：chat_id/message_id 即音频消息的身份）。

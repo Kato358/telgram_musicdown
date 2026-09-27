@@ -34,6 +34,7 @@ from app.domain import (
     TemplateConfig,
     TrackMeta,
     card_to_meta,
+    is_audio_message,
     message_to_card,
     meta_from_dict,
 )
@@ -354,9 +355,15 @@ class DownloadService:
         task_id: int = task["id"]
         history_id: int | None = task.get("history_id")
         meta = _meta_from_payload(payload)
-        # bot 链接/转发入队只有 chat_id/message_id：下载前取一次消息补全 meta
-        # （ext 决定落盘扩展名与标签容器，file_size 决定完整性校验）。
-        if meta.provider == PROVIDER_TELEGRAM and meta.ext is None and meta.file_size is None:
+        # `/download <link>` 入队只有 chat_id/message_id：下载前取一次消息补全 meta
+        # （ext 决定落盘扩展名与标签容器，file_size 决定完整性校验）。转发入队的 meta
+        # 由 bot 会话在入队时就补全了，登录账号也查不到那条消息——不重复去查。
+        if (
+            meta.provider == PROVIDER_TELEGRAM
+            and not meta.via_bot
+            and meta.ext is None
+            and meta.file_size is None
+        ):
             meta = await self._hydrate_meta(meta)
         target = self.registry.by_meta(meta.provider, payload.get("source_id"))
         if target is None:
@@ -469,7 +476,10 @@ class DownloadService:
         except AppError:
             return meta
         msg = (msgs if isinstance(msgs, list) else [msgs])[0]
-        if msg is None:
+        if msg is None or not is_audio_message(msg):
+            # 非音频（含「这个 id 在该对话里不存在」的空消息）没有可补的字段：拿它
+            # 生成的 card 会把 chat_id 抹成 0，于是取数改去对话 0 找——原样返回，
+            # 让 fetch 按原来的定位去报它自己拿得到的原因。
             return meta
         card = message_to_card(msg, channel_title=meta.channel_title)
         hydrated = card_to_meta(card)

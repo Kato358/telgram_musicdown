@@ -97,7 +97,12 @@ class TelegramSource:
         if ref.chat_id is None or ref.message_id is None:
             raise ValueError("Telegram 源取音频需要 chat_id 与 message_id")
         await self._media.download_media(
-            {"chat_id": ref.chat_id, "message_id": ref.message_id},
+            {
+                "chat_id": ref.chat_id,
+                "message_id": ref.message_id,
+                # 转发入队的消息只存在于 bot 会话；取数端按它换会话（见 app.telegram.media）
+                "via_bot": ref.via_bot,
+            },
             str(dest),
             progress=progress,
         )

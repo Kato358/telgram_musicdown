@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from mutagen.id3 import ID3, TALB, TIT2, TPE1
+from pyrogram.types import Message
 
 from app.db.models import History
 from app.db.models import Task as TaskModel
@@ -29,6 +30,7 @@ from app.services.progress import ProgressReporter, TaskRunState
 from app.services.search import SearchService
 from app.telegram import flood as flood_mod
 from app.telegram.flood import with_flood_retry
+from app.telegram.user_client import message_dict
 from tests.fakes import FakeFloodWait, FakeUserClient, fake_registry, make_audio_message
 
 CHAT_ID = -100123
@@ -107,6 +109,23 @@ async def test_bare_link_task_hydrates_meta(
     assert task_id2 is not None
     await service._run_task(worker_row(store, task_id2))
     assert store.get_task(task_id2).status == "failed"  # type: ignore[union-attr]
+
+
+async def test_unresolvable_message_keeps_its_locator(
+    svc: tuple[DownloadService, Store, FakeUserClient]
+) -> None:
+    # 入队的 (chat_id, message_id) 是这条音频唯一的定位信息。Kurigram 对「这个 id
+    # 在该对话里不存在」给回的是 chat_id=0 的空消息——拿它补全会把取数改派到对话 0，
+    # 界面于是报一个与原因无关的错。补不上就原样带着原定位去取，让 fetch 自己报错。
+    service, store, client = svc
+    client.messages = [message_dict(Message(id=99, empty=True))]
+    task_id = await service.enqueue(
+        DownloadRequest(meta=TrackMeta(chat_id=CHAT_ID, message_id=99), force=True)
+    )
+    assert task_id is not None
+    await service._run_task(worker_row(store, task_id))
+    assert client.last_ref is not None
+    assert (client.last_ref["chat_id"], client.last_ref["message_id"]) == (CHAT_ID, 99)
 
 
 async def test_size_mismatch_not_saved(

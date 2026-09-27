@@ -45,6 +45,7 @@ class FakeUserClient:
         self.flood_queue: list[int] = []  # download_media 前依次弹出的 FloodWait
         self.size_override: int | None = None  # 注入大小不符
         self.download_calls = 0
+        self.last_ref: dict[str, Any] | None = None  # 最近一次取数拿到的定位
         # 全局搜索（FR-SEARCH-01 global 模式）：脚本化的「账号全部对话」命中集
         self.global_messages = global_messages or []
         self.global_calls = 0
@@ -99,6 +100,7 @@ class FakeUserClient:
         progress: Callable[[int, int], None] | None = None,
     ) -> str | None:
         self.download_calls += 1
+        self.last_ref = message_ref
         if self.flood_queue:
             raise FakeFloodWait(self.flood_queue.pop(0))
         target = Path(file_name)

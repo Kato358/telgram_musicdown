@@ -28,9 +28,10 @@ ProgressCb = Callable[[int, int | None], None]
 class FetchRef:
     """取一首音频的定位信息。
 
-    Telegram 源用 ``chat_id``/``message_id``（那才是音频消息的身份），在线源用
-    ``ref``（平台曲目 id）。两个实现各读自己那一半，另一半是 ``None``——不编造
-    对方的定位方式。
+    Telegram 源用 ``chat_id``/``message_id``（那才是音频消息的身份），转发给 bot
+    的私聊消息由 ``via_bot`` 指明改走 bot 会话取（那条消息登录账号看不见），在线源用
+    ``ref``（平台曲目 id）。两个实现各读自己那一半，另一半是 ``None``/False——
+    不编造对方的定位方式。
     """
 
     provider: str
@@ -38,6 +39,8 @@ class FetchRef:
     chat_id: int | None = None
     message_id: int | None = None
     ref: str | None = None
+    #: 该消息是否只存在于 bot 会话（转发入队）。Telegram 源据此换会话取数。
+    via_bot: bool = False
     #: 目标音质（在线源的原生档位名）。Telegram 源忽略它——频道里的文件就是它本身。
     quality: str | None = None
 
@@ -50,6 +53,7 @@ class FetchRef:
             chat_id=meta.chat_id,
             message_id=meta.message_id,
             ref=meta.ref,
+            via_bot=meta.via_bot,
             quality=quality,
         )
 

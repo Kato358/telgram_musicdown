@@ -1,9 +1,8 @@
-"""UserClient：登录、搜索、取消息、下载（FR-AUTH-01/03、FR-SEARCH-01、SDD §2.1）。
+"""UserClient：登录、搜索（FR-AUTH-01/03、FR-SEARCH-01、SDD §2.1）。
 
-services 层不 import Kurigram（发行名 Kurigram，导入名仍是 pyrogram）；本层把底层异常
-翻译为领域异常（编码规范 §2.4）。Kurigram 调用全部经 ``with_flood_retry()``（编码规范
-§2.3），唯一例外见 ``search_messages``：交互式只读搜索按 FR-SEARCH-01 把 FloodWait 原样
-透出（``reason="flood_wait"``），不挂起用户。
+取消息与下载是两个会话共用的动作，连同底层异常翻译都在 ``app.telegram.media``；这里
+只负责登录账号自己的生命周期与搜索。交互式只读搜索是唯一不经 ``with_flood_retry``
+的调用（编码规范 §2.3）：按 FR-SEARCH-01 把 FloodWait 原样透出，不挂起用户。
 """
 
 from __future__ import annotations
@@ -16,7 +15,6 @@ from typing import Any
 from pyrogram.client import Client
 from pyrogram.enums import MessagesFilter
 from pyrogram.errors import (
-    FloodWait,
     PasswordHashInvalid,
     PhoneCodeExpired,
     PhoneCodeInvalid,
@@ -32,8 +30,11 @@ from pyrogram.errors.rpc_error import RPCError
 from pyrogram.types import Message
 
 from app.config import SecretConfig
-from app.errors import AuthError, SourceUnreachableError
+from app.errors import AuthError
 from app.telegram.flood import with_flood_retry
+from app.telegram.media import download_media as media_download
+from app.telegram.media import get_messages as media_get_messages
+from app.telegram.media import message_dict, translate_rpc
 
 logger = logging.getLogger(__name__)
 
@@ -41,19 +42,6 @@ MAX_DIALOG_SCAN = 200  # 候选源扫描上限：一次 get_dialogs，不做逐�
 CONNECT_TIMEOUT_SEC = 30  # Kurigram 对连不上的代理会无限重试，故本层给硬超时（FR-AUTH-03）
 SESSION_NAME = "musicdown"  # 会话文件名（sessions/musicdown.session）；登出按此名删除
 
-# Kurigram 把同一 RPC 错误按 HTTP code 拆成多个类（403/406 变体带数字后缀）。只认无后缀
-# 的那个，服务端真按 403 回时就会掉进兜底的 not_joined，界面于是给出错的修复指引。
-_BANNED_ERRORS = frozenset(
-    {
-        "ChatAdminRequired",
-        "ChatAdminRequired403",
-        "ChannelPrivate",
-        "ChannelPrivate406",
-        "UserBannedInChannel",
-        "UserBannedInChannel403",
-    }
-)
-_INVALID_LINK_ERRORS = frozenset({"UsernameInvalid", "UsernameNotOccupied"})
 
 
 def _proxy_text(cfg: SecretConfig) -> str:
@@ -82,28 +70,6 @@ def _proxy_dict(cfg: SecretConfig) -> dict[str, Any] | None:
         "username": cfg.proxy.username,
         "password": cfg.proxy.password,
     }
-
-
-def chat_id_of(msg: Message) -> int:
-    """消息所在对话的 id。
-
-    Kurigram 把 ``Chat.id`` / ``Message.chat`` 都标成可空（min 对话、已删除的会话），
-    而业务侧（去重、Bot 搜索结果序号）必须拿到一个可比较的整数：取不到时回退 0，
-    与"没有对话"等价，不把 None 混进 ``tasks.chat_id``。
-    """
-    chat = msg.chat
-    return chat.id if chat is not None and chat.id is not None else 0
-
-
-def chat_title_of(msg: Message) -> str | None:
-    """消息所在对话的标题（全局搜索按它给结果卡片标来源频道）。
-
-    取不到就留 None：宁可卡片上少一个频道名，也不编一个假名（同 ``message_to_card`` 约定）。
-    """
-    chat = msg.chat
-    if chat is None:
-        return None
-    return getattr(chat, "title", None) or getattr(chat, "first_name", None) or None
 
 
 class UserClient:
@@ -244,7 +210,7 @@ class UserClient:
         try:
             chat = await with_flood_retry(lambda: self.client.get_chat(entity), label="get_chat")
         except RPCError as e:
-            raise _translate_rpc(e) from e
+            raise translate_rpc(e) from e
         chat_id = getattr(chat, "id", 0)
         title = getattr(chat, "title", None) or getattr(chat, "first_name", None) or str(chat_id)
         chat_type = getattr(chat, "type", None)
@@ -280,8 +246,8 @@ class UserClient:
                 if len(msgs) >= limit:
                     break
         except RPCError as e:
-            raise _translate_rpc(e) from e
-        return [_message_dict(m) for m in msgs]
+            raise translate_rpc(e) from e
+        return [message_dict(m) for m in msgs]
 
     async def search_global(self, query: str, limit: int) -> list[dict[str, Any]]:
         """全账号搜索（FR-SEARCH-01 global 模式）：服务端 messages.searchGlobal + Audio filter。
@@ -301,17 +267,12 @@ class UserClient:
                 if len(msgs) >= limit:
                     break
         except RPCError as e:
-            raise _translate_rpc(e) from e
-        return [_message_dict(m) for m in msgs]
+            raise translate_rpc(e) from e
+        return [message_dict(m) for m in msgs]
 
     async def get_messages(self, chat_id: int, message_ids: list[int]) -> list[dict[str, Any]]:
-        """按 id 取消息 dict（DownloadService meta 补全用）；单条返回也归一为列表。"""
-        try:
-            result = await self.client.get_messages(chat_id, message_ids=message_ids)
-        except RPCError as e:
-            raise _translate_rpc(e) from e
-        msgs = result if isinstance(result, list) else [result]
-        return [_message_dict(m) for m in msgs if m is not None]
+        """按 id 取消息 dict（DownloadService meta 补全用）。"""
+        return await media_get_messages(self.client, chat_id, message_ids)
 
     async def download_media(
         self,
@@ -319,75 +280,12 @@ class UserClient:
         file_name: str,
         progress: Callable[[int, int], None] | None = None,
     ) -> str | None:
-        """下载（FR-DL-01）：msg → temp 路径；经 with_flood_retry（NFR-09）。"""
-        chat_id = message_ref["chat_id"]
-        message_id = message_ref["message_id"]
+        """按 (chat_id, message_id) 下载到临时路径（FR-DL-01）。
 
-        async def _dl() -> str | None:
-            result = await self.client.get_messages(chat_id, message_ids=[message_id])
-            msgs = result if isinstance(result, list) else [result]
-            if not msgs or msgs[0] is None:
-                return None
-            out = await self.client.download_media(
-                msgs[0],
-                file_name=file_name,
-                progress=progress,
-            )
-            return out if isinstance(out, str) else None
-
-        try:
-            return await with_flood_retry(_dl, label="download_media")
-        except RPCError as e:
-            raise _translate_rpc(e) from e
+        只服务「登录账号看得见」的消息（频道链接、搜索结果）。转发进 bot 私聊的消息
+        由 bot 会话取——见 ``app.telegram.media`` 的模块说明。
+        """
+        return await media_download(self.client, message_ref, file_name, progress)
 
 
-def _message_dict(m: Message) -> dict[str, Any]:
-    audio = m.audio
-    doc = m.document
-    return {
-        "chat_id": chat_id_of(m),
-        "message_id": m.id,
-        "audio": {
-            "title": audio.title,
-            "performer": audio.performer,
-            "duration": audio.duration,
-            "file_size": audio.file_size,
-            "mime_type": audio.mime_type,
-            "file_unique_id": audio.file_unique_id,
-            "file_name": audio.file_name,
-            "bitrate": getattr(audio, "bitrate", None),
-        }
-        if audio
-        else None,
-        "document": {
-            "mime_type": doc.mime_type,
-            "file_size": doc.file_size,
-            "file_unique_id": doc.file_unique_id,
-            "file_name": doc.file_name,
-            "duration": None,
-            "bitrate": None,
-        }
-        if doc
-        else None,
-        "voice": m.voice is not None,
-        "caption": m.caption,
-        "message_date": m.date.isoformat() if m.date else None,
-        # 全局搜索（FR-SEARCH-01 global 模式）按它给卡片标来源频道；逐源搜索不用（源标题已知）
-        "chat_title": chat_title_of(m),
-    }
 
-
-def _translate_rpc(e: RPCError) -> SourceUnreachableError:
-    """底层异常 → 领域异常（编码规范 §2.4）。
-
-    FloodWait 单独成一档：它是限流，不是权限。落进兜底的 `not_joined` 会让界面对着一句
-    错的修复指引（「先用该账号加入频道」），而 SRS FR-SEARCH-01 要求的正是**限流可见**。
-    """
-    if isinstance(e, FloodWait):
-        return SourceUnreachableError("flood_wait", f"FloodWait {e.seconds or 0}s")
-    name = type(e).__name__
-    if name in _BANNED_ERRORS:
-        return SourceUnreachableError("banned", str(e))
-    if name in _INVALID_LINK_ERRORS:
-        return SourceUnreachableError("invalid_link", str(e))
-    return SourceUnreachableError("not_joined", str(e))

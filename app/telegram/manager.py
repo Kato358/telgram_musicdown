@@ -63,12 +63,28 @@ class _DownloadProxy:
         file_name: str,
         progress: Callable[[int, int], None] | None = None,
     ) -> Any:
+        """按定位取音频。``via_bot`` 的消息改走 bot 会话（FR-LINK-04）。
+
+        转发进 bot 私聊的消息只存在于 bot 会话：bot 侧 chat_id 是发信用户的 user_id，
+        登录账号拿同一个 id 去查会落到自己的收藏夹。bot 没起（token 空/启动失败）时
+        明确报出来，而不是让任务以一句取不到音频收场。
+        """
+        if message_ref.get("via_bot"):
+            bot = self._mgr.bot
+            if bot is None:
+                raise AppError(
+                    "bot_unavailable",
+                    "bot 未运行：转发进 bot 的音频只能由 bot 会话取，请检查 bot_token",
+                )
+            return bot.download_media(message_ref, file_name, progress=progress)
         c = self._mgr.authorized_client()
         if c is None:
             raise AppError("not_connected", "telegram 未登录：请先在 Web 完成初始化登录")
         return c.download_media(message_ref, file_name, progress=progress)
 
     def get_messages(self, chat_id: int, message_ids: list[int]) -> Any:
+        """取消息（meta 补全用）。只服务登录账号看得见的对话——转发入队的 meta 在 bot
+        侧就补全完了（``DownloadService._run_task`` 对 ``via_bot`` 跳过补全）。"""
         c = self._mgr.authorized_client()
         if c is None:
             raise AppError("not_connected", "telegram 未登录：请先在 Web 完成初始化登录")
