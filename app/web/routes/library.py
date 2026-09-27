@@ -1,7 +1,8 @@
-"""本地曲库路由（FR-LIB）：扫描索引的列表 / 播放 / 封面 / 重扫 / 移除记录。
+"""本地曲库路由（FR-LIB）：扫描索引的列表 / 播放 / 封面 / 重扫 / 删除文件。
 
-数据源是 local_tracks 台账（启动与手动触发的扫描写入）：文件被删后记录仍在
+数据源是 local_tracks 台账（启动与手动触发的扫描写入）：文件在曲库外被删后记录仍在
 （missing=1），曲库继续可见；还挂着下载记录的行可以一键重新入队。
+页面上的「删除」是删磁盘文件（连台账行一起删），与上面那种「文件没了但记录留着」相反。
 列表端点在服务端做筛选（关键词 / 歌手 / 在库状态）、排序（白名单）与分页——
 曲库上万首时前端也只拉屏上那一页（懒加载）。
 """
@@ -129,7 +130,7 @@ def _register_track_routes(
     existing_file: Any,
     tags: Any,
 ) -> None:
-    """单行端点：播放流 / 封面 / 打开目录 / 移除记录（依赖列表组的定位辅助）。"""
+    """单行端点：播放流 / 封面 / 打开目录 / 删除文件（依赖列表组的定位辅助）。"""
     root = Path(ctx.library.save_path)
 
     @app.get("/api/local-library/{track_id}/stream")
@@ -184,7 +185,12 @@ def _register_track_routes(
     async def library_delete(
         track_id: int, _: None = Depends(ctx.check_session)
     ) -> dict[str, bool]:
-        """移除这条曲库记录（磁盘文件不动）；文件还在的话下次扫描会重新入库。"""
-        if not ctx.store.delete_local_track(track_id):
+        """删掉磁盘上的文件与这条台账行；文件已不在则只删行。"""
+        try:
+            deleted = await ctx.library.delete_track(track_id)
+        except OSError as e:  # 删不动（Windows 上正被流占用）→ 文件与记录都留着
+            logger.warning("library file delete failed id=%s: %s", track_id, e)
+            raise HTTPException(status_code=500, detail=f"cannot delete file: {e}") from e
+        if not deleted:
             raise HTTPException(status_code=404, detail="track not found")
         return {"ok": True}

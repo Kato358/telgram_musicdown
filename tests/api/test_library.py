@@ -1,4 +1,4 @@
-"""本地曲库 API 测试（FR-LIB）：列表分页 / 筛选排序 / 流与封面 / 重扫触发 / 记录删除。"""
+"""本地曲库 API 测试（FR-LIB）：列表分页 / 筛选排序 / 流与封面 / 重扫触发 / 删除文件。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import SecretConfig
-from app.db.models import History, Task
+from app.db.models import History, LocalTrack, Task
 from app.db.store import Store
 from app.domain import TemplateConfig
 from app.events import EventBus
@@ -163,18 +163,44 @@ def test_library_missing_rows_stay_visible_and_stream_404s(tmp_path: Path) -> No
     assert client.get(f"/api/local-library/{track_id}/stream").status_code == 404
 
 
-def test_library_delete_record_keeps_file_and_rescan_restores(tmp_path: Path) -> None:
+def test_library_delete_removes_file_and_record(tmp_path: Path) -> None:
     client, _, library = make_client(tmp_path)
     target = seed_audio(tmp_path, "周杰伦/晴天.mp3")
     library.scan_sync()
     track_id = client.get("/api/local-library").json()["items"][0]["id"]
 
     assert client.delete(f"/api/local-library/{track_id}").status_code == 200
+    assert not target.exists()  # 删的是磁盘上的文件
     assert client.get("/api/local-library").json()["total"] == 0
-    assert target.exists()  # 磁盘文件不动
 
-    library.scan_sync()  # 文件还在 → 下次扫描重新入库
-    assert client.get("/api/local-library").json()["total"] == 1
+    library.scan_sync()  # 文件没了，重扫不会把它写回来
+    assert client.get("/api/local-library").json()["total"] == 0
+
+
+def test_library_delete_missing_row_only_drops_record(tmp_path: Path) -> None:
+    # 文件已经在曲库外被删（missing）：删除只清台账行，同样 200
+    client, _, library = make_client(tmp_path)
+    target = seed_audio(tmp_path, "周杰伦/晴天.mp3")
+    library.scan_sync()
+    track_id = client.get("/api/local-library").json()["items"][0]["id"]
+    target.unlink()
+    library.scan_sync()
+
+    assert client.delete(f"/api/local-library/{track_id}").status_code == 200
+    assert client.get("/api/local-library").json()["total"] == 0
+
+
+def test_library_delete_never_touches_files_outside_save_path(tmp_path: Path) -> None:
+    # 台账行的 rel_path 越出曲库根（脏数据/符号链接）→ 只删记录，绝不动曲库外的文件
+    client, store, _ = make_client(tmp_path)
+    outside = make_silent_mp3(tmp_path, "outside.mp3")
+    track_id = store.upsert_local_track(
+        LocalTrack(id=None, rel_path="../outside.mp3", file_name="outside.mp3")
+    )
+
+    assert client.delete(f"/api/local-library/{track_id}").status_code == 200
+    assert outside.exists()
+    assert client.get("/api/local-library").json()["total"] == 0
 
 
 def test_library_scan_endpoint_fills_index(tmp_path: Path) -> None:

@@ -4,6 +4,7 @@
 - 变化检测只看 (mtime, file_size)：没变的文件不重读标签，几千首的重扫是纯 stat 级。
 - 文件消失不改记录、只标 missing=1——「删除后曲库还能看到」是这条台账的存在理由；
   标签缺值回退文件名 / 父目录名（按本项目的落盘模板，父目录通常就是歌手）。
+- 曲库页的「删除」= 删磁盘文件 + 删台账行（delete_track），与「文件在曲库外被删」是两件事；
 - mutagen 同步 IO，全在 to_thread 里跑（编码规范 §2.3）。
 """
 
@@ -52,6 +53,30 @@ class LocalLibraryService:
         if self.events is not None:
             await self.events.publish(Event("library.scan", {**result, "done": True}))
         return result
+
+    async def delete_track(self, track_id: int) -> bool:
+        """删除曲库行与磁盘上的文件（曲库页的「删除」= 删文件，不是只标记）。
+
+        文件已不在（missing）时只删行；删不动（Windows 上正被播放）把 OSError 抛给
+        调用方，文件与记录都留着——文件还在就说明这次删除没成。
+        持扫描锁与重扫串行：扫描按旧快照 upsert，会把刚删掉的行原样写回来。
+        """
+        async with self._scanning:
+            track = self.store.get_local_track(track_id)
+            if track is None:
+                return False
+            path = self._path_in_root(track.rel_path)
+            if path is None:
+                logger.warning("library row outside save_path, record only: %s", track.rel_path)
+            elif not track.missing:
+                # missing_ok：标了 missing 之前就被人从磁盘删掉的行照样只删记录
+                await asyncio.to_thread(path.unlink, True)
+            return self.store.delete_local_track(track_id)
+
+    def _path_in_root(self, rel_path: str) -> Path | None:
+        """台账行 → 曲库根下的绝对路径；越出曲库根的脏 rel_path（符号链接也算）返回 None。"""
+        path = (self.save_path / rel_path).resolve()
+        return path if path.is_relative_to(self.save_path.resolve()) else None
 
     def scan_sync(self) -> dict[str, int]:
         """同步扫描主体：对账磁盘清单与台账，返回 {added, updated, missing, total}。"""

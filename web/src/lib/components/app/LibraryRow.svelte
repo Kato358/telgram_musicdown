@@ -36,7 +36,7 @@
    *
    * 台账与磁盘对账：文件还在 → 可播放；文件没了 → 第二行说「文件已删除」，
    * 挂着下载记录的行给「重新下载」（按记录里的 chat/message 重新入队）。
-   * 操作列的删除 = 移除这条曲库记录（磁盘文件不动，文件还在的话下次扫描会重新入库）。
+   * 操作列的删除 = 删磁盘上的文件（在库时；文件已不在就只删这条记录）。
    * 封面走曲库行自己的链路（内嵌封面 > api 兜底），加载失败退音符占位。
    */
   import CircleAlertIcon from "@lucide/svelte/icons/circle-alert";
@@ -62,7 +62,7 @@
     playLabel: string;
     onplay: () => void;
     onredownload: () => void;
-    onremove: () => void;
+    ondelete: () => void;
     feedback?: string | null;
     class?: string;
   }
@@ -74,7 +74,7 @@
     playLabel,
     onplay,
     onredownload,
-    onremove,
+    ondelete,
     feedback,
     class: className = "",
   }: Props = $props();
@@ -85,6 +85,8 @@
   const title = $derived(row.title?.trim() || fileName);
   const showFileLine = $derived(Boolean(row.title?.trim()) && fileName !== row.title?.trim());
   const redownloadable = $derived(row.missing && row.chat_id !== null && row.message_id !== null);
+  /** 删除键的标签跟着事实走：在库行删文件，已删行只删记录。 */
+  const deleteLabel = $derived(t(row.missing ? "library.deleteRecord" : "library.deleteFile"));
 
   const ACTION_BASE =
     "ui-transition grid size-8 shrink-0 place-items-center rounded-full active:scale-[0.98]";
@@ -202,9 +204,9 @@
         <button
           type="button"
           class={DELETE_ACTION}
-          aria-label={t("library.removeRecord")}
-          title={t("library.removeRecord")}
-          onclick={onremove}
+          aria-label={deleteLabel}
+          title={deleteLabel}
+          onclick={ondelete}
         >
           <Trash2Icon class="size-4" aria-hidden="true" />
         </button>

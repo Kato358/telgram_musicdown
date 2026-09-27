@@ -5,7 +5,8 @@
    * 懒加载每次只取一页——曲库上万首也不会把首屏拖慢）。扫描完成后端经 SSE
    * `library.scan` 推送，这里观察 events.libraryRevision 重取已加载的部分；
    * 下载完成的 success 事件会借「延迟触发重扫」把新文件带进曲库。
-   * 文件被删的行保留（missing），挂着下载记录的可以一键重新入队。
+   * 文件在曲库外被删的行保留（missing），挂着下载记录的可以一键重新入队；
+   * 页面上的「删除」是删磁盘文件（连记录一起删），删完这条行不再回来。
    */
   import { onMount } from "svelte";
   import { untrack } from "svelte";
@@ -76,7 +77,7 @@
   let rescanning = $state(false);
 
   let confirmOpen = $state(false);
-  let removeTarget = $state<LocalTrackRow | null>(null);
+  let deleteTarget = $state<LocalTrackRow | null>(null);
 
   /** 只认最后一次发出的请求：慢响应不会覆盖新筛选的结果。 */
   let requestSeq = 0;
@@ -276,19 +277,19 @@
     }
   }
 
-  function askRemove(row: LocalTrackRow) {
-    removeTarget = row;
+  function askDelete(row: LocalTrackRow) {
+    deleteTarget = row;
     confirmOpen = true;
   }
 
-  async function confirmRemove() {
-    const row = removeTarget;
+  async function confirmDelete() {
+    const row = deleteTarget;
     confirmOpen = false;
-    removeTarget = null;
+    deleteTarget = null;
     if (row === null) return;
     try {
       await api.delete(`/api/local-library/${row.id}`);
-      notice = t("library.removed");
+      notice = t(row.missing ? "library.deletedRecord" : "library.deleted");
       await refreshLoaded();
     } catch (err) {
       flash = { id: row.id, text: errorText(err, t("common.error")) };
@@ -406,7 +407,7 @@
           feedback={flash && flash.id === row.id ? flash.text : null}
           onplay={() => void playFrom(row)}
           onredownload={() => void redownload(row)}
-          onremove={() => askRemove(row)}
+          ondelete={() => askDelete(row)}
         />
       {/each}
     {/if}
@@ -425,18 +426,24 @@
 <Dialog
   bind:open={confirmOpen}
   onOpenChange={(open) => {
-    if (!open) removeTarget = null;
+    if (!open) deleteTarget = null;
   }}
 >
   <DialogContent>
     <DialogHeader>
-      <DialogTitle class="text-h2 font-semibold">{t("library.removeTitle")}</DialogTitle>
-      <DialogDescription class="text-caption">
-        {removeTarget
-          ? t("library.removeBody", {
-              title: removeTarget.title?.trim() || removeTarget.file_name,
+      <DialogTitle class="text-h2 font-semibold">
+        {deleteTarget
+          ? t("library.deleteTitle", {
+              title: deleteTarget.title?.trim() || deleteTarget.file_name,
             })
           : ""}
+      </DialogTitle>
+      <DialogDescription class="text-caption">
+        {#if deleteTarget}
+          {t(deleteTarget.missing ? "library.deleteRecordBody" : "library.deleteBody", {
+            title: deleteTarget.title?.trim() || deleteTarget.file_name,
+          })}
+        {/if}
       </DialogDescription>
     </DialogHeader>
 
@@ -444,8 +451,8 @@
       <Button variant="outline" onclick={() => (confirmOpen = false)}>
         {t("common.cancel")}
       </Button>
-      <Button variant="destructive" size="lg" onclick={() => void confirmRemove()}>
-        {t("library.removeConfirm")}
+      <Button variant="destructive" size="lg" onclick={() => void confirmDelete()}>
+        {t("library.deleteConfirm")}
       </Button>
     </DialogFooter>
   </DialogContent>
