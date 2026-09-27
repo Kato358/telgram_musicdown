@@ -150,6 +150,8 @@ export const zhCN: Dict = {
     placeholder: "关键词，如：周杰伦 晴天",
     run: "搜索",
     running: "搜索中",
+    busy: "正在并发检索已启用的音乐源；超时的源会在结果里点名。",
+    busyGlobal: "正在扫账号加入的全部对话并按排序口径整理，需要多等几秒。",
     filterSources: "搜索范围",
     allSources: "全部启用源",
     allSourcesGlobal: "全部结果",
@@ -184,8 +186,8 @@ export const zhCN: Dict = {
     floodwait: "Telegram 限流：稍后再搜，或减少并发源。",
     partial: "部分源还在检索，先显示已回来的结果；稍后再搜一次可拿到完整结果。",
     listSep: "、",
-    loadMore: "加载更多",
     loadingMore: "加载中",
+    loadedAll: "已加载全部",
     moreHint: "已载入 {n} 首",
   },
 
@@ -818,6 +820,8 @@ export const en: Dict = {
     placeholder: "Keywords, e.g. Jay Chou Qing Tian",
     run: "Search",
     running: "Searching",
+    busy: "Searching the enabled sources in parallel; slow ones are named in the results.",
+    busyGlobal: "Scanning every conversation in the account and ranking the results — this takes a few seconds.",
     filterSources: "Scope",
     allSources: "All enabled",
     allSourcesGlobal: "All results",
@@ -854,8 +858,8 @@ export const en: Dict = {
     partial:
       "Some sources are still being searched; showing what is back so far. Search again shortly for the complete set.",
     listSep: ", ",
-    loadMore: "Load more",
     loadingMore: "Loading",
+    loadedAll: "All loaded",
     moreHint: "{n} loaded",
   },
 

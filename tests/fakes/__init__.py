@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -128,25 +129,37 @@ class FakeChkszClient:
         rows: dict[str, list[dict[str, Any]]] | None = None,
         detail: dict[str, Any] | None = None,
         content: bytes = b"f" * 64,
+        delays: dict[str, float] | None = None,
     ) -> None:
         self.rows = rows or {}
         self.detail = detail or {}
         self.content = content
+        #: 平台 → 搜索耗时：断言同步窗口/后台补齐（全账号模式的等待窗口比逐源长）
+        self.delays = delays or {}
         self.downloaded: list[str] = []
         #: 每次解析请求的 (平台, 曲目 id, 音质)，用来断言档位真的传到了上游
         self.resolved: list[tuple[str, str, str]] = []
         self.search_calls: list[tuple[str, str, int, int]] = []
 
+    async def _sleep(self, provider: str) -> None:
+        """该平台的搜索延迟（没配就是立刻返回）。"""
+        delay = self.delays.get(provider, 0.0)
+        if delay:
+            await asyncio.sleep(delay)
+
     async def search_163(self, keyword: str, limit: int, offset: int) -> list[dict[str, Any]]:
         self.search_calls.append(("163", keyword, limit, offset))
+        await self._sleep("163")
         return self.rows.get("163", [])[:limit]
 
     async def search_qq(self, keyword: str, limit: int) -> list[dict[str, Any]]:
         self.search_calls.append(("qq", keyword, limit, 0))
+        await self._sleep("qq")
         return self.rows.get("qq", [])[:limit]
 
     async def search_kugo(self, keyword: str, limit: int) -> list[dict[str, Any]]:
         self.search_calls.append(("kugo", keyword, limit, 0))
+        await self._sleep("kugo")
         return self.rows.get("kugo", [])[:limit]
 
     async def resolve_163(self, track_id: str, quality: str) -> dict[str, Any]:

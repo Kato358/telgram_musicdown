@@ -16,14 +16,17 @@
   import { session } from "$lib/stores/session.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Checkbox } from "$lib/components/ui/checkbox";
-  import type { Column } from "$lib/components/app/DataTable.svelte";
-  import DataTable from "$lib/components/app/DataTable.svelte";
+  import DataTable, { ROW_CLASS, type Column } from "$lib/components/app/DataTable.svelte";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
   import Note from "$lib/components/app/Note.svelte";
   import PageHeader from "$lib/components/app/PageHeader.svelte";
+  import ProgressBar from "$lib/components/app/ProgressBar.svelte";
   import QualityPickerDialog from "$lib/components/app/QualityPickerDialog.svelte";
   import SectionCard from "$lib/components/app/SectionCard.svelte";
   import TrackRow, { COL_CHECK, trackColumns } from "$lib/components/app/TrackRow.svelte";
+
+  /** 搜索中骨架屏的行（形状先就位，结果一到就替换）。 */
+  const SKELETON_ROWS = Array.from({ length: 5 }, (_, index) => index);
 
   /** 多选时在列首拼一列勾选框，退出多选即摘掉。 */
   const columns = $derived<Column[]>(
@@ -50,6 +53,28 @@
     if (keyword.length === 0 || keyword === search.query.trim()) return;
     search.query = keyword;
     void search.runSearch();
+  });
+
+  /** 懒加载哨兵：贴近列表底部 300px 就自动续页（结果区不再有「加载更多」按钮）。
+   *
+   *  依赖页码与行数：新一轮搜索、每翻一页都重新观测一次——`IntersectionObserver` 每次
+   *  `observe()` 都会先送一次当前状态，于是「哨兵已在视口里」（首屏没填满、或上一页刚好
+   *  把列表推到底）这种情况不必等用户滚动就能续上一页。
+   */
+  let sentinel = $state<HTMLElement | undefined>();
+  $effect(() => {
+    const el = sentinel;
+    void search.page;
+    void search.results.length;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void search.loadMore();
+      },
+      { rootMargin: "300px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
   });
 
   onMount(() => {
@@ -113,6 +138,16 @@
         {search.searching ? t("search.running") : t("search.run")}
       </Button>
     </form>
+
+    {#if search.searching}
+      <!-- 搜索中动画（设计规范 §5.5 的线型进度条）：比例未知时左端游标呼吸，不假装 0% -->
+      <div class="flex flex-col gap-1.5" role="status">
+        <ProgressBar ratio={null} label={t("search.running")} />
+        <span class="text-caption text-muted-foreground">
+          {session.globalSearch ? t("search.busyGlobal") : t("search.busy")}
+        </span>
+      </div>
+    {/if}
 
     {#snippet pill(active: boolean, label: string, onclick: () => void, sub?: string)}
       <button
@@ -192,6 +227,20 @@
 
 {#if search.needSources && !session.globalSearch}
   <Note tone="wait">{t("search.needSources")}</Note>
+{:else if search.searching && search.results.length === 0}
+  <!-- 搜索中且还没有可显示的结果：表头先就位，行用骨架占位（设计规范 §0.16 #10 的口径） -->
+  <div class="sr-only" role="status">{t("search.running")}</div>
+  <!-- 占位表只摆列标签（还没有可选的行，故不套 headerCell 的全选勾选框） -->
+  <DataTable {columns}>
+    {#each SKELETON_ROWS as row (row)}
+      <li class={ROW_CLASS} aria-hidden="true">
+        <span class="skeleton h-4 min-w-0 flex-1 rounded-chip"></span>
+        <span class="skeleton hidden h-4 w-14 shrink-0 rounded-chip sm:block"></span>
+        <span class="skeleton hidden h-4 w-20 shrink-0 rounded-chip md:block"></span>
+        <span class="skeleton h-4 w-[72px] shrink-0 rounded-chip"></span>
+      </li>
+    {/each}
+  </DataTable>
 {:else if search.searched && search.results.length === 0}
   <EmptyState
     title={session.globalSearch ? t("search.resultsNoneGlobal") : t("search.resultsNone")}
@@ -232,18 +281,15 @@
     <span class="tabular text-caption text-muted-foreground">
       {t("search.moreHint", { n: search.results.length })}
     </span>
-    {#if search.hasMore}
-      <div class="ml-auto">
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={search.loadingMore}
-          onclick={() => void search.loadMore()}
-        >
-          {search.loadingMore ? t("search.loadingMore") : t("search.loadMore")}
-        </Button>
-      </div>
-    {/if}
+    <span class="ml-auto text-caption text-muted-foreground" aria-live="polite">
+      {#if search.loadingMore}
+        {t("search.loadingMore")}
+      {:else if !search.canLoadMore}
+        {t("search.loadedAll")}
+      {/if}
+    </span>
+    <!-- 懒加载哨兵：贴在表格底部，靠近它就自动续页（按钮已撤） -->
+    <div bind:this={sentinel} class="size-1 shrink-0" aria-hidden="true"></div>
   {/snippet}
 
   <DataTable

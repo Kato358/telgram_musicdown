@@ -38,6 +38,10 @@ DEFAULT_SEARCH_CACHE_MAX_BYTES = 32 * 1024 * 1024
 DEFAULT_SEARCH_FANOUT = 4
 # 同步窗口：窗口内回来的源直接进响应，超窗的转后台补齐（下次同词命中完整结果）。
 DEFAULT_SEARCH_SYNC_WINDOW_MS = 4000
+# 全账号模式的同步窗口（SDD §2.6）：这条链路的在线平台是「追加扇出」，等的越久进同一页的
+# 越多——排序是在合并后的池子上做的，池子没齐就排等于在半份数据上排。故给它 2 倍窗口；
+# 超过它照旧转后台补齐并在 partial/pending_sources 里点名，不静默截断。
+DEFAULT_SEARCH_GLOBAL_SYNC_WINDOW_MS = 8000
 DEFAULT_SEARCH_PAGE_SIZE = 20
 SEARCH_MAX_PAGE_SIZE = 100
 
@@ -204,6 +208,9 @@ class SearchSettings:
     mode: str = DEFAULT_SEARCH_MODE
     fanout: int = DEFAULT_SEARCH_FANOUT
     sync_window_sec: float = DEFAULT_SEARCH_SYNC_WINDOW_MS / 1000
+    # 全账号模式的等待窗口：只服务 searchGlobal 链路的追加扇出（见常量处的说明）。
+    # 刻意不进 settings 表——它是「排序池齐不齐」的实现判据，不是给用户调的旋钮。
+    global_sync_window_sec: float = DEFAULT_SEARCH_GLOBAL_SYNC_WINDOW_MS / 1000
     page_size: int = DEFAULT_SEARCH_PAGE_SIZE
     max_page_size: int = SEARCH_MAX_PAGE_SIZE
 

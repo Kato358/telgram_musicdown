@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -548,6 +549,55 @@ async def test_global_mode_online_scope_keeps_only_that_platform(tmp_path: Path)
 
     assert {c.provider for c in resp.results} == {"qq"}
     assert {call[0] for call in chksz.search_calls} == {"qq"}
+
+
+async def test_global_mode_waits_longer_for_online_sources(tmp_path: Path) -> None:
+    """全账号模式的等待窗口比逐源长：平台慢一点也要进同一页（排序是在合并后的池子上做的）。"""
+    store = Store(tmp_path / "app.db")
+    tg = FakeUserClient([], global_messages=[make_audio_message(1, title="晴天")])
+    chksz = FakeChkszClient(rows={"kugo": ROWS_KUGO}, delays={"kugo": 0.2})
+    registry = fake_registry(store, tg, chksz)
+    registry.apply_chksz(("kugo",), "hires")
+    service = SearchService(
+        store,
+        tg,
+        registry=registry,
+        settings=SearchSettings(mode="global", sync_window_sec=0.05, global_sync_window_sec=0.5),
+    )
+
+    resp = await service.search("晴天")
+
+    assert resp.meta["partial"] is False
+    assert {c.provider for c in resp.results} == {"telegram", "kugo"}
+    await service.aclose()
+
+
+async def test_global_mode_over_window_fills_in_background(tmp_path: Path) -> None:
+    """超过全账号窗口照旧转后台补齐并点名：少给结果也要可见（FR-SEARCH-01）。"""
+    store = Store(tmp_path / "app.db")
+    tg = FakeUserClient([], global_messages=[make_audio_message(1, title="晴天")])
+    chksz = FakeChkszClient(rows={"kugo": ROWS_KUGO}, delays={"kugo": 0.3})
+    registry = fake_registry(store, tg, chksz)
+    registry.apply_chksz(("kugo",), "hires")
+    service = SearchService(
+        store,
+        tg,
+        registry=registry,
+        settings=SearchSettings(mode="global", sync_window_sec=0.05, global_sync_window_sec=0.1),
+    )
+
+    partial = await service.search("晴天")
+
+    assert partial.meta["partial"] is True
+    assert partial.meta["pending_sources"] == [PROVIDER_SCOPES["kugo"]]
+    assert {c.provider for c in partial.results} == {"telegram"}
+
+    await asyncio.gather(*tuple(service._bg), return_exceptions=True)
+    again = await service.search("晴天")
+
+    assert again.meta["partial"] is False
+    assert {c.provider for c in again.results} == {"telegram", "kugo"}
+    await service.aclose()
 
 
 # ---- 下载 ----

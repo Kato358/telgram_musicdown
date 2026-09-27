@@ -29,6 +29,10 @@ interface UnreachableSource {
 export const SORT_OPTIONS = ["relevance", "date", "duration", "size"] as const;
 export type SearchSort = (typeof SORT_OPTIONS)[number];
 
+/** 连续几页「一行业没多」就停止懒加载（服务端 has_more 只是「上游可能还有」的上界，
+ *  池子取满而本地筛选/去重后已无新行时它会一直报 true）。 */
+const EMPTY_PAGE_LIMIT = 3;
+
 /** 飞片用的封面：走全局封面链路（与行内封面同源），没有可查字段就飞音符占位。 */
 function coverOf(item: SearchResult): string | null {
   return coverUrl(item.title, item.artist);
@@ -62,10 +66,14 @@ class SearchStore {
   sort = $state<SearchSort>("relevance");
   results = $state<SearchResult[]>([]);
   meta = $state<Record<string, unknown>>({});
-  /** 已载入到第几页（0 起）；「加载更多」逐页追加，分页由服务端在完整结果集上切。 */
+  /** 已载入到第几页（0 起）；懒加载逐页追加，分页由服务端在完整结果集上切。 */
   page = $state(0);
-  /** 服务端还有更深的页（`meta.has_more`）：决定「加载更多」是否出现。 */
+  /** 服务端还有更深的页（`meta.has_more`）：懒加载据此决定要不要再取。 */
   hasMore = $state(false);
+  /** 连续空页（一行业没多）后停下的标记，见 `EMPTY_PAGE_LIMIT`。 */
+  stalled = $state(false);
+  /** 已连续几页没带回新行（`stalled` 的计数，不进模板）。 */
+  private emptyPages = 0;
   /** 本次结果不全（`meta.partial`）：有源超了同步窗口，仍在后台补齐。 */
   partial = $state(false);
   /** 仍在后台补齐的源 id（`meta.pending_sources`），提示里点名。 */
@@ -86,6 +94,11 @@ class SearchStore {
 
   get unreachable(): UnreachableSource[] {
     return (this.meta.unreachable as UnreachableSource[] | undefined) ?? [];
+  }
+
+  /** 还能不能续页（懒加载哨兵与页脚状态都读它）。 */
+  get canLoadMore(): boolean {
+    return this.hasMore && !this.stalled;
   }
 
   get needSources(): boolean {
@@ -146,6 +159,9 @@ class SearchStore {
     if (!keyword) return;
     this.searching = true;
     this.error = "";
+    // 新一轮搜索：空页护栏复位（上一轮停下的判据不适用于这一批结果）
+    this.stalled = false;
+    this.emptyPages = 0;
     try {
       const resp = await api.post<SearchResponse>("/api/search", {
         q: keyword,
@@ -172,9 +188,12 @@ class SearchStore {
     }
   }
 
-  /** 追加下一页（FR-SEARCH-04 跨页）：服务端在完整结果集上切片，续页不重不漏。 */
+  /** 追加下一页（FR-SEARCH-04 跨页）：服务端在完整结果集上切片，续页不重不漏。
+   *
+   *  调用方是视图里的懒加载哨兵（滚到列表底部自动触发），不是按钮。
+   */
   async loadMore() {
-    if (!this.hasMore || this.loadingMore || this.searching) return;
+    if (!this.canLoadMore || this.loadingMore || this.searching) return;
     const keyword = this.query.trim();
     if (!keyword) return;
     this.loadingMore = true;
@@ -188,11 +207,13 @@ class SearchStore {
       });
       // 后台补齐会让同一页重排，按行键去重后再追加
       const seen = new Set(this.results.map((item) => this.keyOf(item)));
-      this.results = [
-        ...this.results,
-        ...resp.results.filter((item) => !seen.has(this.keyOf(item))),
-      ];
+      const fresh = resp.results.filter((item) => !seen.has(this.keyOf(item)));
+      this.results = [...this.results, ...fresh];
       this.applyMeta(resp, next);
+      // 服务端报 has_more 只说明「上游可能还有」，池子取满而本地筛选/去重后已无新行时
+      // 它会一直报 true；连续几页零新增就停，免得哨兵原地空转反复打上游。
+      this.emptyPages = fresh.length === 0 ? this.emptyPages + 1 : 0;
+      if (this.emptyPages >= EMPTY_PAGE_LIMIT) this.stalled = true;
     } catch (err) {
       this.error = errorText(err, t("common.error"));
     } finally {

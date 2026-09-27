@@ -8,9 +8,10 @@
 - ``sources``（默认）：逐源并发扇出（``asyncio.Semaphore`` 封顶），每源先查二级缓存、
   同键经 singleflight 合并，``sync_window_sec`` 内回来的进响应、超窗的转后台补齐；
 - ``global``：一次 ``messages.searchGlobal`` 覆盖账号加入的全部对话——**不需要音乐源**，
-  请求数从 N 降到 1，代价是结果按全局时间序、单次上游失败即整次失败。在线源不在
-  Telegram 对话里，searchGlobal 覆盖不到，故这条链路**追加扇出**已启用的在线平台，
-  两类结果合成一页（否则换个模式在线源就整批不见了）。
+  请求数从 N 降到 1，代价是结果按全局时间序、单次上游失败即整次失败。上游那一次按
+  ``GLOBAL_FETCH_STEP`` 的整数倍取（一次喂饱后面几页，首页才有得排），等待窗口也更长。
+  在线源不在 Telegram 对话里，searchGlobal 覆盖不到，故这条链路**追加扇出**已启用的在线
+  平台，两类结果合成一页（否则换个模式在线源就整批不见了）。
 
 缓存层在 ``services/search_cache.py``，纯规则在 ``domain.py``；本模块只管编排。
 """
@@ -57,6 +58,19 @@ logger = logging.getLogger(__name__)
 # 全局结果不依赖任何源行，但复用同一套「关键词 × 取数窗口」缓存与翻页前缀：
 # sources.id 从 1 起，0 不会与任何源相撞，故拿它当保留 scope。
 GLOBAL_CACHE_SCOPE = 0
+
+# 全账号链路的取数窗口粒度（FR-SEARCH-01 global）。
+# 逐源模式的池子是「每源 need 条」，而 searchGlobal 一共只有一次上游调用，若也只要
+# need = (page+1)*page_size 条，首页池子就等于一页——排序/去重/筛选全在这 20 条上做，
+# 同源转发被去重后甚至填不满一页。故把窗口按 STEP 向上取整：一次上游调用喂饱后面几页，
+# 页 0 的次序是在一份真池子上排出来的。pyrogram 内部每 100 条一次 invoke，
+# 按 100 取整不会多出往返。
+GLOBAL_FETCH_STEP = 100
+
+
+def _global_window(need: int) -> int:
+    """取数下界 → 上游实际要取的条数：向上取整到 ``GLOBAL_FETCH_STEP`` 的整数倍。"""
+    return -(-need // GLOBAL_FETCH_STEP) * GLOBAL_FETCH_STEP
 
 
 def _snapshot_key(
@@ -266,8 +280,14 @@ class SearchService:
           按 ``chat_id`` 过滤（也正因如此，只勾在线源时 telegram 结果会被整体滤掉）；
         - **单次失败即整次失败**：Telegram 那一次调用没有「逐源不可达」这一档，FloodWait
           直接以错误透出；在线源仍各自得失，落在 ``meta.unreachable``。
+
+        取数与等待两处都跟逐源模式不同，且都是为了「同一份池子」：上游那一次按
+        ``GLOBAL_FETCH_STEP`` 的整数倍取（一次喂饱后面几页，页 0 才有得排），在线平台的
+        扇出用更长的 ``global_sync_window_sec`` 等齐。
         """
         need = (page + 1) * size
+        # Telegram 那一次要按窗口取（见 GLOBAL_FETCH_STEP 的说明）；在线源各取 need 条。
+        window_need = _global_window(need)
         online = self._online_targets(source_ids)
         # 取数范围带上在线平台集合：平台开了关了就是另一批结果，翻页前缀不能沿用旧的
         scope = "global" if not online else "global:" + ",".join(str(t.scope_id) for t in online)
@@ -283,12 +303,17 @@ class SearchService:
             )
             for target in online
         }
-        global_task = asyncio.create_task(self._global_result(keyword, need, refresh=refresh))
+        global_task = asyncio.create_task(
+            self._global_result(keyword, window_need, refresh=refresh)
+        )
         done: set[asyncio.Task[CachedSourceResult]] = set()
         if tasks:
             # 在线源走同步窗口（超窗转后台补齐，与逐源模式同一套），Telegram 那次调用照旧
             # 等到底：它的结果就是这条链路的主体，没回来就没有「已回来的那部分」可言。
-            done, _ = await asyncio.wait(set(tasks.values()), timeout=self.settings.sync_window_sec)
+            # 这条链路的窗口比逐源长（见 global_sync_window_sec）：池子齐了再排才有意义。
+            done, _ = await asyncio.wait(
+                set(tasks.values()), timeout=self.settings.global_sync_window_sec
+            )
         try:
             window = await global_task
         except SourceUnreachableError as e:
@@ -374,16 +399,20 @@ class SearchService:
             if source_ids is None or target.scope_id in source_ids
         ]
 
-    async def _global_result(self, keyword: str, need: int, *, refresh: bool) -> CachedSourceResult:
+    async def _global_result(
+        self, keyword: str, window: int, *, refresh: bool
+    ) -> CachedSourceResult:
         """全局取数窗口：缓存够深就直接用，否则合并一次上游调用并写回缓存。
 
         与逐源的差别在「续取」不存在：searchGlobal 没有 offset 参数，只能「从头要 N 条」，
-        故窗口就是「从最新往前的 N 条」，深翻页靠把 ``need`` 调大重取（上游约 10k 条上限）。
+        故窗口就是「从最新往前的 N 条」，深翻页靠把 ``window`` 调大重取（上游约 10k 条上限）。
+        ``window`` 是按 ``GLOBAL_FETCH_STEP`` 取过整的条数，比「这一页要多少」深好几页——
+        窗口够深时后续几页连上游都不用打。
         """
         base: CachedSourceResult | None = None
         if not refresh:
             base = self.cache.get(GLOBAL_CACHE_SCOPE, keyword)
-            if base is not None and (len(base.items) >= need or not base.has_more):
+            if base is not None and (len(base.items) >= window or not base.has_more):
                 return replace(base, from_cache=True)
             if base is None and self.cache.is_negative(GLOBAL_CACHE_SCOPE, keyword):
                 return CachedSourceResult(
@@ -395,18 +424,18 @@ class SearchService:
                     fetched_at=time.time(),
                     from_cache=True,
                 )
-        key = f"{search_cache_key(GLOBAL_CACHE_SCOPE, keyword)}#{need}"
+        key = f"{search_cache_key(GLOBAL_CACHE_SCOPE, keyword)}#{window}"
         task = self._inflight.get(key)
         if task is None:
-            task = asyncio.create_task(self._fetch_global(keyword, need))
+            task = asyncio.create_task(self._fetch_global(keyword, window))
             self._inflight[key] = task
             task.add_done_callback(partial(self._release_inflight, key))
         return await task
 
-    async def _fetch_global(self, keyword: str, need: int) -> CachedSourceResult:
-        """一次 searchGlobal 取回 ``need`` 条（上游已按 Audio 过滤），按消息自带的频道名标来源。"""
+    async def _fetch_global(self, keyword: str, window: int) -> CachedSourceResult:
+        """一次 searchGlobal 取回 ``window`` 条（上游已按 Audio 过滤），按自带频道名标来源。"""
         async with self._sem:
-            raw = await self.client.search_global(keyword, limit=need)
+            raw = await self.client.search_global(keyword, limit=window)
         items = [
             message_to_card(m, m.get("chat_title")) for m in raw if is_audio_message(m)
         ]
@@ -415,7 +444,7 @@ class SearchService:
             keyword=keyword,
             items=items,
             covered=len(raw),
-            has_more=len(raw) >= need,
+            has_more=len(raw) >= window,
             fetched_at=time.time(),
         )
         self.cache.put(result)

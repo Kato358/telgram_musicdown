@@ -43,6 +43,7 @@ class RecordingClient:
         self.global_results = global_results or []
         self.global_error = global_error
         self.global_calls: list[str] = []  # 每次 searchGlobal 的关键词
+        self.global_limits: list[int] = []  # 每次 searchGlobal 要的条数（窗口取整的观测点）
 
     def calls_for(self, chat_id: int) -> int:
         return self.calls.count(chat_id)
@@ -66,6 +67,7 @@ class RecordingClient:
     async def search_global(self, query: str, limit: int) -> list[dict[str, Any]]:
         """searchGlobal：一次调用覆盖全部对话（上游已按 Audio 过滤，这里按标题模拟服务端匹配）。"""
         self.global_calls.append(query)
+        self.global_limits.append(limit)
         if self.global_error is not None:
             raise self.global_error
         matched = [
@@ -529,7 +531,30 @@ async def test_global_mode_pagination_deepens_window(tmp_path: Path) -> None:
     assert ids0.isdisjoint(ids1)
     assert page0.meta["has_more"] is True
     assert page1.meta["has_more"] is False
-    assert len(client.global_calls) == 2  # 深一页要把窗口从 20 提到 40
+    # 首页就要了 GLOBAL_FETCH_STEP 条的窗口：30 条一次取完，第 1 页直接切缓存
+    assert client.global_limits == [100]
+    await service.aclose()
+
+
+async def test_global_page_pool_covers_several_pages(tmp_path: Path) -> None:
+    """首页池子不止一页：页 0 的排序/去重是在 100 条上做的，且页 0–4 只打一次上游。
+
+    旧实现把 ``(page+1)*page_size`` 直接当上游 ``limit``：首页池子 = 20 条，同源转发
+    被去重后常常连一页都填不满，每翻一页还要重打一次 searchGlobal。
+    """
+    store, _ = _new_store(tmp_path)
+    client = RecordingClient({}, global_results=_global_tracks([(-1001, 150)]))
+    service = _service(store, client, mode="global")
+
+    seen: list[int] = []
+    for page in range(8):
+        resp = await service.search("晴天", page=page, page_size=20)
+        seen.extend(c.message_id for c in resp.results)
+
+    assert client.global_limits == [100, 200]  # 页 0–4 用 100 的窗口；页 5 才抬到 200
+    assert len(client.global_calls) == 2
+    assert len(seen) == len(set(seen)) == 150
+    assert resp.meta["has_more"] is False  # 上游取不满窗口 = 到底了
     await service.aclose()
 
 
