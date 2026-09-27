@@ -7,25 +7,19 @@
    */
   import { tick } from "svelte";
   import BellIcon from "@lucide/svelte/icons/bell";
-  import CheckIcon from "@lucide/svelte/icons/check";
+  import MoonIcon from "@lucide/svelte/icons/moon";
   import SearchIcon from "@lucide/svelte/icons/search";
-  import SunMoonIcon from "@lucide/svelte/icons/sun-moon";
+  import SunIcon from "@lucide/svelte/icons/sun";
   import UserIcon from "@lucide/svelte/icons/user";
   import XIcon from "@lucide/svelte/icons/x";
   import { Button } from "$lib/components/ui/button";
-  import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-  } from "$lib/components/ui/dropdown-menu";
   import { t } from "$lib/i18n/index.svelte";
   import { formatRate } from "$lib/format";
   import { navigate, pathOf } from "$lib/router.svelte";
   import { events } from "$lib/stores/events.svelte";
   import { queue } from "$lib/stores/queue.svelte";
   import { session } from "$lib/stores/session.svelte";
-  import { theme, THEME_OPTIONS } from "$lib/stores/theme.svelte";
+  import { theme } from "$lib/stores/theme.svelte";
   import Lamp from "./Lamp.svelte";
   import MobileNav from "./MobileNav.svelte";
 
@@ -59,6 +53,14 @@
         : { tone: "idle" as const, label: t("app.disconnected") },
   );
   const initial = $derived(session.handle?.trim().charAt(0).toUpperCase() ?? "");
+
+  /** 顶栏外观键是一个开关：在浅/深之间翻面，图标跟着翻（跟随系统时按当前解析结果翻）。 */
+  const isDark = $derived(theme.resolved === "dark");
+  const themeToggleLabel = $derived(t(isDark ? "app.themeToLight" : "app.themeToDark"));
+
+  function toggleTheme() {
+    theme.set(isDark ? "light" : "dark");
+  }
 
   $effect(() => {
     if (focusSignal === 0) return;
@@ -183,25 +185,19 @@
         <SearchIcon />
       </Button>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger>
-          {#snippet child({ props })}
-            <Button {...props} variant="ghost" size="icon" aria-label={t("app.theme")}>
-              <SunMoonIcon />
-            </Button>
-          {/snippet}
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" class="min-w-36">
-          {#each THEME_OPTIONS as option (option.value)}
-            <DropdownMenuItem onSelect={() => theme.set(option.value)} class="justify-between">
-              {t(option.label)}
-              {#if theme.preference === option.value}
-                <CheckIcon class="size-4" />
-              {/if}
-            </DropdownMenuItem>
-          {/each}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={themeToggleLabel}
+        title={themeToggleLabel}
+        onclick={toggleTheme}
+      >
+        {#if isDark}
+          <SunIcon />
+        {:else}
+          <MoonIcon />
+        {/if}
+      </Button>
 
       <Button
         variant="ghost"

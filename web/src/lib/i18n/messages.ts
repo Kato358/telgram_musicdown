@@ -28,6 +28,8 @@ export const zhCN: Dict = {
     themeSystem: "跟随系统",
     themeLight: "浅色",
     themeDark: "深色",
+    themeToLight: "切到浅色",
+    themeToDark: "切到深色",
     activeTransfers: "在传",
     menu: "打开菜单",
   },
@@ -158,7 +160,6 @@ export const zhCN: Dict = {
       duration: "时长",
       size: "大小",
     },
-    idleHint: "输入关键词回车搜索。结果可直接试听，或加入下载队列。",
     resultsCount: "找到 {n} 首",
     resultsNone: "没找到匹配的曲目。换个关键词，或换一个已启用的音乐源。",
     resultsNoneGlobal:
@@ -683,6 +684,8 @@ export const en: Dict = {
     themeSystem: "System",
     themeLight: "Light",
     themeDark: "Dark",
+    themeToLight: "Switch to light",
+    themeToDark: "Switch to dark",
     activeTransfers: "Active",
     menu: "Open menu",
   },
@@ -817,7 +820,6 @@ export const en: Dict = {
       duration: "Duration",
       size: "Size",
     },
-    idleHint: "Type a keyword and press Enter. Results can be previewed or queued for download.",
     resultsCount: "{n} tracks found",
     resultsNone: "No matching tracks. Try another keyword, or enable another source.",
     resultsNoneGlobal:

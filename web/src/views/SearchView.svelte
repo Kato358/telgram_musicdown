@@ -196,9 +196,7 @@
   <EmptyState
     title={session.globalSearch ? t("search.resultsNoneGlobal") : t("search.resultsNone")}
   />
-{:else if !search.searched}
-  <p class="max-w-[40ch] text-body text-muted-foreground">{t("search.idleHint")}</p>
-{:else}
+{:else if search.searched}
   {#snippet selectBar()}
     <div class="flex flex-wrap items-center gap-2">
       <span class="tabular text-caption text-primary">
