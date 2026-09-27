@@ -66,8 +66,8 @@ flowchart LR
 ### Docker 部署（推荐）
 
 ```bash
-git clone https://github.com/<your-name>/telegram-musicdown.git
-cd telegram-musicdown
+# 只取 compose 文件（无需克隆仓库）
+curl -O https://raw.githubusercontent.com/kato358/telgram_musicdown/main/docker-compose.yml
 docker compose up -d
 ```
 
@@ -84,7 +84,7 @@ docker compose up -d
 ```yaml
 services:
   musicdown:
-    build: .
+    image: ghcr.io/kato358/telgram_musicdown:latest
     container_name: musicdown
     restart: unless-stopped
     ports:
@@ -99,6 +99,7 @@ services:
       # - ./config.yaml:/data/config.yaml  # 可选：持久化密钥文件
 ```
 
+镜像已发布到 GHCR：`ghcr.io/kato358/telgram_musicdown:latest`；`docker compose up -d` 会自动拉取，也可 `docker pull ghcr.io/kato358/telgram_musicdown:latest`。
 镜像以非 root 用户（`tgm`，`useradd` 默认分配 UID/GID）运行，宿主机挂载目录需允许该用户读写。
 
 ### 本地运行（开发）
