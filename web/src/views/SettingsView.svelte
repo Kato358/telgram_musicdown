@@ -681,10 +681,11 @@
   <Note tone="fail">{loadError}</Note>
 {/if}
 
-<!-- 全页唯一的保存入口：有任何未保存改动就浮在内容顶部，跟着滚动，不随卡片跑到屏幕外 -->
+<!-- 全页唯一的保存入口：有任何未保存改动就浮在内容顶部，跟着滚动，不随卡片跑到屏幕外。
+     滚动容器是右列（顶栏是它的 sticky 首子元素，见 App.svelte），故 top 让出 64px 顶栏高度。 -->
 {#if dirty}
   <div
-    class="card sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-5"
+    class="card sticky top-16 z-20 flex flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-5"
   >
     <span class="text-body font-medium">{t("settings.unsaved")}</span>
     <Button size="sm" disabled={saving} onclick={() => void save()}>

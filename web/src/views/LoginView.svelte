@@ -8,6 +8,7 @@
   import { t } from "$lib/i18n/index.svelte";
   import { session } from "$lib/stores/session.svelte";
   import { errorText } from "$lib/api/client";
+  import MusicIcon from "@lucide/svelte/icons/music";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import Field from "$lib/components/app/Field.svelte";
@@ -32,9 +33,17 @@
   }
 </script>
 
-<div class="grid min-h-dvh place-items-center bg-background px-4 py-10">
+<div class="grid min-h-dvh place-items-center px-4 py-10">
   <div class="w-full max-w-sm">
     <div class="mb-6 flex flex-col items-center gap-1 text-center">
+      <!-- 品牌徽记：与侧栏 Logo 同一枚（主色块 + 音符），放大到卡内尺寸并带主色投影，
+           让闸门页与控制台同属一个产品，而不是一张孤零零的表单。 -->
+      <span
+        class="mb-3 grid size-12 place-items-center rounded-card bg-primary text-primary-foreground shadow-[var(--primary-shadow)]"
+        aria-hidden="true"
+      >
+        <MusicIcon class="size-6" />
+      </span>
       <h1 class="text-h1 font-semibold">{t("app.name")}</h1>
       <p class="text-caption text-muted-foreground">{t("login.lede")}</p>
     </div>

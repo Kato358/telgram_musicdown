@@ -136,22 +136,50 @@
 </script>
 
 {#if !session.checked}
-  <div class="grid min-h-dvh place-items-center text-caption text-muted-foreground">
-    {t("common.loading")}
+  <!-- 首屏骨架（v3.21）：形状先就位、内容落进来时不跳（比一句「加载中」少让人猜）。
+       结构与控制台一致：侧栏 / 顶栏搜索 / 横幅 + 四张统计卡 + 表卡。文字只留给读屏。 -->
+  <div class="flex h-dvh flex-col overflow-hidden bg-background" aria-busy="true">
+    <div class="flex min-h-0 flex-1">
+      <div
+        class="hidden shrink-0 flex-col gap-2 border-r border-border bg-card p-3 lg:flex lg:w-[260px]"
+      >
+        <div class="skeleton h-10 rounded-nav"></div>
+        {#each Array.from({ length: 6 }) as _, i (i)}
+          <div class="skeleton h-8 rounded-nav"></div>
+        {/each}
+      </div>
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div class="flex h-16 shrink-0 items-center border-b border-border px-4 md:px-6">
+          <div class="skeleton h-9 w-full rounded-full md:max-w-[480px]"></div>
+        </div>
+        <div class="mx-auto w-full max-w-[1100px] flex-1 px-4 py-6 md:px-6">
+          <div class="flex flex-col gap-4 md:gap-6">
+            <div class="skeleton h-32 rounded-card"></div>
+            <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-5">
+              {#each Array.from({ length: 4 }) as _, i (i)}
+                <div class="skeleton h-28 rounded-card"></div>
+              {/each}
+            </div>
+            <div class="skeleton h-64 rounded-card"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <span class="sr-only" role="status">{t("common.loading")}</span>
   </div>
 {:else if loginGate}
   <LoginView />
 {:else if setupGate || router.key === "setup"}
-  <div class="min-h-dvh bg-background">
+  <div class="min-h-dvh">
     <SetupView />
   </div>
 {:else}
-  <div class="flex h-dvh flex-col overflow-hidden bg-background">
+  <div class="flex h-dvh flex-col overflow-hidden">
     <div class="flex min-h-0 flex-1">
       <Sidebar />
-      <div class="flex min-w-0 flex-1 flex-col">
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         <TopBar focusSignal={searchFocus} />
-        <main class="min-h-0 flex-1 overflow-y-auto">
+        <main class="flex-1">
           <div class="mx-auto w-full max-w-[1100px] px-4 py-6 md:px-6">
             {#key router.key}
               {@const View = VIEWS[router.key]}

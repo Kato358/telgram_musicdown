@@ -2,7 +2,8 @@
   /** 顶栏与全局搜索（设计规范 §5.2）：页面标题 + 搜索（Ctrl/⌘ K）+ 在传读数 + 外观/通知/连接/头像。
    *
    * 顶栏只做入口：不选源、不筛选，那些属于搜索页。连接状态并入头像区（8px 灯 + 状态词）。
-   * 底 --card 不透明，不做 backdrop-blur（滚动性能优先）。
+   * 底为毛玻璃（`.topbar-glass`，v3.21）：主栏内容从顶栏下方滚过，透出模糊后的底色；
+   * 不支持 backdrop-filter 或系统要求降低透明度时回落实色 --card（回落逻辑在 app.css）。
    */
   import { tick } from "svelte";
   import BellIcon from "@lucide/svelte/icons/bell";
@@ -104,7 +105,7 @@
 </script>
 
 <header
-  class="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-card px-4 md:px-6"
+  class="topbar-glass sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border px-4 md:px-6"
 >
   {#if mobileOpen}
     <div class="flex w-full items-center gap-2 md:hidden">

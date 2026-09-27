@@ -51,7 +51,8 @@
     "ui-transition grid size-7 shrink-0 place-items-center rounded-full bg-primary-soft text-primary hover:bg-primary/15";
 </script>
 
-<section class="card relative flex flex-col gap-3 p-4 {className}">
+<!-- 带 href 的统计卡是真入口，挂 .card-lift（悬停上移 2px + 升到 e3 档）；纯展示的数字卡不挂。 -->
+<section class="card relative flex flex-col gap-3 p-4 {href ? 'card-lift' : ''} {className}">
   <span
     class="grid size-10 shrink-0 place-items-center rounded-chip {STAT_TILE[tone]}"
     aria-hidden="true"
@@ -62,8 +63,14 @@
   <div class="flex flex-col gap-0.5">
     <p class="text-caption text-muted-foreground">{label}</p>
     <!-- 侧栏 260px 后带右栏的主栏在 lg 档只剩 ~430px、每卡约 97px，h1 的 24px 会让
-         「469 MB」换行（§2.5：<1280px 用 h2）；xl 起主栏 ≥690px 才升 h1。 -->
-    <p class="tabular text-h2 font-bold xl:text-h1">{value}</p>
+        「469 MB」换行（§2.5：<1280px 用 h2）；xl 起主栏 ≥690px 才升 h1。
+        数值是「已格式化字符串」，没法做数字滚动（那要先反解单位）——改为值变时重放一次
+        200ms 的轻微落定（{#key} 重挂 span），实时计数刷新因此有反馈而不抢戏。 -->
+    <p class="tabular text-h2 font-bold xl:text-h1">
+      {#key value}
+        <span class="value-in">{value}</span>
+      {/key}
+    </p>
   </div>
 
   {#if hint || href}

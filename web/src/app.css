@@ -52,8 +52,33 @@
   --rule: #f2f3f5; /* 表格行底边、分区细线、hover 行底 */
   --ring: #0b7a55;
 
-  /* 卡片浮起：薄荷底与白卡之间补一层极浅的投影（§5.1；v3.9 再柔一档，避免卡片堆叠的拥挤感） */
-  --card-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 14px 30px -22px rgb(16 24 40 / 0.2);
+  /* 海拔三档（v3.21）：阴影按「离地高度」分档，不再一档走天下——
+     e1 贴地（飞行圆片、行内浮标）、e2 卡片（.card，页面主体）、e3 浮层（弹窗/下拉/播放器）。
+     每档都带一条 1px 上缘内高光（--card-highlight）：浅色下是受光的白边，
+     深色下压到 5% 白，卡片因此有「光源在上方」的一致方向，而不是一圈黑雾。
+     --card-highlight 在 .dark 里换值，变量在使用处解析，深浅两态共用同一份档位定义。 */
+  --card-highlight: rgb(255 255 255 / 0.65);
+  --shadow-e1: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-e2:
+    inset 0 1px 0 var(--card-highlight), 0 1px 2px rgb(16 24 40 / 0.04),
+    0 8px 24px -12px rgb(16 24 40 / 0.14);
+  --shadow-e3:
+    inset 0 1px 0 var(--card-highlight), 0 2px 4px rgb(16 24 40 / 0.06),
+    0 24px 48px -24px rgb(16 24 40 / 0.3);
+
+  /* 顶栏玻璃底（v3.21）：主栏内容是顶栏的滚动邻居，从它底下穿过——卡底色掺 18% 透明，
+     配 backdrop-filter 即得「内容从毛玻璃后经过」的通透感。深浅两态共用一份定义
+     （--card 在使用处解析）；不支持 backdrop-filter 时回落不透明 --card。 */
+  --topbar-bg: color-mix(in oklab, var(--card) 82%, transparent);
+
+  /* 主按钮投影（v3.21）：从主色派生，而不是黑色雾——按键是「嵌在页面里」的实体，
+     不是浮在页面上的影子。深浅两态共用一份定义（--primary 在使用处解析）。 */
+  --primary-shadow:
+    0 1px 2px color-mix(in oklab, var(--primary) 40%, transparent),
+    0 4px 12px -6px color-mix(in oklab, var(--primary) 55%, transparent);
+  --primary-shadow-hover:
+    0 2px 4px color-mix(in oklab, var(--primary) 42%, transparent),
+    0 8px 18px -8px color-mix(in oklab, var(--primary) 60%, transparent);
 
   /* 进度与音量共用的两段色（线型与波形同一内核） */
   --progress-fill: var(--primary);
@@ -134,7 +159,8 @@
   --rule: #232b27;
   --ring: #4fb08a;
 
-  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 14px 30px -22px rgb(0 0 0 / 0.55);
+  /* 深色只换内高光：黑底上的 1px 受光边比白卡上的弱得多，5% 白即止（§3.2 派生态） */
+  --card-highlight: rgb(255 255 255 / 0.05);
 
   --progress-fill: var(--primary);
   --progress-track: var(--rule);
@@ -195,6 +221,17 @@
   --color-lamp-wait: var(--lamp-wait);
   --color-lamp-idle: var(--lamp-idle);
 
+  /* 阴影档位 → 海拔令牌（v3.21）：ui/ 生成物里的 shadow-md / shadow-lg 因此自动落到
+     e3 浮层档，弹窗/下拉/选择器不写一个字就继承本设计语言；贴地档收进 xs/sm。
+     深色态无需重定义——档位引用 --card-highlight，在使用处解析。 */
+  --shadow-2xs: var(--shadow-e1);
+  --shadow-xs: var(--shadow-e1);
+  --shadow-sm: var(--shadow-e1);
+  --shadow-md: var(--shadow-e3);
+  --shadow-lg: var(--shadow-e3);
+  --shadow-xl: var(--shadow-e3);
+  --shadow-2xl: var(--shadow-e3);
+
   --font-sans:
     Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", sans-serif;
@@ -232,10 +269,31 @@
   html {
     @apply font-sans;
     -webkit-text-size-adjust: 100%;
+    /* Inter 可变字体的光学尺寸：大字自动收紧笔画、小字加粗笔画，是原生可变字体的本分 */
+    font-optical-sizing: auto;
   }
 
+  /* 页面底（v3.21）：薄荷底从「一块纯色」变成「自上方受光」——顶部一片极淡的主色光晕
+     往下收到无，与 .banner-glow 同一门语言（主色掺透明、无主色时不可见）。
+     只画一层 background-image，不动 --background 令牌，卡片与文字对比度不受影响。 */
   body {
     @apply bg-background text-body text-foreground;
+    background-image: radial-gradient(
+      1200px 480px at 50% -180px,
+      color-mix(in oklab, var(--primary) 5%, transparent),
+      transparent 70%
+    );
+    background-repeat: no-repeat;
+  }
+
+  /* 标题层级（v3.21）：中英混排的安全负字距（-0.01em 是极限，再紧中文会挤）；
+     text-wrap: balance 让横幅/页头标题换行时不留孤字。字号令牌不动（§4.3）。 */
+  h1,
+  h2,
+  .text-h1,
+  .text-h2 {
+    letter-spacing: -0.01em;
+    text-wrap: balance;
   }
 
   /* 数字对齐：时长、大小、速率、时间码一律等宽数字（Inter 原生支持），
@@ -271,10 +329,76 @@
 }
 
 @layer utilities {
-  /* 卡片化的事实分区：页面底薄荷、卡片纯白，白卡靠极浅投影从薄荷底上浮起（§5.1） */
+  /* 卡片化的事实分区：页面底薄荷、卡片纯白。海拔 e2 档（含上缘 1px 受光边）让白卡
+     从薄荷底上浮起（§5.1/§2.4）——阴影与道光方向统一由 app.css 定义，页面不得自加。 */
   .card {
     @apply rounded-card border border-border bg-card;
-    box-shadow: var(--card-shadow);
+    box-shadow: var(--shadow-e2);
+  }
+
+  /* 可交互卡片（带 href 的 StatCard、整块可点的入口卡）的悬停抬升：上移 2px + 升到 e3，
+     180ms。只给真能点的卡挂，静态卡不挂——否则「看起来能点」会骗人（§6.2）。 */
+  .card-lift {
+    transition:
+      transform 180ms ease-out,
+      box-shadow 180ms ease-out;
+  }
+
+  .card-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-e3);
+  }
+
+  /* 主按钮实体感（v3.21）：上缘 1px 白内高光（受光面）+ 主色派生投影；hover 上移 1px 并
+     加深投影，active 归位。只给 default variant 挂（.btn-primary）——outline/ghost 保持克制，
+     全站按钮都在「喊」就不高级了。过渡不在本类里写：button 基类已含 transform/box-shadow 的
+     130ms 过渡，这里只改值。 */
+  .btn-primary {
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18), var(--primary-shadow);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), var(--primary-shadow-hover);
+    transform: translateY(-1px);
+  }
+
+  .btn-primary:active:not(:disabled) {
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18), var(--primary-shadow);
+    transform: translateY(0);
+  }
+
+  /* 顶栏玻璃：不支持 backdrop-filter 时就是一块实色 --card；支持了就换成半透明底 +
+     模糊 + 提饱和（内容从它底下滚过时才有通透感）。prefers-reduced-transparency 下
+     回落实色，尊重系统的「降低透明度」偏好。 */
+  .topbar-glass {
+    background: var(--card);
+  }
+
+  @supports (backdrop-filter: blur(1px)) {
+    .topbar-glass {
+      background: var(--topbar-bg);
+      backdrop-filter: blur(12px) saturate(1.5);
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .topbar-glass {
+      background: var(--card);
+      backdrop-filter: none;
+    }
+  }
+
+  /* 首屏加载骨架：比一句「加载中」更少猜测——形状先就位，内容落进来时不跳。
+     1.4s 的斜向扫光，低对比（surface-subtle ↔ card），只在 reduce 关掉时动。 */
+  .skeleton {
+    background-color: var(--surface-subtle);
+    background-image: linear-gradient(
+      100deg,
+      transparent 40%,
+      color-mix(in oklab, var(--card) 70%, transparent) 50%,
+      transparent 60%
+    );
+    background-size: 220% 100%;
   }
 
   /* 渐变面：欢迎横幅（薄荷→白）与快速操作卡头（主色渐变）。两处都在 app.css 收口，
@@ -357,7 +481,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--card);
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-e3);
   color: var(--card-foreground);
   overflow: hidden;
 }
@@ -455,7 +579,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--card);
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-e3);
   overflow: hidden;
 }
 
@@ -551,13 +675,31 @@
 }
 
 /* ============================================================
-   动效（§7）：hover/active 过渡、路由淡入、进行中状态点呼吸。
+   动效（§7）：hover/active 过渡、路由进场、进行中状态点呼吸、骨架扫光。
    prefers-reduced-motion: reduce 时全部静止。
    ============================================================ */
 
 @media (prefers-reduced-motion: no-preference) {
-  .route-fade {
-    animation: route-fade 140ms ease-out both;
+  /* 路由进场：淡入 + 上移 6px。240ms easeOutQuint（cubic-bezier(.22,1,.36,1)）——位移给了
+     方向感，比纯淡入「感觉更快」，而总时长仍在「不等动画」的预算内。
+     目标取 .route-fade 内两层（App 的 wrapper → 视图根 → 页内分块），因此各页的
+     横幅 / 统计卡栅格 / 表卡是同一套级联，视图不必各写一份。 */
+  .route-fade > * > * {
+    animation: route-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* 错峰：同一页的分块依次进场，每级 40ms、上限 120ms。节奏来自「有先有后」，
+     不是把动画拖长——最后一块也在 360ms 内落定。 */
+  .route-fade > * > *:nth-child(2) {
+    animation-delay: 40ms;
+  }
+
+  .route-fade > * > *:nth-child(3) {
+    animation-delay: 80ms;
+  }
+
+  .route-fade > * > *:nth-child(n + 4) {
+    animation-delay: 120ms;
   }
 
   .dot-pulse {
@@ -567,6 +709,17 @@
   /* 侧边栏导航图标的落定弹跳：一批飞片到齐时 FlyOverlay 递增 fly.pulse，{#key} 重放一次 */
   .fly-pop {
     animation: fly-pop 360ms ease-out;
+  }
+
+  /* 数值落定（v3.21）：统计卡的值一变就重放一次——极轻微的透明度 + 2px 下落，
+     给「数字刚刚更新」一个可感但安静的反馈（实时计数每秒刷新时也不吵）。 */
+  .value-in {
+    animation: value-in 200ms ease-out both;
+  }
+
+  /* 骨架扫光：1.4s 循环，斜向低对比扫过一次 */
+  .skeleton {
+    animation: skeleton-slide 1.4s ease-in-out infinite;
   }
 }
 
@@ -579,7 +732,7 @@
   height: 32px;
   border-radius: 9999px;
   pointer-events: none;
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-e1);
 }
 
 @keyframes fly-pop {
@@ -602,11 +755,33 @@
   }
 }
 
-@keyframes route-fade {
+@keyframes route-in {
   from {
     opacity: 0;
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes value-in {
+  from {
+    opacity: 0.35;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes skeleton-slide {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -40% 0;
   }
 }
