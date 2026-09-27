@@ -20,14 +20,7 @@
   import SearchIcon from "@lucide/svelte/icons/search";
   import Trash2Icon from "@lucide/svelte/icons/trash-2";
   import { Button } from "$lib/components/ui/button";
-  import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-  } from "$lib/components/ui/dialog";
+  import ConfirmDialog from "$lib/components/app/ConfirmDialog.svelte";
   import {
     Select,
     SelectContent,
@@ -318,17 +311,17 @@
   {/if}
 </SectionCard>
 
-<Dialog bind:open={clearOpen}>
-  <DialogContent>
-    <DialogHeader>
-      <DialogTitle class="text-h2 font-semibold">{t("logs.clearTitle")}</DialogTitle>
-      <DialogDescription class="text-caption">{t("logs.clearBody")}</DialogDescription>
-    </DialogHeader>
-    <DialogFooter>
-      <Button variant="outline" onclick={() => (clearOpen = false)}>{t("common.cancel")}</Button>
-      <Button variant="destructive" disabled={clearing} onclick={() => void clearLog()}>
-        {clearing ? t("logs.clearing") : t("logs.clearConfirm")}
-      </Button>
-    </DialogFooter>
-  </DialogContent>
-</Dialog>
+<ConfirmDialog
+  bind:open={clearOpen}
+  title={t("logs.clearTitle")}
+  description={t("logs.clearBody")}
+  target={{
+    name: "app.log",
+    meta: t("logs.clearTargetMeta", { n: events.errors.length }),
+    mono: true,
+  }}
+  confirmLabel={t("logs.clearConfirm")}
+  pendingLabel={t("logs.clearPending")}
+  pending={clearing}
+  onconfirm={() => void clearLog()}
+/>

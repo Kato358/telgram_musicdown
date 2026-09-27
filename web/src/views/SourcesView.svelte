@@ -21,17 +21,8 @@
   import { session } from "$lib/stores/session.svelte";
   import type { Tone } from "$lib/tone";
   import { Button } from "$lib/components/ui/button";
-  import { Checkbox } from "$lib/components/ui/checkbox";
-  import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-  } from "$lib/components/ui/dialog";
+  import ConfirmDialog from "$lib/components/app/ConfirmDialog.svelte";
   import { Input } from "$lib/components/ui/input";
-  import { Label } from "$lib/components/ui/label";
   import SourceCard from "$lib/components/app/SourceCard.svelte";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
   import Note from "$lib/components/app/Note.svelte";
@@ -163,6 +154,7 @@
     removeOpen = true;
   }
 
+  /** 确认成功走这里（清目标 + 关门）；用户按取消 / Esc / 点遮罩则由弹窗的 onclosed 清目标。 */
   function closeRemove() {
     removeOpen = false;
     removeTarget = null;
@@ -344,45 +336,17 @@
   </div>
 </SectionCard>
 
-<Dialog
+<ConfirmDialog
   bind:open={removeOpen}
-  onOpenChange={(open) => {
-    if (!open) removeTarget = null;
-  }}
->
-  <DialogContent>
-    {#if removeTarget}
-      <DialogHeader>
-        <DialogTitle class="text-h2 font-semibold">
-          {t("sources.removeTitle", { title: removeTarget.title })}
-        </DialogTitle>
-        <DialogDescription class="text-caption">{t("sources.removeBody")}</DialogDescription>
-      </DialogHeader>
-
-      <div class="flex items-center gap-2">
-        <Checkbox
-          id="remove-history"
-          bind:checked={removeHistory}
-          aria-label={t("sources.removeHistory")}
-        />
-        <Label for="remove-history" class="text-body">{t("sources.removeHistory")}</Label>
-      </div>
-
-      {#if removeError}
-        <Note tone="fail">{removeError}</Note>
-      {/if}
-
-      <DialogFooter>
-        <Button variant="outline" onclick={closeRemove}>{t("common.cancel")}</Button>
-        <Button
-          variant="destructive"
-          size="lg"
-          disabled={removing}
-          onclick={() => void confirmRemove()}
-        >
-          {t("sources.removeConfirm")}
-        </Button>
-      </DialogFooter>
-    {/if}
-  </DialogContent>
-</Dialog>
+  title={t("sources.removeTitle")}
+  description={t("sources.removeBody")}
+  target={removeTarget ? { name: removeTarget.title, meta: handleOf(removeTarget) } : null}
+  option={{ label: t("sources.removeHistory"), hint: t("sources.removeHistoryHint") }}
+  bind:optionChecked={removeHistory}
+  error={removeError || null}
+  confirmLabel={t("sources.removeConfirm")}
+  pendingLabel={t("sources.removePending")}
+  pending={removing}
+  onconfirm={() => void confirmRemove()}
+  onclosed={() => (removeTarget = null)}
+/>

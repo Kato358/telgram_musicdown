@@ -55,14 +55,7 @@
   import type { Tone } from "$lib/tone";
   import { Button } from "$lib/components/ui/button";
   import { Checkbox } from "$lib/components/ui/checkbox";
-  import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-  } from "$lib/components/ui/dialog";
+  import ConfirmDialog from "$lib/components/app/ConfirmDialog.svelte";
   import { Input } from "$lib/components/ui/input";
   import {
     Select,
@@ -1246,50 +1239,26 @@
   </div>
 </div>
 
-<Dialog bind:open={logoutOpen}>
-  <DialogContent>
-    <DialogHeader>
-      <DialogTitle class="text-h2 font-semibold">{t("settings.logoutTitle")}</DialogTitle>
-      <DialogDescription class="text-caption">{t("settings.logoutBody")}</DialogDescription>
-    </DialogHeader>
-    <DialogFooter>
-      <Button variant="outline" onclick={() => (logoutOpen = false)}>{t("common.cancel")}</Button>
-      <Button
-        variant="destructive"
-        size="lg"
-        disabled={loggingOut}
-        onclick={() => void confirmLogout()}
-      >
-        {loggingOut ? t("settings.loggingOut") : t("settings.logoutConfirm")}
-      </Button>
-    </DialogFooter>
-  </DialogContent>
-</Dialog>
+<ConfirmDialog
+  bind:open={logoutOpen}
+  title={t("settings.logoutTitle")}
+  description={t("settings.logoutBody")}
+  target={me ? { name: accountName, meta: me.premium ? t("settings.accountPremium") : null } : null}
+  keep={[t("settings.logoutKeep")]}
+  confirmLabel={t("settings.logoutConfirm")}
+  pendingLabel={t("settings.logoutPending")}
+  pending={loggingOut}
+  onconfirm={() => void confirmLogout()}
+/>
 
-<Dialog
+<ConfirmDialog
   bind:open={resetOpen}
-  onOpenChange={(open) => {
-    if (open) resetError = "";
-  }}
->
-  <DialogContent>
-    <DialogHeader>
-      <DialogTitle class="text-h2 font-semibold">{t("settings.resetTitle")}</DialogTitle>
-      <DialogDescription class="text-caption">{t("settings.resetBody")}</DialogDescription>
-    </DialogHeader>
-    {#if resetError}
-      <Note tone="fail">{resetError}</Note>
-    {/if}
-    <DialogFooter>
-      <Button variant="outline" onclick={() => (resetOpen = false)}>{t("common.cancel")}</Button>
-      <Button
-        variant="destructive"
-        size="lg"
-        disabled={resetting}
-        onclick={() => void confirmReset()}
-      >
-        {resetting ? t("settings.resetting") : t("settings.resetConfirm")}
-      </Button>
-    </DialogFooter>
-  </DialogContent>
-</Dialog>
+  title={t("settings.resetTitle")}
+  description={t("settings.resetBody")}
+  keep={[t("settings.resetKeep"), t("settings.resetKeepWizard")]}
+  error={resetError || null}
+  confirmLabel={t("settings.resetConfirm")}
+  pendingLabel={t("settings.resetPending")}
+  pending={resetting}
+  onconfirm={() => void confirmReset()}
+/>

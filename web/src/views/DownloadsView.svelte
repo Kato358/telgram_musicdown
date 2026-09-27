@@ -14,7 +14,7 @@
   import { api, errorText } from "$lib/api/client";
   import { fetchTracks, rowToTrack } from "$lib/api/library";
   import type { DownloadItemResult, HistoryRow } from "$lib/api/types";
-  import { formatSize } from "$lib/format";
+  import { formatDate, formatSize } from "$lib/format";
   import { t } from "$lib/i18n/index.svelte";
   import { router } from "$lib/router.svelte";
   import { events } from "$lib/stores/events.svelte";
@@ -24,6 +24,7 @@
   import type { Tone } from "$lib/tone";
   import { Button } from "$lib/components/ui/button";
   import { Checkbox } from "$lib/components/ui/checkbox";
+  import ConfirmDialog from "$lib/components/app/ConfirmDialog.svelte";
   import {
     Dialog,
     DialogContent,
@@ -630,47 +631,34 @@
   </DialogContent>
 </Dialog>
 
-<Dialog bind:open={clearOpen}>
-  <DialogContent>
-    <DialogHeader>
-      <DialogTitle class="text-h2 font-semibold">{t("downloads.clearTitle")}</DialogTitle>
-      <DialogDescription class="text-caption">
-        {t("downloads.clearBody", { n: queue.queued.length })}
-      </DialogDescription>
-    </DialogHeader>
+<ConfirmDialog
+  bind:open={clearOpen}
+  title={t("downloads.clearTitle")}
+  description={t("downloads.clearBody", { n: queue.queued.length })}
+  keep={[
+    t("downloads.clearKeep", { n: queue.downloading.length }),
+    t("downloads.clearKeepLibrary"),
+  ]}
+  confirmLabel={t("downloads.clearConfirm")}
+  pendingLabel={t("downloads.clearPending")}
+  pending={busy}
+  onconfirm={() => void clearQueue()}
+/>
 
-    <DialogFooter>
-      <Button variant="outline" onclick={() => (clearOpen = false)}>{t("common.cancel")}</Button>
-      <Button variant="destructive" size="lg" disabled={busy} onclick={() => void clearQueue()}>
-        {t("downloads.clearConfirm")}
-      </Button>
-    </DialogFooter>
-  </DialogContent>
-</Dialog>
-
-<Dialog
+<ConfirmDialog
   bind:open={confirmOpen}
-  onOpenChange={(open) => {
-    if (!open) deleteTarget = null;
-  }}
->
-  <DialogContent>
-    <DialogHeader>
-      <DialogTitle class="text-h2 font-semibold">{t("downloads.deleteTitle")}</DialogTitle>
-      <DialogDescription class="text-caption">
-        {deleteTarget
-          ? t("downloads.deleteBody", {
-              title: deleteTarget.title?.trim() || t("common.unknown"),
-            })
-          : ""}
-      </DialogDescription>
-    </DialogHeader>
-
-    <DialogFooter>
-      <Button variant="outline" onclick={() => (confirmOpen = false)}>{t("common.cancel")}</Button>
-      <Button variant="destructive" size="lg" disabled={busy} onclick={() => void confirmDelete()}>
-        {t("downloads.deleteConfirm")}
-      </Button>
-    </DialogFooter>
-  </DialogContent>
-</Dialog>
+  title={t("downloads.deleteTitle")}
+  description={t("downloads.deleteBody")}
+  target={deleteTarget
+    ? {
+        name: deleteTarget.title?.trim() || t("common.unknown"),
+        meta: [formatDate(deleteTarget.created_at), formatSize(deleteTarget.file_size)].join(" · "),
+      }
+    : null}
+  keep={[t("downloads.deleteKeep")]}
+  confirmLabel={t("downloads.deleteConfirm")}
+  pendingLabel={t("downloads.deletePending")}
+  pending={busy}
+  onconfirm={() => void confirmDelete()}
+  onclosed={() => (deleteTarget = null)}
+/>

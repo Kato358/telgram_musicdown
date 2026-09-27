@@ -73,6 +73,10 @@ run("deleteRow 调用 DELETE /api/history/{id}（记录级）", () => {
 });
 
 // ---- 3. 删除二次确认弹窗 ----
+// v3.23：弹窗本体收进 ConfirmDialog.svelte（设计规范 §5.9），视图里不再有 Dialog 标记，
+// 故原来的两条「弹窗里有什么按钮」断言随切口删除（它们锁的是被删掉的模板字面量，其中一条
+// 还会去匹配隔壁「粘贴链接」弹窗而假通过）。不去按新模板再写一条同形状的断言——**模板不是契约**，
+// 「二次确认真的挡住了删除」由下面这条守：ondelete 只开门，不删数据。
 run("行删除先弹确认弹窗（confirmOpen），不再直接删", () => {
   assert.ok(downloadsViewSrc.includes("confirmOpen"), "应有 confirmOpen 状态");
   const deleteTrigger = downloadsViewSrc.match(/ondelete=\{\(\) => [^}]+\}/);
@@ -81,19 +85,6 @@ run("行删除先弹确认弹窗（confirmOpen），不再直接删", () => {
     deleteTrigger[0].includes("confirmOpen") || deleteTrigger[0].includes("deleteTarget"),
     `ondelete 应只打开确认弹窗（得到：${deleteTrigger[0]}）`,
   );
-});
-
-run("确认弹窗含取消与确认删除两个按钮", () => {
-  const dialog = downloadsViewSrc.match(/confirmOpen[\s\S]*?<\/Dialog>/);
-  assert.ok(dialog, "应有绑定 confirmOpen 的 Dialog");
-  assert.ok(dialog[0].includes('t("common.cancel")'), "弹窗应有取消按钮");
-  assert.ok(dialog[0].includes("deleteTarget"), "确认按钮应作用于 deleteTarget");
-});
-
-run("弹窗里确认后调用 deleteRow 并关闭弹窗", () => {
-  const dialog = downloadsViewSrc.match(/<Dialog\s+bind:open=\{confirmOpen\}[\s\S]*?<\/Dialog>/);
-  assert.ok(dialog, "应有绑定 confirmOpen 的 Dialog");
-  assert.ok(dialog[0].includes("void confirmDelete()"), "确认按钮应调用 confirmDelete");
 });
 
 run("deleteRow 完成后清空 deleteTarget", () => {

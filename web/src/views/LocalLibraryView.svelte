@@ -17,21 +17,14 @@
   import { api, errorText } from "$lib/api/client";
   import { fetchAllLocalTracks, fetchLocalPage, LIBRARY_PAGE_SIZE } from "$lib/api/library";
   import type { LocalLibraryResponse, LocalTrackRow } from "$lib/api/types";
-  import { formatSize } from "$lib/format";
+  import { formatBitrate, formatSize } from "$lib/format";
   import { t } from "$lib/i18n/index.svelte";
   import { events } from "$lib/stores/events.svelte";
   import { player } from "$lib/stores/player.svelte";
   import type { LibraryFilter } from "$lib/api/library";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
-  import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-  } from "$lib/components/ui/dialog";
+  import ConfirmDialog from "$lib/components/app/ConfirmDialog.svelte";
   import DataTable, { type Column } from "$lib/components/app/DataTable.svelte";
   import EmptyState from "$lib/components/app/EmptyState.svelte";
   import FilterTabs, { type TabItem } from "$lib/components/app/FilterTabs.svelte";
@@ -282,6 +275,19 @@
     confirmOpen = true;
   }
 
+  /** 曲库两种删除走同一个弹窗：在库行删磁盘文件，已删行只删记录——事实不同，骨架相同。 */
+  const deletingRecord = $derived(deleteTarget?.missing === true);
+  const deleteTargetMeta = $derived.by(() => {
+    if (deleteTarget === null) return null;
+    const size = formatSize(deleteTarget.file_size);
+    const bitrate = formatBitrate(deleteTarget.bitrate);
+    return (
+      [deleteTarget.artist, size === "--" ? null : size, bitrate === "--" ? null : bitrate]
+        .filter(Boolean)
+        .join(" · ") || null
+    );
+  });
+
   async function confirmDelete() {
     const row = deleteTarget;
     confirmOpen = false;
@@ -423,37 +429,20 @@
   </div>
 </div>
 
-<Dialog
+<ConfirmDialog
   bind:open={confirmOpen}
-  onOpenChange={(open) => {
-    if (!open) deleteTarget = null;
-  }}
->
-  <DialogContent>
-    <DialogHeader>
-      <DialogTitle class="text-h2 font-semibold">
-        {deleteTarget
-          ? t("library.deleteTitle", {
-              title: deleteTarget.title?.trim() || deleteTarget.file_name,
-            })
-          : ""}
-      </DialogTitle>
-      <DialogDescription class="text-caption">
-        {#if deleteTarget}
-          {t(deleteTarget.missing ? "library.deleteRecordBody" : "library.deleteBody", {
-            title: deleteTarget.title?.trim() || deleteTarget.file_name,
-          })}
-        {/if}
-      </DialogDescription>
-    </DialogHeader>
-
-    <DialogFooter>
-      <Button variant="outline" onclick={() => (confirmOpen = false)}>
-        {t("common.cancel")}
-      </Button>
-      <Button variant="destructive" size="lg" onclick={() => void confirmDelete()}>
-        {t("library.deleteConfirm")}
-      </Button>
-    </DialogFooter>
-  </DialogContent>
-</Dialog>
+  title={deletingRecord ? t("library.deleteRecordTitle") : t("library.deleteTitle")}
+  description={deletingRecord ? t("library.deleteRecordBody") : t("library.deleteBody")}
+  target={deleteTarget
+    ? { name: deleteTarget.file_name, meta: deleteTargetMeta, mono: true }
+    : null}
+  keep={deletingRecord ? [t("library.deleteRecordKeep")] : null}
+  confirmLabel={deletingRecord
+    ? t("library.deleteRecordConfirm")
+    : t("library.deleteConfirm")}
+  pendingLabel={deletingRecord
+    ? t("library.deleteRecordPending")
+    : t("library.deletePending")}
+  onconfirm={() => void confirmDelete()}
+  onclosed={() => (deleteTarget = null)}
+/>
