@@ -117,15 +117,15 @@
     {#snippet pill(active: boolean, label: string, onclick: () => void, sub?: string)}
       <button
         type="button"
-        class="ui-transition rounded-full px-3 py-1 text-caption {active
+        class="ui-transition inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-caption {active
           ? 'bg-primary-soft text-primary'
           : 'border border-border text-muted-foreground hover:bg-rule hover:text-foreground'}"
         aria-pressed={active}
         {onclick}
       >
-        <span class="block">{label}</span>
+        <span>{label}</span>
         {#if sub}
-          <span class="block text-code">{sub}</span>
+          <span class="text-code">{sub}</span>
         {/if}
       </button>
     {/snippet}
