@@ -4,10 +4,12 @@
  * 进度、音量、循环、顺序与播放列表 UI 全部由 APlayer 自己承担（它的设置存在
  * 自己的 localStorage 键里，与主题/语言一样不写服务端）。挂载点在 PlayerHost：
  * 外壳常驻，切页不销毁，歌照播。
+ *
+ * aplayer 的 JS 与样式走 import()（见 mount）：它 70 kB（含 12 kB 样式）对首屏毫无
+ * 用处，静态引入等于每次冷启动都先垫上这段字节；只有类型是静态 import。
  */
 
-import APlayer from "aplayer";
-import "aplayer/dist/APlayer.min.css";
+import type APlayer from "aplayer";
 import { t } from "$lib/i18n/index.svelte";
 import { lyricsUrl } from "$lib/lyrics";
 import { theme } from "$lib/stores/theme.svelte";
@@ -31,6 +33,12 @@ class Player {
   playing = $state(false);
 
   #ap: APlayer | null = null;
+  /** 分块在路上（含等待）：这期间收到的点播先排队，见 play / #create。 */
+  #loading = false;
+  /** 每次 mount 递增；分块回来时对不上号，说明外壳已经卸载过，就别再建实例。 */
+  #generation = 0;
+  /** 分块没到位时收到的播放意图，实例建好后补播。 */
+  #queued: { tracks: Track[]; index: number } | null = null;
   /** 当前列表的上下文：APlayer 的列表只存 url/name，行高亮还得靠 id 对回 Track。 */
   #tracks: Track[] = [];
   /** 盯 APlayer 歌词容器的空/非空：没有歌词时把面板整个收掉（见 mount）。 */
@@ -40,9 +48,27 @@ class Player {
     return this.#tracks.find((track) => track.id === this.currentId) ?? null;
   }
 
-  /** PlayerHost 挂载时创建实例；外壳常驻，一次就够。 */
+  /** PlayerHost 挂载时创建实例；外壳常驻，一次就够。
+   *
+   * 这里才是 aplayer 的分块入口：先取回 JS 与样式再建实例。分块回来之前外壳已经
+   * 画完，首屏不必为播放器等字节；这期间用户点播的意图由 #queued 兜住。
+   */
   mount(container: HTMLElement) {
-    if (this.#ap) return;
+    if (this.#ap || this.#loading) return;
+    this.#loading = true;
+    const generation = ++this.#generation;
+    void this.#create(container, generation);
+  }
+
+  async #create(container: HTMLElement, generation: number) {
+    const [{ default: APlayer }] = await Promise.all([
+      import("aplayer"),
+      import("aplayer/dist/APlayer.min.css"),
+    ]);
+    // 加载期间外壳卸载过（闸门翻面 / 整页导航）：容器已经不作数，别再建实例
+    if (generation !== this.#generation) return;
+    // 到这里到下面赋 #ap 之间没有 await：不会有 play() 插在「已不 loading 又没有实例」的空档
+    this.#loading = false;
     const ap = new APlayer({
       container,
       audio: [],
@@ -100,9 +126,17 @@ class Player {
       this.#lrcObserver.observe(lrcContents, { childList: true });
       sync();
     }
+
+    // 分块在飞时点的播：实例已就绪，补上（#create 里最后一个 await 之后没有插队的机会）
+    const queued = this.#queued;
+    this.#queued = null;
+    if (queued) this.play(queued.tracks, queued.index);
   }
 
   unmount() {
+    this.#generation += 1; // 作废在飞的分块加载
+    this.#loading = false;
+    this.#queued = null;
     this.#lrcObserver?.disconnect();
     this.#lrcObserver = null;
     this.#ap?.destroy();
@@ -119,9 +153,16 @@ class Player {
    * - 其余一律从这首的开头播。
    */
   play(tracks: Track[], index: number) {
-    const ap = this.#ap;
     const track = tracks[index];
-    if (!ap || !track) return;
+    if (!track) return;
+
+    const ap = this.#ap;
+    if (!ap) {
+      // 分块还在路上（冷启动后立刻点播/试听）：记下意图，实例建好后补播。
+      // 外壳已卸载（压根没有播放器）时照旧丢弃——与静态引入时同一行为。
+      if (this.#loading) this.#queued = { tracks, index };
+      return;
+    }
 
     if (track.id === this.currentId && this.playing) {
       ap.pause();

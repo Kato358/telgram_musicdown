@@ -4,11 +4,13 @@
    * 全站唯一常驻的：导航、顶栏、内容出口、APlayer 吸底播放器（PlayerHost）。
    * 其余都是路由内容。键盘快捷键只在注册一次——顶栏搜索的 Ctrl/⌘+K 从这里发信号，
    * 不在组件里各挂各的。
+   *
+   * 视图也不在这里静态 import：路由内容按地址栏取分块（$lib/views.svelte），
+   * 冷启动只装外壳与闸门这两件必须先有的事。
    */
   import { onMount } from "svelte";
-  import type { Component } from "svelte";
   import { t } from "$lib/i18n/index.svelte";
-  import { navigate, pathOf, router, type RouteKey } from "$lib/router.svelte";
+  import { navigate, pathOf, router } from "$lib/router.svelte";
   import { events } from "$lib/stores/events.svelte";
   import { theme } from "$lib/stores/theme.svelte";
   import { queue } from "$lib/stores/queue.svelte";
@@ -18,26 +20,8 @@
   import TopBar from "$lib/components/app/TopBar.svelte";
   import PlayerHost from "$lib/components/app/PlayerHost.svelte";
   import FlyOverlay from "$lib/components/app/FlyOverlay.svelte";
-  import DashboardView from "@/views/DashboardView.svelte";
-  import DownloadsView from "@/views/DownloadsView.svelte";
-  import LibraryView from "@/views/LocalLibraryView.svelte";
   import LoginView from "@/views/LoginView.svelte";
-  import LogsView from "@/views/LogsView.svelte";
-  import SearchView from "@/views/SearchView.svelte";
-  import SettingsView from "@/views/SettingsView.svelte";
-  import SetupView from "@/views/SetupView.svelte";
-  import SourcesView from "@/views/SourcesView.svelte";
-
-  const VIEWS: Record<RouteKey, Component> = {
-    dashboard: DashboardView,
-    search: SearchView,
-    downloads: DownloadsView,
-    sources: SourcesView,
-    library: LibraryView,
-    settings: SettingsView,
-    logs: LogsView,
-    setup: SetupView,
-  };
+  import { views } from "$lib/views.svelte";
 
   /** Ctrl/⌘+K 的单一注册点：递增信号，由 TopBar 聚焦搜索框。 */
   let searchFocus = $state(0);
@@ -69,6 +53,24 @@
     if (setupGate && !loginGate && router.key !== "setup") {
       navigate(pathOf("setup"), { replace: true });
     }
+  });
+
+  /** 当前该渲染哪个视图：闸门优先于地址栏，与下方渲染分支同一套判断。
+   *  初始化没完成时地址栏还写着 /dashboard，真正要渲染的是向导。 */
+  const activeView = $derived(setupGate || router.key === "setup" ? "setup" : router.key);
+
+  /** 分块加载跟着 activeView 走。登录闸门期间一个视图都不渲染，也就不必先取分块；
+   *  初始化未定的那段窗口照常先取——分块下载与「会话/初始化」两次 API 并行跑，
+   *  闸门一过直接出内容，而不是过了闸门才开始等网络。 */
+  $effect(() => {
+    if (loginGate) return;
+    views.ensure(activeView);
+  });
+
+  /** 控制台一出来就把其余视图分块空闲预取回本地：切页不等人，冷启动的字节不增。 */
+  $effect(() => {
+    if (!session.checked || loginGate || setupGate || router.key === "setup") return;
+    views.prefetchAll();
   });
 
   /** 统计快照的生命周期归外壳管：开屏取一次，之后任务状态一变就重取。
@@ -170,8 +172,16 @@
 {:else if loginGate}
   <LoginView />
 {:else if setupGate || router.key === "setup"}
+  {@const Setup = views.get("setup")}
   <div class="min-h-dvh">
-    <SetupView />
+    {#if Setup}
+      <Setup />
+    {:else}
+      <!-- 向导是最大的一块视图分块：先给载入态，别让人对着一张空白页猜 -->
+      <div class="flex min-h-dvh items-center justify-center" aria-busy="true">
+        <span class="text-sm text-muted-foreground" role="status">{t("common.loading")}</span>
+      </div>
+    {/if}
   </div>
 {:else}
   <div class="flex h-dvh flex-col overflow-hidden">
@@ -182,9 +192,18 @@
         <main class="flex-1">
           <div class="mx-auto w-full max-w-[1100px] px-4 py-6 md:px-6">
             {#key router.key}
-              {@const View = VIEWS[router.key]}
+              {@const View = views.get(router.key)}
               <div class="route-fade flex flex-col gap-4 md:gap-6">
-                <View />
+                {#if View}
+                  <View />
+                {:else}
+                  <!-- 预取过的情况几乎走不到这里；只有冷启动直接落到某个未取过的路由才会 -->
+                  <div aria-busy="true">
+                    <div class="skeleton h-10 w-56 rounded-full"></div>
+                    <div class="skeleton mt-4 h-64 rounded-card"></div>
+                    <span class="sr-only" role="status">{t("common.loading")}</span>
+                  </div>
+                {/if}
               </div>
             {/key}
           </div>
