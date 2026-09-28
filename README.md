@@ -102,6 +102,8 @@ services:
 镜像已发布到 GHCR：`ghcr.io/kato358/telgram_musicdown:latest`；`docker compose up -d` 会自动拉取，也可 `docker pull ghcr.io/kato358/telgram_musicdown:latest`。
 镜像以非 root 用户（`tgm`，`useradd` 默认分配 UID/GID）运行，宿主机挂载目录需允许该用户读写。
 
+**标签分工**：`:latest` 只跟着 `main` 移动；版本号标签由 Release 产出——打 `v*` 标签（例 `v0.1.0`）后 CI 另推 `:0.1.0` 与 `:0.1` 两个标签。要锁版本就把 `image:` 钉到 `:0.1.0`，跟着最新开发走则留 `:latest`。
+
 ### 本地运行（开发）
 
 ```bash
