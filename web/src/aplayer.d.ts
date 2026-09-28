@@ -41,15 +41,27 @@ declare module "aplayer" {
 
   export default class APlayer {
     constructor(options: APlayerOptions);
-    /** 原生 audio 元素（游离于 DOM 之外，需要时自行挂载）。 */
+    /** 原生 audio 元素（游离于 DOM 之外，需要时自行挂载）。已挂载的宿主元素。 */
     audio: HTMLAudioElement;
+    container: HTMLElement;
     list: APlayerList;
-    /** 音频事件（play/pause/ended/error/…）与播放器事件（listswitch/…）同名绑定；
+    /** 归一化后的选项。`loop` / `order` 是播放模式的唯一所有者：APlayer 自己的
+     *  模式按钮就地改它们，我们只读、不改（见 player store 的 cycleMode）。 */
+    options: APlayerOptions;
+    /** 音频时长（秒）；未就绪时 0（它把 NaN 收敛掉了）。 */
+    readonly duration: number;
+    /** 音频事件（play/pause/timeupdate/…）与播放器事件（listswitch/…）同名绑定；
      *  音频事件回调收到原生 Event，列表事件回调收到 `{ index }`。 */
-    on(event: string, handler: (data: { index?: number }) => void): void;
+    on(event: string, handler: (data: { index?: number } | Event) => void): void;
     play(): void;
     pause(): void;
+    /** 跳到指定秒数（内部按 duration 夹取）。 */
     seek(time: number): void;
+    /** 设音量 0..1；同时更新 APlayer 自己的音量条与图标。 */
+    volume(volume: number, index?: number): void;
+    /** 上一首 / 下一首：内部走 prevIndex/nextIndex，随机顺序下也对。 */
+    skipBack(): void;
+    skipForward(): void;
     notice(text: string, time?: number, opacity?: number): void;
     theme(color: string, index?: number): void;
     destroy(): void;

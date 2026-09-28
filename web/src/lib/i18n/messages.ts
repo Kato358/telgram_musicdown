@@ -651,6 +651,27 @@ export const zhCN: Dict = {
   player: {
     title: "音乐播放器",
     unplayable: "无法在浏览器播放这首，可打开本地文件。",
+    /** 沉浸全屏（§5.4）：全屏那一层的键。`enter` 是吸底机身上那个入口按钮。 */
+    immersive: {
+      enter: "沉浸全屏",
+      back: "返回，继续播放",
+      lyrics: "歌词",
+      list: "播放列表",
+      prev: "上一首",
+      next: "下一首",
+      play: "播放",
+      pause: "暂停",
+      volume: "音量",
+      seek: "播放位置",
+      modeList: "列表循环",
+      modeOne: "单曲循环",
+      modeRandom: "随机播放",
+      lyricsEmpty: "暂无歌词",
+      trackCount: "{n} 首",
+      closeList: "收起播放列表",
+      openList: "打开播放列表",
+      queueEmpty: "播放列表是空的",
+    },
   },
 
   login: {
@@ -821,7 +842,8 @@ export const en: Dict = {
     run: "Search",
     running: "Searching",
     busy: "Searching the enabled sources in parallel; slow ones are named in the results.",
-    busyGlobal: "Scanning every conversation in the account and ranking the results — this takes a few seconds.",
+    busyGlobal:
+      "Scanning every conversation in the account and ranking the results — this takes a few seconds.",
     filterSources: "Scope",
     allSources: "All enabled",
     allSourcesGlobal: "All results",
@@ -1357,6 +1379,26 @@ export const en: Dict = {
   player: {
     title: "Music player",
     unplayable: "This track cannot play in the browser; open the local file instead.",
+    immersive: {
+      enter: "Immersive fullscreen",
+      back: "Back, keep playing",
+      lyrics: "Lyrics",
+      list: "Playlist",
+      prev: "Previous",
+      next: "Next",
+      play: "Play",
+      pause: "Pause",
+      volume: "Volume",
+      seek: "Playback position",
+      modeList: "Repeat all",
+      modeOne: "Repeat one",
+      modeRandom: "Shuffle",
+      lyricsEmpty: "No lyrics",
+      trackCount: "{n} tracks",
+      closeList: "Close playlist",
+      openList: "Open playlist",
+      queueEmpty: "The playlist is empty",
+    },
   },
 
   login: {

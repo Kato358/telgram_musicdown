@@ -354,16 +354,22 @@
      全站按钮都在「喊」就不高级了。过渡不在本类里写：button 基类已含 transform/box-shadow 的
      130ms 过渡，这里只改值。 */
   .btn-primary {
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18), var(--primary-shadow);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.18),
+      var(--primary-shadow);
   }
 
   .btn-primary:hover:not(:disabled) {
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), var(--primary-shadow-hover);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.22),
+      var(--primary-shadow-hover);
     transform: translateY(-1px);
   }
 
   .btn-primary:active:not(:disabled) {
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18), var(--primary-shadow);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.18),
+      var(--primary-shadow);
     transform: translateY(0);
   }
 
@@ -671,6 +677,1109 @@
 @media (max-width: 639px) {
   .aplayer-host.aplayer.aplayer-fixed .aplayer-lrc {
     bottom: 92px;
+  }
+}
+
+/* ============================================================
+   沉浸全屏（§5.4）：吸底机身控制排里的入口键 + 铺满一屏的播放界面。
+   这一层永远坐在深色底上（模糊封面 + 暗幕），文字因此固定取白；强调色仍走
+   --primary（深浅两态各自解析），不另立一套色值。
+   ============================================================ */
+
+/* --- 入口键：注进 APlayer 控制排的那个按钮（见 player store 的 #injectImmersive） --- */
+.aplayer-host.aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-immersive {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.aplayer-host.aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-immersive svg {
+  display: block;
+}
+
+/* 这条键的图标是描边式的（出厂图标是填充式）：关掉 fill 改走 stroke，否则上面那条
+   `.aplayer-icon path { fill }` 会把它涂成实心。同优先级靠文件顺序压过它。 */
+.aplayer-host.aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-immersive path {
+  fill: none;
+  stroke: var(--muted-foreground);
+}
+
+.aplayer-host.aplayer
+  .aplayer-info
+  .aplayer-controller
+  .aplayer-time
+  .aplayer-immersive:hover
+  path {
+  stroke: var(--foreground);
+}
+
+/* --- 沉浸层本体 --- */
+
+.immersive {
+  /* 对话框（z-50）与吸底机身（z-30）之上：这一层是整屏的唯一表面 */
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: hidden;
+  color: #fff;
+  --imm-accent: var(--primary);
+  --imm-accent-fg: var(--primary-foreground);
+  /* 暗底上的强调色：浅色态的主色是深绿，直接画细线 / 小字 / 进度填充在这层暗幕上读不出来。
+     掺白提亮到站得住为止——仍是主色派生，深浅两态各自解析，不另立色值。 */
+  --imm-accent-on-dark: color-mix(in oklab, var(--imm-accent) 62%, white);
+  --imm-cover: clamp(200px, min(52vh, 30vw), 420px);
+  --imm-drawer: min(360px, 92vw);
+  /** 封面列与歌词之间的间距；抽屉收起时靠它反向抵消掉自己那一份 gap。 */
+  --imm-gap: clamp(40px, 6vw, 96px);
+}
+
+/* 退场窗口里这一层不再收点击（半透明的层也不该挡住它底下 APlayer 的入口键） */
+.immersive.is-closing {
+  pointer-events: none;
+}
+
+.immersive-backdrop {
+  position: absolute;
+  inset: -12%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.immersive-backdrop img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(56px) saturate(1.35) brightness(0.5);
+  transform: scale(1.18);
+}
+
+.immersive-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 80% at 20% 10%, rgb(0 0 0 / 0.15), transparent 50%),
+    linear-gradient(180deg, rgb(0 0 0 / 0.25), rgb(0 0 0 / 0.55));
+}
+
+.immersive-layout {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  box-sizing: border-box;
+  /* 封面列 + 歌词是一组，整组在视口里居中（Apple Music 的排法）：两侧留白随屏宽按
+     比例走（参考图 1568px 下各约 207px ≈ 13%），不把封面钉在屏幕左缘，也不让歌词
+     把余宽拉满。 */
+  justify-content: center;
+  gap: var(--imm-gap);
+  padding-inline: clamp(24px, 13vw, 220px);
+  /* 收起时留白等抽屉退完场再归位（延迟 = 抽屉的宽度过渡时长）：这样收起全程抽屉的右缘
+     都贴着窗口右缘，面板是从它展开的那个位置退出去的。若留白立刻弹回 13vw，抽屉会先
+     瞬移到屏幕内侧 204px 处再开始缩——看着就像从左边消失。 */
+  transition: padding 0.26s cubic-bezier(0.22, 1, 0.36, 1) 0.3s;
+}
+
+/* 抽屉展开时收窄两侧留白：360px 的抽屉进来后，居中的留白会把歌词列压到 150px 出头。
+   右侧留白归零——抽屉贴到屏幕右缘，右边的把手才骑在它的边上。 */
+.immersive.is-list-open .immersive-layout {
+  padding-left: clamp(16px, 4vw, 64px);
+  padding-right: 0;
+  /* 展开时留白先让位（无延迟），抽屉等让位基本完成再从右缘滑入（见下），右缘全程贴边 */
+  transition: padding 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 左：唱片 + 控制。宽度跟着封面走，不跟屏幕一半走 */
+.immersive-left {
+  flex: none;
+  width: min(460px, 40vw);
+  height: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 88px 0 36px;
+  box-sizing: border-box;
+}
+
+.immersive-topbar {
+  position: absolute;
+  top: 22px;
+  left: 28px;
+  right: 28px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.immersive-icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgb(255 255 255 / 0.08);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  backdrop-filter: blur(16px);
+}
+
+.immersive-icon-btn:hover {
+  background: rgb(255 255 255 / 0.16);
+}
+
+.immersive-vinyl-wrap {
+  width: calc(var(--imm-cover) + 28px);
+  height: calc(var(--imm-cover) + 28px);
+  display: grid;
+  place-items: center;
+  margin-bottom: 8px;
+}
+
+.immersive-vinyl {
+  position: relative;
+  width: var(--imm-cover);
+  height: var(--imm-cover);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, #1a1a1a 0 18%, transparent 18.2%),
+    repeating-radial-gradient(#111 0 2px, #222 3px 4px);
+  box-shadow:
+    0 0 30px rgb(255 255 255 / 0.08),
+    inset 0 0 18px rgb(0 0 0 / 0.8),
+    0 18px 40px rgb(0 0 0 / 0.45);
+  display: grid;
+  place-items: center;
+}
+
+.immersive.is-playing .immersive-vinyl {
+  box-shadow:
+    0 0 46px color-mix(in srgb, var(--imm-accent-on-dark) 55%, transparent),
+    0 18px 40px rgb(0 0 0 / 0.45);
+}
+
+.immersive-vinyl img {
+  width: 72%;
+  height: 72%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgb(255 255 255 / 0.12);
+  box-shadow: inset 0 0 0 10px rgb(0 0 0 / 0.35);
+}
+
+.immersive-spindle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #111;
+  box-shadow: 0 0 0 3px rgb(255 255 255 / 0.25);
+}
+
+.immersive-song {
+  text-align: center;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.immersive-song h2 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 750;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.immersive-artist {
+  margin-top: 6px;
+  font-size: 18px;
+  color: rgb(255 255 255 / 0.72);
+}
+
+.immersive-times {
+  width: 100%;
+  margin-top: 22px;
+  display: flex;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: rgb(255 255 255 / 0.72);
+  padding: 0 2px;
+}
+
+/* 进度与音量都是真 <input type=range>（键盘可达、可拖），只换皮肤：
+   --p 由组件按当前值内联给出，轨道用渐变画出已播段。 */
+.immersive-seek {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  cursor: pointer;
+  margin: 2px 0 14px;
+}
+
+.immersive-seek::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 99px;
+  background: linear-gradient(
+    to right,
+    var(--imm-accent-on-dark) var(--p, 0%),
+    rgb(255 255 255 / 0.18) var(--p, 0%)
+  );
+}
+
+.immersive-seek::-moz-range-track {
+  height: 5px;
+  border-radius: 99px;
+  background: rgb(255 255 255 / 0.18);
+}
+
+.immersive-seek::-moz-range-progress {
+  height: 5px;
+  border-radius: 99px;
+  background: var(--imm-accent-on-dark);
+}
+
+.immersive-seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--imm-accent-on-dark);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--imm-accent-on-dark) 70%, transparent);
+}
+
+.immersive-seek::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: var(--imm-accent-on-dark);
+}
+
+.immersive-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  width: 100%;
+}
+
+.immersive-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  opacity: 0.85;
+}
+
+.immersive-btn:hover {
+  background: rgb(255 255 255 / 0.1);
+  opacity: 1;
+}
+
+.immersive-play {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--imm-accent);
+  color: var(--imm-accent-fg);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.35);
+}
+
+.immersive-play:hover {
+  filter: brightness(1.06);
+}
+
+.immersive-volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  opacity: 0.85;
+}
+
+.immersive-volume:hover {
+  opacity: 1;
+}
+
+.immersive-volume input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 84px;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.immersive-volume input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 99px;
+  background: linear-gradient(
+    to right,
+    var(--imm-accent-on-dark) var(--v, 0%),
+    rgb(255 255 255 / 0.18) var(--v, 0%)
+  );
+}
+
+.immersive-volume input::-moz-range-track {
+  height: 4px;
+  border-radius: 99px;
+  background: rgb(255 255 255 / 0.18);
+}
+
+.immersive-volume input::-moz-range-progress {
+  height: 4px;
+  border-radius: 99px;
+  background: var(--imm-accent-on-dark);
+}
+
+.immersive-volume input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.immersive-volume input::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+}
+
+/* 音量的两副面孔：桌面只有一枚静态图标（横条自己就是控件）；窄屏换成按钮，
+   点开弹出纵向滑条（见窄屏块）——按钮在桌面 display: none，不可达。 */
+.immersive-volume-icon {
+  display: grid;
+  place-items: center;
+}
+
+.immersive-volume-btn {
+  display: none;
+}
+
+/* 歌单入口的两副面孔：桌面是骑在抽屉边上的那枚把手（.immersive-list-toggle），窄屏换成
+   顶栏里这枚按钮——窄屏抽屉从底部升起，把手留在侧边就成了两个对不上的控件。 */
+.immersive-list-btn {
+  display: none;
+}
+
+.immersive-list-btn.is-open {
+  background: color-mix(in srgb, var(--imm-accent-on-dark) 34%, rgb(255 255 255 / 0.08));
+  border-color: color-mix(in srgb, var(--imm-accent-on-dark) 55%, transparent);
+}
+
+/* 底部浮层的手柄：只有窄屏画得出来（桌面抽屉从右侧进来，不需要） */
+.immersive-drawer-grab {
+  display: none;
+}
+
+/* 右：歌词。行在剩余区域内水平居中，当前行滚到正中 */
+.immersive-right {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.immersive-lyrics {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  /* 左右几乎不留内边距：参考图里歌词最宽的一行几乎顶到整组的右缘。 */
+  padding: 42vh 8px 46vh;
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 14%, #000 86%, transparent 100%);
+  scrollbar-width: none;
+}
+
+.immersive-lyrics::-webkit-scrollbar {
+  display: none;
+}
+
+/* 左对齐、铺满整列（Apple Music 的歌词块）：居中会在列中间缩成一条窄带，
+   两侧同时留白，整组看着就偏左。行宽不再设上限，长行自然换行。 */
+.immersive-line {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 14px 0;
+  text-align: left;
+  opacity: 0.28;
+  transition: opacity 0.35s ease;
+}
+
+.immersive-line:hover {
+  opacity: 0.6;
+}
+
+.immersive-line.is-active {
+  opacity: 1;
+}
+
+.immersive-line-text {
+  display: block;
+  font-size: clamp(26px, 3vw, 44px);
+  font-weight: 800;
+  line-height: 1.28;
+  letter-spacing: 0.2px;
+}
+
+.immersive-line.is-active .immersive-line-text {
+  color: #fff;
+  text-shadow: 0 0 24px rgb(255 255 255 / 0.18);
+}
+
+.immersive-lyric-empty {
+  margin: 0;
+  text-align: center;
+  font-size: 18px;
+  color: rgb(255 255 255 / 0.4);
+}
+
+/* 歌单把手：钉在窗口最右侧、垂直居中——两侧状态都在同一个位置。
+   收起态朝左（把面板拉进来），展开态朝右（推回去）。展开后抽屉贴到屏幕右缘，
+   把手正好骑在抽屉的边上，看着像面板自带的拉手。 */
+.immersive-list-toggle {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: 6;
+  width: 34px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgb(255 255 255 / 0.1);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-right: 0;
+  border-radius: 12px 0 0 12px;
+  backdrop-filter: blur(16px);
+  box-shadow: -10px 0 28px rgb(0 0 0 / 0.28);
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.immersive-list-toggle:hover {
+  background: rgb(255 255 255 / 0.2);
+}
+
+.immersive-drawer {
+  flex: none;
+  width: 0;
+  overflow: hidden;
+  /* 玻璃与整层同源：冷灰加模糊，不是一块黑板；右缘略深，让它像从屏幕外推进来 */
+  background: linear-gradient(to left, rgb(9 11 15 / 0.86), rgb(9 11 15 / 0.68));
+  backdrop-filter: blur(24px) saturate(1.2);
+  /* 收起时不留边、并从 flex 间距里退出去：抽屉是常驻的第三个 flex 项，若照旧吃一份
+     gap，歌词列就会被平白挤掉一个间距的宽度（右缘提前 96px 收住，看着像整组偏左）。 */
+  border-left: 0 solid rgb(255 255 255 / 0.1);
+  margin-inline-start: calc(-1 * var(--imm-gap));
+  /* 收起时抽屉先退场（无延迟），留白等它退完再归位（见 .immersive-layout） */
+  transition:
+    width 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    margin 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    border-left-width 0.3s ease,
+    box-shadow 0.3s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.immersive.is-list-open .immersive-drawer {
+  width: var(--imm-drawer);
+  border-left-width: 1px;
+  margin-inline-start: 0;
+  box-shadow: -36px 0 64px -44px rgb(0 0 0 / 0.85);
+  /* 展开时等留白让位基本完成（0.24s）再从右缘滑入：右缘全程贴边，与收起互为镜像 */
+  transition:
+    width 0.3s cubic-bezier(0.22, 1, 0.36, 1) 0.24s,
+    height 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    margin 0.3s cubic-bezier(0.22, 1, 0.36, 1) 0.24s,
+    border-left-width 0.3s ease 0.24s,
+    box-shadow 0.3s ease 0.24s;
+}
+
+/* 内层按抽屉的最终宽度固定：外层只做「揭示」，内容不跟着回流。
+   宽度过渡若直接作用在有内容的盒子上，行内的歌名列会被一路压窄、省略号反复重排——
+   那正是展开动画看着突兀的来源。 */
+.immersive-drawer-inner {
+  flex: none;
+  width: var(--imm-drawer);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: translateX(14px);
+  /* 收起时内容先淡出（在抽屉退完之前结束）；展开时等抽屉滑入再淡入（见下条延迟） */
+  transition:
+    opacity 0.16s ease,
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.immersive.is-list-open .immersive-drawer-inner {
+  opacity: 1;
+  transform: none;
+  transition-delay: 0.3s;
+}
+
+.immersive-drawer-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 58px;
+  padding: 0 10px 0 18px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+}
+
+.immersive-drawer-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.immersive-drawer-count {
+  font-size: 12px;
+  color: rgb(255 255 255 / 0.42);
+  font-variant-numeric: tabular-nums;
+}
+
+.immersive-drawer-close {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: rgb(255 255 255 / 0.72);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.immersive-drawer-close:hover {
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+}
+
+.immersive-queue {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 10px;
+  list-style: none;
+  /* 细滚动条：默认的系统滚动条在这层深色玻璃上是一块异物 */
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.28) transparent;
+}
+
+.immersive-queue::-webkit-scrollbar {
+  width: 8px;
+}
+
+.immersive-queue::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.immersive-queue::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.28);
+  border-radius: 99px;
+}
+
+.immersive-queue-empty {
+  margin: 22px 18px;
+  font-size: 13px;
+  color: rgb(255 255 255 / 0.42);
+}
+
+.immersive-row {
+  display: grid;
+  grid-template-columns: 24px 44px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  width: 100%;
+  height: 64px;
+  padding: 0 10px;
+  border-radius: var(--radius-nav);
+  text-align: left;
+  color: #fff;
+  transition: background 0.16s ease;
+}
+
+.immersive-row:hover {
+  background: rgb(255 255 255 / 0.07);
+}
+
+.immersive-row.is-current {
+  background: rgb(255 255 255 / 0.1);
+}
+
+.immersive-row:focus-visible {
+  outline: 2px solid rgb(255 255 255 / 0.55);
+  outline-offset: -2px;
+}
+
+.immersive-row-index {
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: rgb(255 255 255 / 0.42);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 正在播的那一行用三根呼吸的柱代替序号——和播放条上「正在响」是同一套说法，
+   暂停时保持全高静止。柱取白色：主色在浅色态是深绿，画成 2px 细线在暗底上读不出来。 */
+.immersive-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.immersive-eq i {
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--imm-accent-on-dark);
+}
+
+@keyframes immersive-eq {
+  0%,
+  100% {
+    height: 4px;
+  }
+
+  50% {
+    height: 12px;
+  }
+}
+
+.immersive-row.is-current .immersive-row-title {
+  color: var(--imm-accent-on-dark);
+  font-weight: 700;
+}
+
+.immersive-row-cover {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-chip);
+  overflow: hidden;
+  background: rgb(255 255 255 / 0.06);
+}
+
+.immersive-row-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.immersive-row-meta {
+  min-width: 0;
+}
+
+.immersive-row-title,
+.immersive-row-artist {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.immersive-row-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.immersive-row-artist {
+  font-size: 12px;
+  color: rgb(255 255 255 / 0.42);
+  line-height: 1.3;
+  margin-top: 2px;
+}
+
+/* 唱片区（唱片 + 歌名）与控制台（时间 / 进度 / 控制排）是移动端歌词页要拆开的两个区；
+   桌面端维持原样——display: contents 让它们的孩子直接进 .immersive-left 的列，布局不变 */
+.immersive-cover,
+.immersive-deck {
+  display: contents;
+}
+
+/* 歌词页切换键只在窄屏出现（桌面端歌词常驻，不需要这一档） */
+.immersive-lyrics-toggle {
+  display: none;
+}
+
+/* 窄屏：手机 APP 式——唱片区（或歌词页）占满中段，控制台钉在底部 */
+@media (max-width: 860px) {
+  .immersive-layout {
+    flex-direction: column;
+    overflow: hidden;
+    justify-content: flex-start;
+    gap: 0;
+    padding-inline: 0;
+  }
+
+  /* 竖排时抽屉从底部升起，横向留白一律归零（压过上面那条展开态的内边距） */
+  .immersive.is-list-open .immersive-layout {
+    padding-inline: 0;
+  }
+
+  .immersive-left {
+    width: 100%;
+    height: 100%;
+    padding: 76px 22px 0;
+  }
+
+  /* 唱片区：中段占满剩余高度，唱片 + 歌名居中 */
+  .immersive-cover {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 控制台：浮在底部、压在歌词页之上（z 高于歌词层，低于抽屉 z4），上缘用渐变收口——
+     歌词从它底下穿过时淡出，而不是被一条硬边切断 */
+  .immersive-deck {
+    position: relative;
+    z-index: 2;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding: 10px 20px calc(20px + env(safe-area-inset-bottom));
+    background: linear-gradient(
+      to bottom,
+      transparent 0,
+      rgb(9 11 15 / 0.72) 38%,
+      rgb(9 11 15 / 0.92) 100%
+    );
+  }
+
+  /* 控制排：桌面那套尺寸在 360px 宽的屏上要 470px 才摆得下，于是每个键被 flex 压扁
+     （实测 42px 的键缩到 34px、播放键 64 → 50）。窄屏整体收一档，并全部 flex: none
+     ——宁可缩小，不要变形。 */
+  .immersive-controls {
+    gap: clamp(8px, 4vw, 22px);
+  }
+
+  .immersive-btn {
+    width: 40px;
+    height: 40px;
+    flex: none;
+  }
+
+  .immersive-play {
+    width: 58px;
+    height: 58px;
+    flex: none;
+  }
+
+  .immersive-times {
+    margin-top: 4px;
+  }
+
+  /* 歌词页：整屏一层（连顶栏与控制台底下都是），`.is-lyrics` 时淡入，否则藏着。
+     不做「控制台上方的一条」——那样歌词只剩半屏，最后一行还会被控制台压住。 */
+  .immersive-right {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    height: auto;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgb(9 11 15 / 0.9), rgb(9 11 15 / 0.84));
+    backdrop-filter: blur(20px) saturate(1.2);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 0.26s ease,
+      visibility 0s linear 0.26s;
+  }
+
+  .immersive.is-lyrics .immersive-right {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 0.26s ease;
+  }
+
+  /* 上下留白都够半屏：第一行到最后一行都能滚到正中——落在正中的那行就在控制台上方，
+     不会被底部那层渐变吃掉（46vh 也高于控制台本身，滚到底时最后一行仍在它上面）。 */
+  .immersive-lyrics {
+    padding: 42vh 22px 46vh;
+  }
+
+  .immersive {
+    --imm-cover: clamp(180px, 46vw, 300px);
+    /* 音量弹出胶囊的高度：滑条按它算中心，两处必须同源 */
+    --imm-vol-pop: 152px;
+  }
+
+  /* 顶部栏：返回键居左，歌单键与歌词键靠右。z 压在整屏歌词页之上，不然歌词一开，
+     返回键就被盖住点不到了。 */
+  .immersive-topbar {
+    z-index: 3;
+    justify-content: flex-start;
+  }
+
+  /* 歌单入口自己顶到右侧（与歌词键作伴）。不用 space-between：三个控件会被摊到三等分，
+     返回键、歌单键、歌词键各站一头，中间空出一大片。 */
+  .immersive-list-btn {
+    display: grid;
+    margin-left: auto;
+  }
+
+  /* 侧边把手在窄屏收起：浮层由顶栏这枚按钮开、由表头 × 或底部手柄合 */
+  .immersive-list-toggle {
+    display: none;
+  }
+
+  /* 歌词键与歌单键同规格：同一枚 38px 圆形玻璃键（`.immersive-icon-btn`），只有图标不同；
+     亮起态用同一支强调色描边 + 底色，与歌单键的展开态逐项对齐 */
+  .immersive-lyrics-toggle {
+    display: grid;
+  }
+
+  .immersive-lyrics-toggle.is-active {
+    background: color-mix(in srgb, var(--imm-accent-on-dark) 34%, rgb(255 255 255 / 0.08));
+    border-color: color-mix(in srgb, var(--imm-accent-on-dark) 55%, transparent);
+  }
+
+  /* 音量：窄屏收成一枚按钮，点开在正上方弹出一条纵向滑条。
+     滑条本体只有一个 <input>（不能同时摆两处），胶囊底由伪元素画。 */
+  .immersive-volume {
+    position: relative;
+    flex: none;
+    gap: 0;
+    opacity: 1;
+  }
+
+  .immersive-volume-icon {
+    display: none;
+  }
+
+  .immersive-volume-btn {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    color: #fff;
+    opacity: 0.85;
+    transition:
+      background 0.18s ease,
+      opacity 0.18s ease;
+  }
+
+  .immersive-volume-btn[aria-expanded="true"] {
+    background: rgb(255 255 255 / 0.14);
+    opacity: 1;
+  }
+
+  /* 胶囊：从按钮上缘长出来（缩放原点在下缘），弹出时同时淡入与回正 */
+  .immersive-volume::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 12px);
+    width: 46px;
+    height: var(--imm-vol-pop);
+    transform: translateX(-50%) translateY(10px) scale(0.94);
+    transform-origin: 50% 100%;
+    border-radius: 999px;
+    border: 1px solid rgb(255 255 255 / 0.14);
+    background: rgb(9 11 15 / 0.82);
+    backdrop-filter: blur(16px) saturate(1.2);
+    box-shadow: 0 20px 44px -22px rgb(0 0 0 / 0.9);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 0.18s ease,
+      transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+      visibility 0s linear 0.24s;
+  }
+
+  /* 滑条：把横条转 90°（-90deg 让 0% 落在下端）。旋转守恒的是中心，所以只需把它的中心
+     对准胶囊中心——胶囊底距按钮上缘 12px、高 var(--imm-vol-pop)，滑条盒高 26px。 */
+  .immersive-volume input {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 12px + (var(--imm-vol-pop) - 26px) / 2);
+    width: 132px;
+    height: 26px;
+    margin: 0;
+    transform: translateX(-50%) rotate(-90deg);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 0.18s ease,
+      visibility 0s linear 0.24s;
+  }
+
+  /* 轨道不用自己挪：Chrome 会把「外边距盒」在 26px 里居中，盒高 4px 就在正中（实测
+     偏移 -1px）。给它加 margin-top 反而只挪到一半（11 → +5.5px），别加。 */
+
+  .immersive.is-vol-open .immersive-volume::before,
+  .immersive.is-vol-open .immersive-volume input {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .immersive.is-vol-open .immersive-volume::before {
+    transform: translateX(-50%) scale(1);
+    transition:
+      opacity 0.18s ease,
+      transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* 竖排时抽屉改从底部升起：脱离文档流钉在底缘（bottom sheet）——留在流内的话它会排在
+     歌词之后、落到视口下方，点开歌单反而什么都看不见。 */
+  .immersive-drawer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 4;
+    width: 100%;
+    height: 0;
+    border-left-width: 0;
+    margin-inline-start: 0;
+  }
+
+  .immersive.is-list-open .immersive-drawer {
+    width: 100%;
+    height: min(52vh, 420px);
+    border-top: 1px solid rgb(255 255 255 / 0.1);
+    border-left-width: 0;
+  }
+
+  /* 内层同样钉在最终尺寸（这里是高度）：底部浮层只做揭示，内容不跟着压扁。
+     桌面是左右向滑入，浮层改从下往上收进来。 */
+  .immersive-drawer-inner {
+    width: 100%;
+    height: min(52vh, 420px);
+    transform: translateY(14px);
+  }
+
+  /* 底部手柄：一条 36×4 的圆角条，戳一下收起——底部浮层的说法，替掉桌面那枚侧边把手 */
+  .immersive-drawer-grab {
+    display: block;
+    flex: none;
+    width: 36px;
+    height: 4px;
+    margin: 8px auto 0;
+    border-radius: 99px;
+    background: rgb(255 255 255 / 0.28);
+    transition: background 0.16s ease;
+  }
+
+  .immersive-drawer-grab:hover {
+    background: rgb(255 255 255 / 0.45);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .immersive-backdrop img {
+    animation: immersive-drift 18s ease-in-out infinite alternate;
+    animation-play-state: paused;
+  }
+
+  .immersive.is-playing .immersive-backdrop img {
+    animation-play-state: running;
+  }
+
+  .immersive-vinyl {
+    animation: immersive-spin 18s linear infinite;
+    animation-play-state: paused;
+  }
+
+  .immersive.is-playing .immersive-vinyl {
+    animation-play-state: running;
+  }
+
+  /* 当前曲目的三根柱：只在真在响时呼吸 */
+  .immersive.is-playing .immersive-eq i {
+    animation: immersive-eq 0.9s ease-in-out infinite;
+  }
+
+  .immersive.is-playing .immersive-eq i:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  .immersive.is-playing .immersive-eq i:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
+  /* 沉浸层自身的进场 / 退场：整层淡入淡出 + 轻微缩放（进场从略大、退场往略小）。
+     退场由 .is-closing 驱动，组件等 320ms 再卸载。transform 作用在整层上，底图 / 蒙层 /
+     内容一起进退，读起来是「整屏后退」，不是「一块黑卡消失」。 */
+  .immersive {
+    animation: immersive-in 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .immersive.is-closing {
+    animation: immersive-out 300ms cubic-bezier(0.4, 0, 0.6, 1) both;
+  }
+}
+
+@keyframes immersive-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes immersive-drift {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1.16);
+  }
+
+  to {
+    transform: translate3d(2%, 1.5%, 0) scale(1.22);
+  }
+}
+
+@keyframes immersive-in {
+  from {
+    opacity: 0;
+    transform: scale(1.035);
+  }
+}
+
+@keyframes immersive-out {
+  to {
+    opacity: 0;
+    transform: scale(0.975);
   }
 }
 

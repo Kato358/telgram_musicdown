@@ -19,6 +19,7 @@
   import Sidebar from "$lib/components/app/Sidebar.svelte";
   import TopBar from "$lib/components/app/TopBar.svelte";
   import PlayerHost from "$lib/components/app/PlayerHost.svelte";
+  import ImmersivePlayer from "$lib/components/app/ImmersivePlayer.svelte";
   import FlyOverlay from "$lib/components/app/FlyOverlay.svelte";
   import LoginView from "@/views/LoginView.svelte";
   import { views } from "$lib/views.svelte";
@@ -211,6 +212,8 @@
       </div>
     </div>
     <PlayerHost />
+    <!-- 沉浸全屏：与播放器同一实例，fixed 定位铺满一屏，挂在外壳上与路由无关 -->
+    <ImmersivePlayer />
     <!-- 「飞进侧边栏下载」的全局动画层：fixed 定位，挂在外壳上与路由无关 -->
     <FlyOverlay />
   </div>
