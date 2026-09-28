@@ -142,9 +142,20 @@ class Player {
     this.#ap = ap;
     this.#container = container;
 
+    // 起始态是收起的（v3.26）：没有在响的东西时，机身就只是一枚 86×68 的封面片，
+    // 不占版面、不抢视线；第一次真播起来才展开（下一行的 play 桥）。
+    // 收起 / 展开是 APlayer 自己的状态，一律走 setMode——折叠把手按钮也走同一条路，
+    // 图标与「机身 / 列表」的显隐因此不会和我们的判断脱节。
+    ap.setMode("mini");
+
     // playing 只在这里被写：四个事件都是音频元素的事实（APlayer 的 audioEvents 直接转发
     // DOM 事件），所以行件的「播放中」画的是真在响，不是「点过播放」。
-    ap.on("play", () => (this.playing = true));
+    ap.on("play", () => {
+      this.playing = true;
+      // 「在响」与「展开」同一刻：收起态下点封面上的播放键也算起播（用户自己收起的
+      // 机身也该在这一刻打开）。已在展开态就不动它，免得与折叠把手抢同一件事。
+      if (ap.mode !== "normal") ap.setMode("normal");
+    });
     ap.on("pause", () => (this.playing = false));
     // loop=all 时下一首的 play 事件会接上，这里只是循环关尽的兜底
     ap.on("ended", () => (this.playing = false));

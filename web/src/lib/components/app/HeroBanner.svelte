@@ -87,11 +87,13 @@
 
       {#if search}
         <form class="mt-3 flex flex-col gap-2 sm:flex-row" onsubmit={submit}>
+          <!-- 高度写死在类上（h-10）。窄屏表单是纵向 flex，这里**不能**再用 flex-1：
+              纵向下 flex-basis: 0 会盖掉 height，输入框缩成一行字高（21px 的细片）。 -->
           <input
             bind:this={field}
             bind:value={keyword}
             type="search"
-            class="h-10 min-w-0 flex-1 rounded-full border border-border bg-card px-4 text-body outline-none placeholder:text-muted-foreground"
+            class="h-10 min-w-0 w-full rounded-full border border-border bg-card px-4 text-body outline-none placeholder:text-muted-foreground sm:flex-1"
             placeholder={search.placeholder}
             aria-label={search.placeholder}
           />

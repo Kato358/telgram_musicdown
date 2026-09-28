@@ -497,7 +497,9 @@
    48px，封面会被 overflow:hidden 裁掉一块——这里按盒模型实算补齐。
    高度同理：出厂 66px 高配 1px 边框后内腔只剩 64px，封面被裁、把手
    比封面矮一截（展开态高 66px 内容 + 2px 边框 = 68px，折叠态补成同高，
-   切换时卡片也不再跳变）。 */
+   切换时卡片也不再跳变）。
+   这一态就是起始态（v3.26）：没有在响的东西时页面右下角只有这一枚封面片，
+   起播时由 store 展开（`setMode`），用户也可以自己点把手收起 / 展开。 */
 .aplayer-host.aplayer.aplayer-fixed.aplayer-narrow .aplayer-body {
   width: 86px !important;
   height: 68px !important;
@@ -1789,6 +1791,26 @@
    ============================================================ */
 
 @media (prefers-reduced-motion: no-preference) {
+  /* 明暗切换的过渡（v3.26）：只在换主题的那一瞬由 App 给 <html> 挂 `.theme-transition`，
+     240ms 后摘掉——整站因此有颜色过渡，却不会常驻（常驻 transition 会与 hover 的
+     `.ui-transition`、路由进场的 animation 抢同一批属性，也与「不等动画」的交互手感打架）。
+     只过渡颜色：圆角 / 尺寸 / 阴影不参与——阴影里只有 1px 上缘高光随主题变，差值小到
+     不值得为它让整页重绘阴影（背景渐变、`background-image` 同理：它不可过渡，直接翻面）。
+     `!important` 是为了压过 `.ui-transition` 与 APlayer 自带的 `transition: all`——
+     后者作为运行时注入的样式表排在 app.css 之后，同属性上不写成 important 就赢不了。 */
+  .theme-transition,
+  .theme-transition *,
+  .theme-transition *::before,
+  .theme-transition *::after {
+    transition:
+      background-color 240ms ease,
+      border-color 240ms ease,
+      color 240ms ease,
+      fill 240ms ease,
+      stroke 240ms ease,
+      outline-color 240ms ease !important;
+  }
+
   /* 路由进场：淡入 + 上移 6px。240ms easeOutQuint（cubic-bezier(.22,1,.36,1)）——位移给了
      方向感，比纯淡入「感觉更快」，而总时长仍在「不等动画」的预算内。
      目标取 .route-fade 内两层（App 的 wrapper → 视图根 → 页内分块），因此各页的

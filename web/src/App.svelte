@@ -27,6 +27,9 @@
   /** Ctrl/⌘+K 的单一注册点：递增信号，由 TopBar 聚焦搜索框。 */
   let searchFocus = $state(0);
 
+  /** 明暗切换过渡的时长（与 app.css `.theme-transition` 的 240ms 同一份预算：路由进场同档）。 */
+  const THEME_FADE_MS = 240;
+
   $effect(() => {
     const label = router.key === "setup" ? t("setup.title") : t(`nav.${router.key}`);
     document.title = `${label} · ${t("app.name")}`;
@@ -92,11 +95,24 @@
     events.connect();
   });
 
-  /** 主题落到 <html>：浅/深唯一出口（首帧由 index.html 内联脚本先铺一次）。 */
+  /** 主题落到 <html>：浅/深唯一出口（首帧由 index.html 内联脚本先铺一次）。
+   *  换主题时给 <html> 挂一次 `.theme-transition`（app.css 的 240ms 颜色过渡），过后摘掉——
+   *  常驻 transition 会与 hover 的 `.ui-transition`、路由进场的 animation 抢同一批属性。
+   *  `appliedTheme === null` 那一趟是首帧：开屏没有「从旧主题过渡过来」这回事，不挂。 */
+  let appliedTheme: "light" | "dark" | null = null;
+  let fadeTimer: ReturnType<typeof setTimeout> | undefined;
+
   $effect(() => {
-    const dark = theme.resolved === "dark";
-    document.documentElement.classList.toggle("dark", dark);
-    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    const root = document.documentElement;
+    const next = theme.resolved === "dark" ? "dark" : "light";
+    if (appliedTheme !== null && appliedTheme !== next) {
+      root.classList.add("theme-transition");
+      clearTimeout(fadeTimer);
+      fadeTimer = setTimeout(() => root.classList.remove("theme-transition"), THEME_FADE_MS);
+    }
+    appliedTheme = next;
+    root.classList.toggle("dark", next === "dark");
+    root.style.colorScheme = next;
   });
 
   onMount(() => {

@@ -2,7 +2,8 @@
   /** APlayer 宿主：全站唯一的播放器（吸底模式）挂在这里。
    *
    * 旧的 76px 播放条已撤，播放 UI 就是 APlayer 自己的那一套（封面 / 控制 / 列表）；
-   * 这个组件只负责给它一个容器、随主题同步主色。外壳常驻，播放器也就常驻。
+   * 这个组件只负责给它一个容器、随主题同步主色。外壳常驻，播放器实例也就常驻——
+   * 但**起始收起**（`stores/player.svelte.ts` 建好实例就 `setMode("mini")`），起播才展开。
    */
   import { onMount } from "svelte";
   import { t } from "$lib/i18n/index.svelte";

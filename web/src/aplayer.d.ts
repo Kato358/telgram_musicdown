@@ -45,6 +45,11 @@ declare module "aplayer" {
     audio: HTMLAudioElement;
     container: HTMLElement;
     list: APlayerList;
+    /** 当前形态：`mini` = 收起（只剩封面片），`normal` = 展开（机身 + 列表）。
+     *  它是 APlayer 自己的状态，改它只能走 `setMode`（折叠把手按钮也走这条路）。 */
+    readonly mode: "mini" | "normal";
+    /** 收起 / 展开机身：APlayer 折叠把手按钮的同一个入口，尺寸与把手图标由它自己维护。 */
+    setMode(mode: "mini" | "normal"): void;
     /** 归一化后的选项。`loop` / `order` 是播放模式的唯一所有者：APlayer 自己的
      *  模式按钮就地改它们，我们只读、不改（见 player store 的 cycleMode）。 */
     options: APlayerOptions;

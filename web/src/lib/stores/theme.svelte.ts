@@ -17,8 +17,11 @@ export const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 
 class Theme {
   preference = $state<ThemePreference>(readStoredPreference());
-  /** 系统是否为深色；由 matchMedia 驱动。 */
-  systemDark = $state(false);
+  /** 系统是否为深色；由 matchMedia 驱动。初值就地取一次（start() 里再订阅变化）——
+   *  留 `false` 等 start() 纠正的话，首帧会先按浅色落一次：跟随系统 + 深色系统下，
+   *  index.html 的内联脚本已经铺了深色，挂载却把它翻回浅色、再由 start() 翻回去，
+   *  一开屏就是一闪（v3.26 起这段闪还会被主题过渡放大成一次可见的淡入）。 */
+  systemDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
 
   #media: MediaQueryList | null = null;
   #onChange = () => {

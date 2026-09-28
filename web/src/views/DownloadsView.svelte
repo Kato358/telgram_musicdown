@@ -416,7 +416,7 @@
         <Input
           bind:value={links}
           type="text"
-          class="h-10 min-w-0 flex-1 rounded-full"
+          class="h-10 min-w-0 w-full rounded-full sm:flex-1"
           placeholder={t("downloads.composerPlaceholder")}
           aria-label={t("downloads.composerPlaceholder")}
         />
@@ -439,26 +439,27 @@
     <Note tone="done">{notice}</Note>
   {/if}
 
-  {#snippet tableHeader()}
-    <FilterTabs
-      items={tabs}
-      value={tab}
-      onchange={setTab}
-      label={t("downloads.tabsLabel")}
-      class="min-w-0 flex-1"
-    />
-    {#if failedCount > 0}
-      <Button variant="outline" size="sm" onclick={() => void retryFailed()}>
-        {t("downloads.retryFailed")}
-      </Button>
+  {#snippet tableToolbar()}
+    <!-- 工具带（§5.3）：页签 / 重试 / 搜索一律换行排（窄屏各占一行，宽屏一行放下）——
+      它们原先挤在固定 56px 高的卡头里，窄屏上药丸被压成一列、搜索框叠在药丸身上。 -->
+    <div class="flex flex-wrap items-center gap-2">
+      <FilterTabs items={tabs} value={tab} onchange={setTab} label={t("downloads.tabsLabel")} />
+      {#if failedCount > 0}
+        <Button variant="outline" size="sm" onclick={() => void retryFailed()}>
+          {t("downloads.retryFailed")}
+        </Button>
+      {/if}
+      <Input
+        bind:value={keyword}
+        type="search"
+        class="w-full rounded-full sm:ml-auto sm:w-48"
+        placeholder={searchPlaceholder}
+        aria-label={searchPlaceholder}
+      />
+    </div>
+    {#if selected.size > 0}
+      <div class="mt-2">{@render selectionBar()}</div>
     {/if}
-    <Input
-      bind:value={keyword}
-      type="search"
-      class="w-full rounded-full sm:w-48"
-      placeholder={searchPlaceholder}
-      aria-label={searchPlaceholder}
-    />
   {/snippet}
 
   {#snippet selectionBar()}
@@ -547,8 +548,7 @@
   <DataTable
     {columns}
     headerCell={tableHeaderCell}
-    header={tableHeader}
-    toolbar={selected.size > 0 ? selectionBar : undefined}
+    toolbar={tableToolbar}
     footer={tableFooter}
   >
     {#if !loaded}
