@@ -102,7 +102,7 @@ services:
 镜像已发布到 GHCR：`ghcr.io/kato358/telgram_musicdown:latest`；`docker compose up -d` 会自动拉取，也可 `docker pull ghcr.io/kato358/telgram_musicdown:latest`。
 镜像以非 root 用户（`tgm`，`useradd` 默认分配 UID/GID）运行，宿主机挂载目录需允许该用户读写。
 
-**标签分工**：`:latest` 只跟着 `main` 移动；版本号标签由 Release 产出——打 `v*` 标签（例 `v0.1.0`）后 CI 另推 `:0.1.0` 与 `:0.1` 两个标签。要锁版本就把 `image:` 钉到 `:0.1.0`，跟着最新开发走则留 `:latest`。
+**标签分工与发版**：`:latest` 只跟着 `main` 移动；版本号由**打标签**产生——先在 `docs/releases/v0.2.0.md` 写好这条版本的正文（首行写成 `# v0.2.0 一句话标题` 时，它会当 Release 标题、正文从第二行起；不写这行就只用标签名当标题），再 `git tag -a v0.2.0 && git push origin v0.2.0`：CI 推 `:0.2.0` 与 `:0.2` 两个镜像标签，并**自动建一条 GitHub Release**，正文取那个 md（文件不在就退回 GitHub 自动生成的 release notes；`docs/releases` 里没有对应文件也能发，只是正文是自动生成的）。要锁版本就把 `image:` 钉到 `:0.2.0`，跟着最新开发走则留 `:latest`。
 
 ### 本地运行（开发）
 
