@@ -8,6 +8,7 @@
     "build": "svelte-check --tsconfig ./tsconfig.json && vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "node tests/browser-fetch.test.mjs && node tests/download-row.test.mjs && node tests/search-input.test.mjs",
     "lint": "eslint . && svelte-check --tsconfig ./tsconfig.json",
     "format": "prettier --write src"
   },

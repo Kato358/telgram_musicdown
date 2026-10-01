@@ -30,7 +30,7 @@ from uuid import uuid4
 
 from app.domain import AUDIO_EXTS, TemplateConfig, TrackMeta
 from app.errors import AppError
-from app.ports.music import FetchRef, MusicSourceIndexProto
+from app.ports.music import FetchRef, MusicSourceIndexProto, ProgressCb
 from app.services.path_builder import render_template
 from app.utils.sanitize import sanitize_segment
 
@@ -138,13 +138,22 @@ class BrowserDownloadService:
         #: token → 已取回的那一份；条数受 MAX_PREPARED 约束，线性扫足够（≤8 条）。
         self._prepared: dict[str, _Entry] = {}
 
-    async def prepare(self, meta: TrackMeta, quality: str | None = None) -> Prepared:
+    async def prepare(
+        self,
+        meta: TrackMeta,
+        quality: str | None = None,
+        progress: ProgressCb | None = None,
+    ) -> Prepared:
         """取回这一首并登记 token（FR-DL-08，TTL 内可重复取）。
 
         **同一首歌（同 provider/定位/档位）在 TTL 内重复点直接复用**已取回的那一份：
         不重打上游、不重写磁盘、连 token 都是同一个——「再点一次」从几分钟变成毫秒级。
         取数失败抛 ``AppError``：前端把它当成行内错误展示（与试听失败同款），
         不会把用户带到浏览器的错误页。
+
+        ``progress`` 是**取数层的字节进度**（``(已写, 总量)``，总量可能报不出来）：
+        路由层拿它推给前端画进度条（FR-DL-08 的「取回中」）。命中复用时不会被调用——
+        那一份早就在磁盘上了，没有「进度」可言，调用方拿到返回值即是「已经好了」。
         """
         key = self._key(meta, quality)
         hit = self._reuse(key)
@@ -166,7 +175,7 @@ class BrowserDownloadService:
                 return hit
             try:
                 result = await target.fetch(
-                    FetchRef.of(meta, target.scope_id, quality), temp_path
+                    FetchRef.of(meta, target.scope_id, quality), temp_path, progress=progress
                 )
             except asyncio.CancelledError:
                 # 取消（前端断开 / 进程收尾）也要收拾：半截分片留到 TTL 才清是白占磁盘

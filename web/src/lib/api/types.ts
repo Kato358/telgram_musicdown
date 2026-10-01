@@ -285,18 +285,28 @@ export interface SearchResponse {
   meta: Record<string, unknown>;
 }
 
-/** `POST /api/search/browser-download`（FR-DL-08）：附件下载地址。
+/** `POST /api/search/browser-download`（FR-DL-08）的 SSE 事件。
  *
- *  服务端已把这首取回临时区，`url` 是带 `Content-Disposition: attachment` 的附件流：
- *  浏览器顶层导航过去（cookie 会话随请求带上）即落进**本机**下载目录，页面不跳走。
- *  该地址在服务端 TTL（默认 2 小时）内**可重复取用**——浏览器分段取（Range）与
- *  暂停后续传都要靠它；过期或被淘汰后是 404，重新点按钮即可。 */
-export interface BrowserDownloadResponse {
-  token: string;
-  /** 浏览器保存时的文件名：曲库同一份文件名模板 + 扩展名（上游实测 → 卡片 `ext` → `mime` 推定）。 */
-  file_name: string;
-  size: number;
-  url: string;
+ *  服务端边取回边推：若干条 `preparing`（字节进度，`total` 可能报不出来）→ 一条终态。
+ *  `ready` 带的 `url` 是 `Content-Disposition: attachment` 的附件流：浏览器顶层导航过去
+ *  （cookie 会话随请求带上）即落进**本机**下载目录，页面不跳走。该地址在服务端 TTL
+ *  （默认 2 小时）内**可重复取用**——浏览器分段取（Range）与暂停后续传都要靠它；
+ *  过期或被淘汰后是 404，重新点按钮即可（导航前先 `HEAD` 探一次，见 search store）。
+ *
+ *  失败走流内终态，形状仍是标准错误包络（SDD §4.1）：取数失败要到途中才知道，
+ *  那时响应头早发出去了，状态码改不动。 */
+export interface BrowserDownloadEvent {
+  state: "preparing" | "ready" | "failed";
+  /** `preparing`：已写字节 / 总字节（总量报不出来时是 null，界面退回不确定态）。 */
+  loaded?: number;
+  total?: number | null;
+  /** `ready`：附件定位与浏览器保存的文件名（曲库同一份模板 + 扩展名）。 */
+  token?: string;
+  file_name?: string;
+  size?: number;
+  url?: string;
+  /** `failed`：标准错误包络。 */
+  error?: { code?: string; message?: string; reason?: string };
 }
 
 export interface DownloadItemResult {

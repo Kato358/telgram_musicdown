@@ -107,6 +107,50 @@ async def test_prepare_lands_temp_file_and_serves_repeatedly(tmp_path: Path) -> 
         store.close()
 
 
+async def test_prepare_forwards_progress_to_the_source(tmp_path: Path) -> None:
+    """取数层的字节进度要能穿过服务层（FR-DL-08 的进度条靠它）。
+
+    服务层自己不画进度，但它是路由层与取数层之间唯一的那一段——这里断了，
+    界面上的进度条就只剩不确定态。
+    """
+    client = FakeUserClient([make_audio_message(1)], content=CONTENT)
+    service, store = make_service(tmp_path, client)
+    seen: list[tuple[int, int | None]] = []
+
+    def on_progress(loaded: int, total: int | None) -> None:
+        seen.append((loaded, total))
+
+    try:
+        await service.prepare(make_meta(), progress=on_progress)
+    finally:
+        store.close()
+    # 假客户端按 (0, 一半, 全部) 回调：三个数原样穿过来，不吞不改
+    assert seen == [
+        (0, len(CONTENT)),
+        (len(CONTENT) // 2, len(CONTENT)),
+        (len(CONTENT), len(CONTENT)),
+    ]
+
+
+async def test_reuse_does_not_call_progress(tmp_path: Path) -> None:
+    """命中复用时进度回调一次都不该被调：那一份早就在磁盘上，没有「进度」可言。
+
+    调用方靠「prepare 返回了」判断已完成——若这里还回调，界面会闪一条 0% 的假进度。
+    """
+    client = FakeUserClient([make_audio_message(1)], content=CONTENT)
+    service, store = make_service(tmp_path, client)
+    calls: list[tuple[int, int | None]] = []
+    try:
+        await service.prepare(make_meta())
+        await service.prepare(
+            make_meta(), progress=lambda loaded, total: calls.append((loaded, total))
+        )
+        assert client.download_calls == 1  # 上游只取一次
+    finally:
+        store.close()
+    assert calls == []
+
+
 async def test_resolve_unknown_token_returns_none(tmp_path: Path) -> None:
     service, store = make_service(tmp_path, FakeUserClient([]))
     try:

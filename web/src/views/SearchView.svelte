@@ -328,7 +328,7 @@
         ondownload={(origin) => void search.requestDownload(item, origin)}
         browserDownloadLabel={t("search.browserDownload")}
         onbrowserdownload={() => void search.requestBrowserDownload(item)}
-        browserBusy={search.browserPending[key] === true}
+        browserBusy={search.browserPending[key] !== undefined}
         online={search.isOnline(item)}
         selected={search.selection.has(key)}
         onselected={(checked) => search.toggleSelect(key, checked)}
@@ -338,10 +338,6 @@
         {#snippet feedback()}
           {#if search.rowError[key]}
             <Note tone="fail">{search.rowError[key]}</Note>
-          {:else if search.browserPending[key]}
-            <!-- 准备阶段要把整首取回服务端才回响应（FR-DL-08）：行内说一句，
-                 免得用户以为点了没反应 -->
-            <Note tone="wait">{t("search.browserPreparing")}</Note>
           {/if}
         {/snippet}
       </TrackRow>

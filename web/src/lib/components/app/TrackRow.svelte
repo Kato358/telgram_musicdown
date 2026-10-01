@@ -49,8 +49,8 @@
    * 文件不在磁盘时整行换成原因文案，该行播放键随之 `aria-disabled` 且不可点击。
    */
   import type { Snippet } from "svelte";
-  import ArrowDownToLine from "@lucide/svelte/icons/arrow-down-to-line";
   import DownloadIcon from "@lucide/svelte/icons/download";
+  import MonitorDown from "@lucide/svelte/icons/monitor-down";
   import MusicIcon from "@lucide/svelte/icons/music";
   import PauseIcon from "@lucide/svelte/icons/pause";
   import PlayIcon from "@lucide/svelte/icons/play";
@@ -90,7 +90,9 @@
     downloadLabel?: string;
     ondownload?: (origin: { x: number; y: number }) => void;
     /** 浏览器下载键（FR-DL-08）：把这首存到**本机浏览器的下载目录**，不入队、不写历史。
-     *  与下载键同处一列，靠空心描边区分：实底 soft = 入队落盘，描边 = 只存本机。 */
+     *  与下载键同处一列，靠**填充 + 图标**双重区分：实底 soft + `Download`（托盘）= 入队落盘，
+     *  描边空底 + `MonitorDown`（屏幕）= 只存这台电脑——两个向下的箭头造型太像，
+     *  光靠填充分不清，图标本身也得说「落到哪儿」。 */
     browserDownloadLabel?: string;
     onbrowserdownload?: () => void;
     /** 服务端正在取回这首：键禁用，避免连点重复打上游。 */
@@ -240,8 +242,10 @@
         {/if}
 
         {#if browserDownloadLabel && onbrowserdownload}
-          <!-- 浏览器下载（FR-DL-08）：空心描边键，与上面那颗 soft 实底的「入队下载」
-               一眼分得开。它只把文件存进本机浏览器的下载目录——不进下载页、不写历史。 -->
+          <!-- 浏览器下载（FR-DL-08）：空心描边键 + `MonitorDown`（屏幕 + 下箭头），与上面那颗
+               soft 实底 + `Download`（托盘）的「入队下载」一眼分得开——两颗键的语义差别是
+               **落点**（服务端曲库 / 这台电脑），图标也得跟着说这件事，不能都用下箭头。
+               它只把文件存进本机浏览器的下载目录——不进下载页、不写历史。 -->
           <button
             type="button"
             class="ui-transition grid size-8 shrink-0 place-items-center rounded-full border border-border text-muted-foreground hover:border-primary hover:bg-rule hover:text-primary active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
@@ -250,7 +254,7 @@
             disabled={browserBusy}
             onclick={() => onbrowserdownload?.()}
           >
-            <ArrowDownToLine class="size-4" aria-hidden="true" />
+            <MonitorDown class="size-4" aria-hidden="true" />
           </button>
         {/if}
       </span>

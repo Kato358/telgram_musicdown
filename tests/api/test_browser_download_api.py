@@ -1,21 +1,25 @@
-"""浏览器下载 API 测试（FR-DL-08）：准备 → 附件流 → 一次性与错误包络。
+"""浏览器下载 API 测试（FR-DL-08）：进度流 → 可用性探测 → 附件流。
 
-这一层锁的是「浏览器拿得到什么」：``Content-Disposition: attachment`` 决定文件落在
-用户下载目录，而「不入队、不写历史」是它与 ``POST /api/downloads`` 的分界。
+这一层锁的是「浏览器拿得到什么、用户看得到什么」：``Content-Disposition: attachment``
+决定文件落在用户下载目录；SSE 的进度事件与失败终态决定界面能不能说清「在取、取到哪、
+为什么失败」；而「不入队、不写历史」是它与 ``POST /api/downloads`` 的分界。
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import SecretConfig
 from app.db.store import Store
-from app.domain import TemplateConfig
+from app.domain import TemplateConfig, meta_from_dict
 from app.events import EventBus
-from app.services.browser_download import SUBDIR
+from app.services.browser_download import SUBDIR, BrowserDownloadService
 from app.services.download import DownloadService
 from app.services.preview import PreviewService
 from app.services.search import SearchService
@@ -23,6 +27,7 @@ from app.services.source import SourceService
 from app.telegram.manager import TelegramManager
 from app.telegram.unconnected import UnconnectedTelegramClient
 from app.web.routes import create_app
+from app.web.routes.browser_download import _prepare_stream
 from tests.fakes import FakeUserClient, fake_registry, make_audio_message
 
 CONTENT = b"x" * 100
@@ -40,12 +45,48 @@ REF = {
 }
 
 
-@pytest.fixture()
-def client(tmp_path: Path) -> TestClient:
+class SlowClient(FakeUserClient):
+    """取数途中真有等待的假客户端：进度事件才有机会被推出来。
+
+    ``FakeUserClient`` 一瞬写完，整条流只剩终态——那种「快到没有中间态」的情形
+    在生产的母带 / 慢源上不成立，故这里补一个按拍子走的版本。
+    """
+
+    async def download_media(  # type: ignore[override]
+        self, message_ref: dict[str, Any], file_name: str, progress: Any = None
+    ) -> str | None:
+        self.download_calls += 1
+        size = len(self.content)
+        if progress is not None:
+            progress(0, size)
+        for step in range(1, 4):
+            await asyncio.sleep(0.25)
+            if progress is not None:
+                progress(size * step // 3, size)
+        Path(file_name).write_bytes(self.content)  # noqa: ASYNC240  假客户端允许直接写文件
+        return file_name
+
+
+def sse_events(resp: Any) -> list[dict[str, Any]]:
+    """把 SSE 响应体拆成事件列表（每条 `data: {...}` 一行）。"""
+    return [
+        json.loads(line[len("data:") :].strip())
+        for line in resp.text.splitlines()
+        if line.startswith("data:")
+    ]
+
+
+def final_event(resp: Any) -> dict[str, Any]:
+    """终态事件（``ready`` / ``failed``）：流的最后一条。"""
+    events = sse_events(resp)
+    assert events, "流里一条事件都没有"
+    return events[-1]
+
+
+def build_client(tmp_path: Path, tg_client: FakeUserClient) -> TestClient:
     """与 tests/api/test_api.py 同构的装配，只有一个差别：来源索引里有一首真能取到的歌。"""
     store = Store(tmp_path / "app.db")
     events = EventBus()
-    tg_client = FakeUserClient([make_audio_message(1)], content=CONTENT)
     registry = fake_registry(store, tg_client)
     sources = SourceService(store, UnconnectedTelegramClient())
     search = SearchService(store, UnconnectedTelegramClient(), registry=registry)
@@ -75,14 +116,43 @@ def client(tmp_path: Path) -> TestClient:
     return TestClient(app)
 
 
-def test_prepare_then_stream_as_attachment(client: TestClient, tmp_path: Path) -> None:
-    prepared = client.post("/api/search/browser-download", json={"message_refs": [REF]})
-    assert prepared.status_code == 200
-    body = prepared.json()
+@pytest.fixture()
+def client(tmp_path: Path) -> TestClient:
+    return build_client(tmp_path, FakeUserClient([make_audio_message(1)], content=CONTENT))
+
+
+@pytest.fixture()
+def slow_client(tmp_path: Path) -> TestClient:
+    return build_client(tmp_path, SlowClient([make_audio_message(1)], content=CONTENT))
+
+
+def test_prepare_streams_progress_then_ready(slow_client: TestClient) -> None:
+    """取数途中推字节进度，结束推终态（FR-DL-08）。
+
+    这是「取回中」那块的唯一数据来源：没有进度事件，前端只能给一个转圈。
+    """
+    resp = slow_client.post("/api/search/browser-download", json={"message_refs": [REF]})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+
+    events = sse_events(resp)
+    progress = [e for e in events if e["state"] == "preparing"]
+    assert progress, "取数耗时超过一拍，必须推过进度事件"
+    # 分母来自卡片声明的 file_size：真实百分比要的就是它
+    assert progress[-1]["total"] == len(CONTENT)
+    assert 0 < progress[-1]["loaded"] <= len(CONTENT)
+
+    body = final_event(resp)
+    assert body["state"] == "ready"
     # 扩展名从 mime 推定（卡片 ext 为 None、Telegram 源不报 ext）：没有这一档，
     # 浏览器保存下来的就是一个没有扩展名的文件
     assert body["file_name"] == "周杰伦 - 晴天.flac"
     assert body["size"] == len(CONTENT)
+
+
+def test_prepare_then_stream_as_attachment(client: TestClient, tmp_path: Path) -> None:
+    body = final_event(client.post("/api/search/browser-download", json={"message_refs": [REF]}))
+    assert body["state"] == "ready"
 
     stream = client.get(body["url"])
     assert stream.status_code == 200
@@ -103,17 +173,31 @@ def test_prepare_then_stream_as_attachment(client: TestClient, tmp_path: Path) -
 
 
 def test_repeat_request_returns_the_same_prepared_file(client: TestClient) -> None:
-    """同一首歌再点一次：POST 回来的是**同一个地址**——服务端复用已取回的那份。
+    """同一首歌再点一次：回来的是**同一个地址**——服务端复用已取回的那份。
 
     用户视角这就是「重复下载同一首歌不必再等一遍」；上游只被取一次（服务层用例锁住了
     取数次数，这里锁住对外的契约：token 与 url 都不变）。
     """
-    first = client.post("/api/search/browser-download", json={"message_refs": [REF]}).json()
-    second = client.post("/api/search/browser-download", json={"message_refs": [REF]}).json()
+    first = final_event(client.post("/api/search/browser-download", json={"message_refs": [REF]}))
+    second = final_event(client.post("/api/search/browser-download", json={"message_refs": [REF]}))
 
     assert second["token"] == first["token"]
     assert second["url"] == first["url"]
     assert second["file_name"] == first["file_name"] == "周杰伦 - 晴天.flac"
+
+
+def test_head_probe_reports_availability(client: TestClient) -> None:
+    """导航前的可用性探测（FR-DL-08）：只有它能让「临时文件过期」不把整页带走。
+
+    ``window.location.assign`` 之后前端读不到响应体，404 会变成浏览器的错误页——
+    故这一问必须在导航之前，且必须不读文件体。
+    """
+    body = final_event(client.post("/api/search/browser-download", json={"message_refs": [REF]}))
+    probe = client.head(body["url"])
+    assert probe.status_code == 204
+    assert probe.content == b""
+
+    assert client.head("/api/search/browser-download/deadbeef").status_code == 404
 
 
 def test_unknown_token_is_not_found(client: TestClient) -> None:
@@ -126,7 +210,7 @@ def test_cache_card_reports_and_clears_the_temp_dir(client: TestClient) -> None:
     它**不并进** `total_bytes`：那个数对着试听/封面那份字节预算，混进来就成了
     「占用超上限却没有东西被淘汰」的假象。
     """
-    body = client.post("/api/search/browser-download", json={"message_refs": [REF]}).json()
+    body = final_event(client.post("/api/search/browser-download", json={"message_refs": [REF]}))
     assert client.get(body["url"]).status_code == 200
 
     stats = client.get("/api/settings/cache").json()
@@ -137,11 +221,13 @@ def test_cache_card_reports_and_clears_the_temp_dir(client: TestClient) -> None:
     cleared = client.post("/api/settings/cache/clear").json()
     assert cleared["browser_bytes"] == 0 and cleared["browser_count"] == 0
     assert client.get(body["url"]).status_code == 404  # 登记一并作废
+    # 清掉之后探测也要说「取不了了」：否则前端会把用户导航到 404 错误页
+    assert client.head(body["url"]).status_code == 404
 
 
 def test_browser_download_does_not_queue_or_record(client: TestClient, tmp_path: Path) -> None:
     """分界：不进下载队列、不写历史、不落 save_path（FR-DL-08 与 FR-DL-01 的分工）。"""
-    body = client.post("/api/search/browser-download", json={"message_refs": [REF]}).json()
+    body = final_event(client.post("/api/search/browser-download", json={"message_refs": [REF]}))
     assert client.get(body["url"]).status_code == 200
 
     assert client.get("/api/downloads").json() == []
@@ -153,11 +239,44 @@ def test_prepare_requires_message_refs(client: TestClient) -> None:
     assert client.post("/api/search/browser-download", json={}).status_code == 422
 
 
-def test_prepare_maps_failures_to_error_envelope(client: TestClient) -> None:
-    """认不出的来源按标准错误包络返回 400：前端把 message 显示在行内。"""
+def test_prepare_reports_failure_in_stream(client: TestClient) -> None:
+    """认不出的来源按标准错误包络的形状回在流里：前端把 message 显示在行内。
+
+    状态码这里**只能是 200**：失败要到取数途中才知道，那时响应头早就发出去了。
+    形状不变（``{"error": {"code", "message"}}``）是刻意的——前端只认一种错误形状。
+    """
     resp = client.post(
         "/api/search/browser-download",
         json={"message_refs": [{**REF, "provider": "nope"}]},
     )
-    assert resp.status_code == 400
-    assert resp.json()["error"]["code"] == "browser_download_failed"
+    assert resp.status_code == 200
+    body = final_event(resp)
+    assert body["state"] == "failed"
+    assert body["error"]["code"] == "browser_download_failed"
+    assert "没有可用的取数来源" in body["error"]["message"]
+
+
+async def test_closing_the_stream_cancels_the_fetch(tmp_path: Path) -> None:
+    """客户端断开（用户点了「取消」）→ 取数被停掉、半截分片被清（FR-DL-08）。
+
+    断流在 Starlette 那边就是「把生成器关掉」，故这里直接 ``aclose()`` 复现它——
+    真去断一条 HTTP 连接要靠竞态，测不稳。取消要一路传到取数层：界面上的「取消」
+    承诺的不只是「卡片消失」，还有「别再替我把这首歌拉完」。
+    """
+    client = SlowClient([make_audio_message(1)], content=CONTENT)
+    store = Store(tmp_path / "app.db")
+    registry = fake_registry(store, client)
+    browser = BrowserDownloadService(
+        registry,
+        tmp_path / "temp",
+        TemplateConfig(file_template="{artist} - {title}", save_path=tmp_path / "library"),
+    )
+    stream = _prepare_stream(browser, meta_from_dict(REF), None)
+    try:
+        first = await anext(stream)
+        assert json.loads(first[len("data:") :].strip())["state"] == "preparing"
+    finally:
+        await stream.aclose()
+    assert client.download_calls == 1, "取数应当已经开跑（否则这条用例什么也没测到）"
+    assert browser.stats().count == 0, "取消后不该留下半截分片"
+    store.close()

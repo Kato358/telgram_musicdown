@@ -5,10 +5,10 @@
  * 组件只是它的视图层；只有「新一轮搜索」才清空结果。
  */
 
-import { api, errorText } from "$lib/api/client";
+import { api, ApiError, errorText, ssePost } from "$lib/api/client";
 import { coverUrl } from "$lib/cover";
 import type {
-  BrowserDownloadResponse,
+  BrowserDownloadEvent,
   QualityOption,
   QualityTier,
   QualitiesResponse,
@@ -26,6 +26,21 @@ interface UnreachableSource {
   reason: string;
 }
 
+/** 浏览器下载的「取回中」作业（FR-DL-08）：服务端正在取回这一首。
+ *
+ *  字段全部服务右下角那张任务卡：曲名、已用时秒表、以及**真实字节进度**。
+ *  `total` 为 null = 上游报不出总量（部分在线源如此），卡片退回不确定态——
+ *  比例未知就说未知，不假装 0%（设计规范 §5.5）。
+ */
+export interface BrowserJob {
+  title: string;
+  startedAt: number;
+  /** 取数层已写字节。 */
+  loaded: number;
+  /** 总量；报不出来时 null。 */
+  total: number | null;
+}
+
 /** 排序口径（FR-SEARCH-03）：与后端 `sort` 入参一一对应，列表只此一份。 */
 export const SORT_OPTIONS = ["relevance", "date", "duration", "size"] as const;
 export type SearchSort = (typeof SORT_OPTIONS)[number];
@@ -34,9 +49,9 @@ export type SearchSort = (typeof SORT_OPTIONS)[number];
  *  池子取满而本地筛选/去重后已无新行时它会一直报 true）。 */
 const EMPTY_PAGE_LIMIT = 3;
 
-/** 浏览器下载准备阶段的超时（FR-DL-08）：服务端要先把整首取回临时区才回响应，
- *  母带/无损 + 慢源远超 api 客户端的默认 15s。给到 10 分钟——再慢就是上游不可用，
- *  由服务端的错误包络说清楚原因，不必在这里假装能等更久。 */
+/** 浏览器下载取回的**空闲**超时（FR-DL-08）：服务端要先把整首取回临时区，母带/无损 +
+ *  慢源跑满十分钟本身是正常的——所以这一档管的是「多久没收到新的一帧进度」，
+ *  不是整条流的总时限（语义见 `ssePost`）。真卡住了就由它掐断，并给一句说得清的超时文案。 */
 const BROWSER_DOWNLOAD_TIMEOUT_MS = 600_000;
 
 /** 飞片用的封面：走全局封面链路（与行内封面同源），没有可查字段就飞音符占位。 */
@@ -91,8 +106,11 @@ class SearchStore {
   /** `${chat_id}-${message_id}` → preview_id（缓存的试听文件）。 */
   previews = $state<Record<string, number>>({});
   pending = $state<Record<string, true>>({});
-  /** 正在准备浏览器下载的行（服务端取数中）：键禁用 + 行内「准备中」提示。 */
-  browserPending = $state<Record<string, true>>({});
+  /** 正在准备浏览器下载的行（服务端取数中）：键禁用 + 右下角「取回中」任务卡。 */
+  browserPending = $state<Record<string, BrowserJob>>({});
+  /** 每首在飞取回的取消柄（不进模板：卡片只读 `browserPending`）。
+   *  中止它 = 断开那条 SSE，服务端随之把取数 task 停掉（FR-DL-08 的「取消」）。 */
+  private browserAborts = new Map<string, AbortController>();
   rowError = $state<Record<string, string>>({});
   /** 多选批量下载：selectMode 开启后行首出现勾选框，selection 是勾中的行 key 集合。 */
   selectMode = $state(false);
@@ -181,7 +199,11 @@ class SearchStore {
       this.applyMeta(resp, 0);
       this.previews = {};
       this.pending = {};
-      this.browserPending = {};
+      // 在飞的浏览器取回**不一刀切清空**：清掉会让卡片凭空消失、那颗键复原可再点——同一次
+      // 取回结束时照样会导航去保存，用户看到的是「没点过却突然开始下载」。但也不能全留着：
+      // 新结果集里没有的那首，行都没了，用户既看不到进度也没法点取消，卡片只会一直讲一件
+      // 与当前结果无关的事。故按新结果集核对：还在的留着继续报进度，不在的停掉并摘卡。
+      this.pruneBrowserJobs(new Set(this.results.map((item) => this.keyOf(item))));
       this.rowError = {};
       this.exitSelect();
       this.searched = true;
@@ -276,7 +298,9 @@ class SearchStore {
   }
 
   get allSelected(): boolean {
-    return this.results.length > 0 && this.results.every((item) => this.selection.has(this.keyOf(item)));
+    return (
+      this.results.length > 0 && this.results.every((item) => this.selection.has(this.keyOf(item)))
+    );
   }
 
   get someSelected(): boolean {
@@ -345,16 +369,25 @@ class SearchStore {
    *  与上面那条的分工是**落点**：入队下载落 `save_path`、进下载页与曲库；浏览器下载
    *  落**打开网页这台电脑**的浏览器下载目录，不入队、不写历史、不参与去重。
    *
+   *  POST 是一条 SSE 流（服务端边取边推字节进度）：进度灌进 `browserPending`，
+   *  右下角任务卡因此画得出真实百分比；拿到 `ready` 才交给浏览器。
+   *
    *  顶层导航（而不是 blob）是为了让大文件由浏览器直接写盘、带原生进度；cookie 会话
-   *  随导航带上，无需前端另造 URL。失败仍走行内提示——准备阶段是普通 POST，
-   *  错误包络读得到，不会把用户带到浏览器的错误页。
+   *  随导航带上，无需前端另造 URL。失败仍走行内提示——错误包络的形状没变，
+   *  只是从 HTTP 400 挪进了流内终态（取数失败要到途中才知道，那时响应头已发出）。
    */
   async browserDownload(item: SearchResult, quality?: QualityTier) {
     const key = this.keyOf(item);
+    // 同一首已经在飞就不再开第二条：那颗键会在下一帧变灰，但极快的连点在变灰之前
+    // 就能进来第二次——两条流会同时往同一个 key 上写进度，还会导航两次。
+    if (this.browserPending[key] !== undefined) return;
     this.clearRowError(key);
-    this.browserPending = { ...this.browserPending, [key]: true };
+    this.browserPending = { ...this.browserPending, [key]: this.newBrowserJob(item) };
+    // 取消柄：中止这条流 = 服务端把取数 task 一并停掉（FR-DL-08）
+    const abort = new AbortController();
+    this.browserAborts.set(key, abort);
     try {
-      const resp = await api.post<BrowserDownloadResponse>(
+      const stream = ssePost<BrowserDownloadEvent>(
         "/api/search/browser-download",
         {
           message_refs: [
@@ -365,16 +398,100 @@ class SearchStore {
             { ...refOf(item, quality, item.file_size), ext: item.ext, mime: item.mime },
           ],
         },
-        BROWSER_DOWNLOAD_TIMEOUT_MS,
+        { signal: abort.signal, timeoutMs: BROWSER_DOWNLOAD_TIMEOUT_MS },
       );
-      window.location.assign(resp.url);
+      for await (const event of stream) {
+        if (event.state === "preparing") {
+          this.patchBrowserJob(key, event.loaded ?? 0, event.total ?? null);
+          continue;
+        }
+        if (event.state === "failed") {
+          this.setRowError(key, event.error?.message ?? t("common.error"));
+          return;
+        }
+        await this.handOffToBrowser(key, event, abort);
+        return;
+      }
+      // 流没给终态就断了（服务端重启 / 连接掉线）：说一句，别留一张转不停的卡
+      this.setRowError(key, t("common.error"));
     } catch (err) {
-      this.setRowError(key, errorText(err, t("common.error")));
+      // 用户自己点的「取消」不是错误：中止本来就是预期结果，不该再弹一行红字
+      if (!abort.signal.aborted) this.setRowError(key, errorText(err, t("common.error")));
     } finally {
-      const next = { ...this.browserPending };
-      delete next[key];
-      this.browserPending = next;
+      this.browserAborts.delete(key);
+      this.clearBrowserJob(key);
     }
+  }
+
+  /** 取消正在取回的浏览器下载（任务卡上的「取消」）。
+   *
+   *  停的是**取数**（半截分片由服务端自己收拾），卡片随之消失——用户改主意时不必再等
+   *  那几分钟，也不必收下一个自己已经不想要的文件。 */
+  cancelBrowserDownload(key: string) {
+    this.browserAborts.get(key)?.abort();
+  }
+
+  /** 新一轮结果进来后，收掉「行已经不在列表里」的在飞取回（FR-DL-08）。
+   *
+   *  留下的那首继续报进度（用户还看得见它、也还能取消）；不在新结果集里的直接 abort——
+   *  那张卡片既没有对应的行、也没有任何入口，留着只是噪音，而取数还在白烧上游流量。 */
+  private pruneBrowserJobs(alive: Set<string>) {
+    for (const key of Object.keys(this.browserPending)) {
+      if (!alive.has(key)) this.cancelBrowserDownload(key);
+    }
+  }
+
+  /** 新建一份「取回中」作业：进度先当未知（`total: null` = 不确定态），等服务端报第一拍。 */
+  private newBrowserJob(item: SearchResult): BrowserJob {
+    return {
+      title: item.title ?? t("common.unknown"),
+      startedAt: Date.now(),
+      loaded: 0,
+      total: null,
+    };
+  }
+
+  /** 就地更新字节进度：整体替换引用（`browserPending` 是 $state，卡片靠引用变化重渲染）。 */
+  private patchBrowserJob(key: string, loaded: number, total: number | null) {
+    const job = this.browserPending[key];
+    if (job === undefined) return;
+    this.browserPending = { ...this.browserPending, [key]: { ...job, loaded, total } };
+  }
+
+  /** 摘掉一张卡（成功、失败、取消都走这里）。 */
+  private clearBrowserJob(key: string) {
+    const next = { ...this.browserPending };
+    delete next[key];
+    this.browserPending = next;
+  }
+
+  /** 交给浏览器（FR-DL-08）：先探一次「还能取吗」，再顶层导航。
+   *
+   *  为什么要探：`window.location.assign` 之后响应体就读不到了——token 过期、或被
+   *  「清理缓存」挤掉时，GET 回的是 404 JSON，浏览器会把**整页**导航过去，用户丢掉
+   *  整个界面只剩一个错误页。HEAD 只问在不在：404 就地改成行内原因，不导航。
+   *
+   *  `abort` 是这一首的取消柄：用户恰好在「已就绪」和「开始导航」之间点了取消的话，
+   *  到这里就不该再导航——否则卡片消失了、文件却照样下起来。 */
+  private async handOffToBrowser(key: string, event: BrowserDownloadEvent, abort: AbortController) {
+    if (!event.url) {
+      this.setRowError(key, t("common.error"));
+      return;
+    }
+    try {
+      await api.head(event.url);
+    } catch (err) {
+      // 只有 404 是「那份临时文件没了」（TTL 到期 / 被清理缓存挤掉），这句文案要有——
+      // 它直接告诉用户下一步做什么。其余（网络、401）如实报，不冒充「已过期」。
+      const expired = err instanceof ApiError && err.status === 404;
+      this.setRowError(
+        key,
+        expired ? t("search.browserExpired") : errorText(err, t("common.error")),
+      );
+      return;
+    }
+    if (abort.signal.aborted) return; // 探测期间被取消：到此为止，不导航
+    window.location.assign(event.url);
   }
 
   // ---- 音质弹窗（在线源才有「选哪一档」这回事）----

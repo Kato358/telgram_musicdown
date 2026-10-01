@@ -21,6 +21,7 @@
   import PlayerHost from "$lib/components/app/PlayerHost.svelte";
   import ImmersivePlayer from "$lib/components/app/ImmersivePlayer.svelte";
   import FlyOverlay from "$lib/components/app/FlyOverlay.svelte";
+  import BrowserFetchCard from "$lib/components/app/BrowserFetchCard.svelte";
   import LoginView from "@/views/LoginView.svelte";
   import { views } from "$lib/views.svelte";
 
@@ -232,5 +233,8 @@
     <ImmersivePlayer />
     <!-- 「飞进侧边栏下载」的全局动画层：fixed 定位，挂在外壳上与路由无关 -->
     <FlyOverlay />
+    <!-- 浏览器下载的「取回中」任务卡：fixed 右下角、非模态，同样与路由无关——
+         服务端取数不因用户切页而停下，提示也就不该跟着视图卸载 -->
+    <BrowserFetchCard />
   </div>
 {/if}
