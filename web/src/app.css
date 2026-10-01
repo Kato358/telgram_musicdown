@@ -1794,6 +1794,8 @@
   /* 明暗切换的过渡（v3.26）：只在换主题的那一瞬由 App 给 <html> 挂 `.theme-transition`，
      240ms 后摘掉——整站因此有颜色过渡，却不会常驻（常驻 transition 会与 hover 的
      `.ui-transition`、路由进场的 animation 抢同一批属性，也与「不等动画」的交互手感打架）。
+     这条现在是**回落**：支持 View Transition 的浏览器走下面那条整页快照交叉淡入，
+     逐元素过渡只剩老浏览器在用——每个元素各自重绘，长列表页最容易掉帧。
      只过渡颜色：圆角 / 尺寸 / 阴影不参与——阴影里只有 1px 上缘高光随主题变，差值小到
      不值得为它让整页重绘阴影（背景渐变、`background-image` 同理：它不可过渡，直接翻面）。
      `!important` 是为了压过 `.ui-transition` 与 APlayer 自带的 `transition: all`——
@@ -1809,6 +1811,19 @@
       fill 240ms ease,
       stroke 240ms ease,
       outline-color 240ms ease !important;
+  }
+
+  /* 换主题的首选路径（App 里调 startViewTransition）：整页新旧两张快照在合成器上交叉淡入，
+     代价与元素数量无关——上面那条逐元素的过渡只留给不支持 View Transition 的浏览器当回落。
+     这两行替掉的是 UA 给 root 下发的默认动画：默认那套把加色混合（`-ua-mix-blend-mode-plus-lighter`
+     关键帧）也一并挂在动画上，换成一进一出；这里改成「旧帧原样留着、新帧淡入其上」的一次
+     干净交叉淡入。`animation: none` 是承重行——删了旧帧就又会淡出（加色混合也跟着回来）。 */
+  ::view-transition-old(root) {
+    animation: none;
+  }
+
+  ::view-transition-new(root) {
+    animation: theme-cross-fade 240ms ease both;
   }
 
   /* 路由进场：淡入 + 上移 6px。240ms easeOutQuint（cubic-bezier(.22,1,.36,1)）——位移给了
@@ -1882,6 +1897,15 @@
     opacity: 0.35;
   }
   50% {
+    opacity: 1;
+  }
+}
+
+@keyframes theme-cross-fade {
+  from {
+    opacity: 0;
+  }
+  to {
     opacity: 1;
   }
 }

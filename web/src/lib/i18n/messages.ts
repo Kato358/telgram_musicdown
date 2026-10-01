@@ -284,6 +284,7 @@ export const zhCN: Dict = {
     deleteKeep: "已落盘的音乐文件保留在曲库里，可继续播放",
     deleteConfirm: "删除",
     deletePending: "删除中…",
+    deleted: "已删除记录",
     found: "共 {n} 首曲目",
     foundSize: "共 {n} 首曲目 · {size}",
     pagePrev: "上一页",
@@ -448,6 +449,9 @@ export const zhCN: Dict = {
     proxyPortInvalid: "代理端口是 1–65535",
 
     resetSection: "重新初始化",
+    resetHint:
+      "清掉密钥与代理、退出登录并删除会话文件，随后回到向导第 1 步；下载文件、历史与音乐源保留。",
+    reset: "重新初始化",
     resetTitle: "重新执行初始化？",
     resetBody:
       "config.yaml 里的 api_id / api_hash / bot_token / 代理会被删除，会话文件也会被删除。",
@@ -495,6 +499,7 @@ export const zhCN: Dict = {
     clearTitle: "清空当前日志？",
     clearBody: "文件会被清空，旋转备份保留，之后的日志继续正常写入。",
     clearTargetMeta: "{n} 条错误",
+    clearConfirm: "清空",
     clearPending: "清空中…",
     levels: {
       all: "全部",
@@ -966,6 +971,7 @@ export const en: Dict = {
     clearConfirm: "Clear",
     clearPending: "Clearing…",
     clearResult: "{n} waiting items cancelled",
+    tabsLabel: "Filter by status",
     selectAll: "Select all on this page",
     selectRow: "Select “{title}”",
     selectedCount: "{n} selected",

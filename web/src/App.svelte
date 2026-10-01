@@ -28,7 +28,8 @@
   /** Ctrl/⌘+K 的单一注册点：递增信号，由 TopBar 聚焦搜索框。 */
   let searchFocus = $state(0);
 
-  /** 明暗切换过渡的时长（与 app.css `.theme-transition` 的 240ms 同一份预算：路由进场同档）。 */
+  /** 明暗切换过渡的时长（与 app.css 的 `.theme-transition`、View Transition 的 240ms 同一份
+   *  预算：路由进场同档）。只有回落路径用它计时摘类。 */
   const THEME_FADE_MS = 240;
 
   $effect(() => {
@@ -97,23 +98,76 @@
   });
 
   /** 主题落到 <html>：浅/深唯一出口（首帧由 index.html 内联脚本先铺一次）。
-   *  换主题时给 <html> 挂一次 `.theme-transition`（app.css 的 240ms 颜色过渡），过后摘掉——
-   *  常驻 transition 会与 hover 的 `.ui-transition`、路由进场的 animation 抢同一批属性。
-   *  `appliedTheme === null` 那一趟是首帧：开屏没有「从旧主题过渡过来」这回事，不挂。 */
+   *  `appliedTheme === null` 那一趟是首帧：开屏没有「从旧主题过渡过来」这回事，不过场。
+   *  之后换主题优先走 View Transition（App 下面的 startViewTransition）：浏览器把新旧两帧
+   *  各截一图，在合成器上交叉淡入，代价与页面元素数量无关。
+   *  不支持时回落成给 <html> 挂一次 `.theme-transition`（app.css 的 240ms 逐元素颜色过渡），
+   *  过后摘掉——常驻 transition 会与 hover 的 `.ui-transition`、路由进场的 animation
+   *  抢同一批属性。 */
   let appliedTheme: "light" | "dark" | null = null;
   let fadeTimer: ReturnType<typeof setTimeout> | undefined;
+  let viewTransition: { skipTransition: () => void } | null = null;
+  let viewTransitionTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Select 弹层（settings/外观 等）还在收起时不能立刻开场：View Transition 期间整页只剩
+   *  两张静止快照，一个还在做出场动画的浮层会被冻在快照里整整 240ms、到尾再硬生生消失，
+   *  看着就像卡了一下。等它的出场动画（组件的 duration-100）走完再截帧——这点等待正好被
+   *  浮层自己的收起动作盖住。 */
+  const SELECT_CONTENT = '[data-slot="select-content"]';
+  const SELECT_EXIT_MS = 120;
+
+  /** 只改 <html> 上的那两个开关。 */
+  function paintTheme(root: HTMLElement, next: "light" | "dark") {
+    root.classList.toggle("dark", next === "dark");
+    root.style.colorScheme = next;
+  }
 
   $effect(() => {
     const root = document.documentElement;
     const next = theme.resolved === "dark" ? "dark" : "light";
-    if (appliedTheme !== null && appliedTheme !== next) {
-      root.classList.add("theme-transition");
-      clearTimeout(fadeTimer);
-      fadeTimer = setTimeout(() => root.classList.remove("theme-transition"), THEME_FADE_MS);
-    }
+    if (appliedTheme === next) return;
+    const first = appliedTheme === null;
     appliedTheme = next;
-    root.classList.toggle("dark", next === "dark");
-    root.style.colorScheme = next;
+
+    // 首帧与「降低动态效果」都直接落值：前者没有旧主题可过渡，后者本就不该有动画。
+    if (first || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      clearTimeout(fadeTimer);
+      clearTimeout(viewTransitionTimer);
+      root.classList.remove("theme-transition");
+      paintTheme(root, next);
+      return;
+    }
+
+    // View Transition 这条路：逐元素的颜色过渡要让几千个元素各自重绘，长列表页正是它
+    // 掉帧的地方；整页两张快照在合成器上淡入淡出则与元素数量无关。类型走 unknown 转一次：
+    // 老 TS 的 lib.dom 里没有这个方法名。
+    const startViewTransition = (
+      document as unknown as {
+        startViewTransition?: (callback: () => void) => { skipTransition: () => void };
+      }
+    ).startViewTransition;
+    if (startViewTransition) {
+      const run = () => {
+        viewTransition?.skipTransition(); // 连点两下：旧的过场让位，不叠着跑
+        // 回调可能排在「更新的一趟」之后才跑（被 skip 的过场也会回调），落值前对一下号，
+        // 免得把已经过时的主题盖回去。
+        viewTransition = startViewTransition.call(document, () => {
+          if (appliedTheme === next) paintTheme(root, next);
+        });
+      };
+      clearTimeout(viewTransitionTimer);
+      if (document.querySelector(SELECT_CONTENT)) {
+        viewTransitionTimer = setTimeout(run, SELECT_EXIT_MS);
+      } else {
+        run();
+      }
+      return;
+    }
+
+    root.classList.add("theme-transition");
+    paintTheme(root, next);
+    clearTimeout(fadeTimer);
+    fadeTimer = setTimeout(() => root.classList.remove("theme-transition"), THEME_FADE_MS);
   });
 
   onMount(() => {
