@@ -28,11 +28,12 @@
   /** 搜索中骨架屏的行（形状先就位，结果一到就替换）。 */
   const SKELETON_ROWS = Array.from({ length: 5 }, (_, index) => index);
 
-  /** 多选时在列首拼一列勾选框，退出多选即摘掉。 */
+  /** 多选时在列首拼一列勾选框，退出多选即摘掉。
+   *  两种形态都按**三键**取操作列宽（播放 + 入队下载 + 浏览器下载，见 TrackRow）。 */
   const columns = $derived<Column[]>(
     search.selectMode
-      ? [{ key: "check", label: "", class: COL_CHECK }, ...trackColumns()]
-      : trackColumns(),
+      ? [{ key: "check", label: "", class: COL_CHECK }, ...trackColumns({ browserDownload: true })]
+      : trackColumns({ browserDownload: true }),
   );
   const resultsCount = $derived(search.results.length);
 
@@ -48,9 +49,20 @@
     void search.downloadSelected({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
   }
 
+  /** 已消费过的 `?q=`（顶栏搜索带来的入参）：只在 URL 的查询串**真的变了**时消费一次。
+   *
+   *  这里绝不能读 `search.query`（输入框绑定的那个值）：读它就等于把「用户每敲一个字」
+   *  也当成依赖——effect 重跑后拿 URL 里那个旧关键词回灌 `search.query` 并触发一次搜索，
+   *  症状是输入框改不动、每按一键都被重置。消费过的值记在普通变量里（非 `$state`，不进依赖）。
+   */
+  let handledQuery = "";
+
   $effect(() => {
-    const keyword = router.query.get("q")?.trim() ?? "";
-    if (keyword.length === 0 || keyword === search.query.trim()) return;
+    const urlSearch = router.search;
+    if (urlSearch === handledQuery) return;
+    handledQuery = urlSearch;
+    const keyword = new URLSearchParams(urlSearch).get("q")?.trim() ?? "";
+    if (keyword.length === 0) return;
     search.query = keyword;
     void search.runSearch();
   });
@@ -314,6 +326,9 @@
         onplay={() => void search.preview(item)}
         downloadLabel={t("search.download")}
         ondownload={(origin) => void search.requestDownload(item, origin)}
+        browserDownloadLabel={t("search.browserDownload")}
+        onbrowserdownload={() => void search.requestBrowserDownload(item)}
+        browserBusy={search.browserPending[key] === true}
         online={search.isOnline(item)}
         selected={search.selection.has(key)}
         onselected={(checked) => search.toggleSelect(key, checked)}
@@ -323,6 +338,10 @@
         {#snippet feedback()}
           {#if search.rowError[key]}
             <Note tone="fail">{search.rowError[key]}</Note>
+          {:else if search.browserPending[key]}
+            <!-- 准备阶段要把整首取回服务端才回响应（FR-DL-08）：行内说一句，
+                 免得用户以为点了没反应 -->
+            <Note tone="wait">{t("search.browserPreparing")}</Note>
           {/if}
         {/snippet}
       </TrackRow>
