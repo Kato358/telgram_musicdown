@@ -14,10 +14,17 @@
   export const COL_SIZE = "hidden w-20 shrink-0 text-right md:block";
   export const COL_DATE = "hidden w-24 shrink-0 text-right lg:block";
   export const COL_ACTIONS = "flex w-[72px] shrink-0 items-center justify-end gap-2";
+  /** 搜索行的操作列（**三键**：播放 + 入队下载 + 浏览器下载）：
+   *  32×3 + `gap-2`×2 = 112px。列宽是算出来的，不是猜的——三颗 `size-8 shrink-0`
+   *  塞进 72px 会从左侧溢出，压住「大小」列的文字，故单独给一档。 */
+  export const COL_ACTIONS_WIDE = "flex w-[112px] shrink-0 items-center justify-end gap-2";
 
-  /** 曲库 / 历史 / 搜索结果共用的一套列；`<768px` 只留「标题 + 时长」（§6.3）。 */
+  /** 曲库 / 历史 / 搜索结果共用的一套列；`<768px` 只留「标题 + 时长」（§6.3）。
+   *
+   *  `browserDownload` 只为搜索行开：那一行比别处多一颗「浏览器下载」键，
+   *  操作列要按三键取宽（见 `COL_ACTIONS_WIDE`），其余落点保持 72px 不变。 */
   export function trackColumns(
-    options: { index?: boolean; status?: boolean; date?: boolean } = {},
+    options: { index?: boolean; status?: boolean; date?: boolean; browserDownload?: boolean } = {},
   ): Column[] {
     const columns: Column[] = [];
     if (options.index) columns.push({ key: "index", label: t("table.index"), class: COL_INDEX });
@@ -26,7 +33,11 @@
     columns.push({ key: "duration", label: t("table.duration"), class: COL_DURATION });
     columns.push({ key: "size", label: t("table.size"), class: COL_SIZE });
     if (options.date) columns.push({ key: "date", label: t("table.date"), class: COL_DATE });
-    columns.push({ key: "actions", label: "", class: COL_ACTIONS });
+    columns.push({
+      key: "actions",
+      label: "",
+      class: options.browserDownload ? COL_ACTIONS_WIDE : COL_ACTIONS,
+    });
     return columns;
   }
 </script>
@@ -38,6 +49,7 @@
    * 文件不在磁盘时整行换成原因文案，该行播放键随之 `aria-disabled` 且不可点击。
    */
   import type { Snippet } from "svelte";
+  import ArrowDownToLine from "@lucide/svelte/icons/arrow-down-to-line";
   import DownloadIcon from "@lucide/svelte/icons/download";
   import MusicIcon from "@lucide/svelte/icons/music";
   import PauseIcon from "@lucide/svelte/icons/pause";
@@ -77,6 +89,12 @@
      *  回调带按钮中心的 viewport 坐标：「飞进侧边栏」的动画从这里起跳。 */
     downloadLabel?: string;
     ondownload?: (origin: { x: number; y: number }) => void;
+    /** 浏览器下载键（FR-DL-08）：把这首存到**本机浏览器的下载目录**，不入队、不写历史。
+     *  与下载键同处一列，靠空心描边区分：实底 soft = 入队落盘，描边 = 只存本机。 */
+    browserDownloadLabel?: string;
+    onbrowserdownload?: () => void;
+    /** 服务端正在取回这首：键禁用，避免连点重复打上游。 */
+    browserBusy?: boolean;
     /** 多选（批量下载）：列定义里拼进 `check` 列时，这两项驱动行首勾选框。 */
     selected?: boolean;
     onselected?: (selected: boolean) => void;
@@ -107,6 +125,9 @@
     onplay,
     downloadLabel,
     ondownload,
+    browserDownloadLabel,
+    onbrowserdownload,
+    browserBusy = false,
     selected = false,
     onselected,
     selectLabel,
@@ -215,6 +236,21 @@
             }}
           >
             <DownloadIcon class="size-4" aria-hidden="true" />
+          </button>
+        {/if}
+
+        {#if browserDownloadLabel && onbrowserdownload}
+          <!-- 浏览器下载（FR-DL-08）：空心描边键，与上面那颗 soft 实底的「入队下载」
+               一眼分得开。它只把文件存进本机浏览器的下载目录——不进下载页、不写历史。 -->
+          <button
+            type="button"
+            class="ui-transition grid size-8 shrink-0 place-items-center rounded-full border border-border text-muted-foreground hover:border-primary hover:bg-rule hover:text-primary active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label={browserDownloadLabel}
+            title={browserDownloadLabel}
+            disabled={browserBusy}
+            onclick={() => onbrowserdownload?.()}
+          >
+            <ArrowDownToLine class="size-4" aria-hidden="true" />
           </button>
         {/if}
       </span>

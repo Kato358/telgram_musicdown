@@ -176,6 +176,10 @@ export const zhCN: Dict = {
     preview: "试听",
     buffering: "缓冲中",
     download: "下载",
+    browserDownload: "浏览器下载",
+    browserPreparing: "准备中：正在取回这首，稍后浏览器会自动开始保存。",
+    qualityConfirmBrowser: "浏览器下载这一档",
+    qualityHintBrowser: "文件存到这台电脑的浏览器下载目录；不入下载队列、不写下载历史。",
     selectMode: "多选",
     exitSelect: "退出多选",
     selectAll: "全选",
@@ -387,8 +391,12 @@ export const zhCN: Dict = {
     previewCacheHint: "超出后按最近最少使用淘汰；封面缓存与试听共用这个上限。",
     cacheUsage: "缓存占用",
     cacheDetail: "{used} / {max} · 试听 {previews} 首 · 封面 {covers} 张",
+    cacheDetailBrowser:
+      "{used} / {max} · 试听 {previews} 首 · 封面 {covers} 张 · 浏览器下载待取 {browser} 份（{browserSize}）",
     cacheEmpty: "暂无缓存文件",
     cacheClear: "清理缓存",
+    cacheClearHint:
+      "会一并清掉浏览器下载待取/超龄的临时文件；正在下载的请重新点一次按钮。",
     cacheClearing: "清理中…",
     cacheCleared: "已清理 {size}",
     restartHint: "模板与保存路径保存后即时生效；下载并发数在下次启动生效。",
@@ -869,6 +877,11 @@ export const en: Dict = {
     preview: "Preview",
     buffering: "Buffering",
     download: "Download",
+    browserDownload: "Download to browser",
+    browserPreparing: "Preparing: fetching this track; the browser will start saving it shortly.",
+    qualityConfirmBrowser: "Save this tier via browser",
+    qualityHintBrowser:
+      "The file goes to this computer's browser download folder: not queued, no download history.",
     selectMode: "Select",
     exitSelect: "Exit selection",
     selectAll: "Select all",
@@ -1089,8 +1102,12 @@ export const en: Dict = {
     previewCacheHint: "Least recently used entries are evicted first; covers share this limit.",
     cacheUsage: "Cache usage",
     cacheDetail: "{used} / {max} · {previews} previews · {covers} covers",
+    cacheDetailBrowser:
+      "{used} / {max} · {previews} previews · {covers} covers · {browser} browser downloads pending ({browserSize})",
     cacheEmpty: "No cached files",
     cacheClear: "Clear cache",
+    cacheClearHint:
+      "Also deletes pending/expired browser-download temp files; an in-flight download must be started again.",
     cacheClearing: "Clearing…",
     cacheCleared: "Cleared {size}",
     restartHint:

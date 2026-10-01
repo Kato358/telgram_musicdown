@@ -5,6 +5,10 @@
    *  同一档在网易叫 exhigh、QQ 叫 320k，映射留在后端一处（app/chksz/quality.py），
    *  前端维护第二份必然漂。加新平台也不用改这个组件。
    *
+   *  同一个弹窗也服务「浏览器下载」（FR-DL-08）：档位阶梯完全相同，只是选完之后
+   *  落到哪儿不同（入队落盘 / 存到本机浏览器下载目录），故确认文案与提示按
+   *  `search.qualityIntent` 分岔，不另开一个几乎一样的弹窗。
+   *
    *  频道行不走这里——频道里的文件就是它本身，没有「档」可选。
    */
   import { search } from "$lib/stores/search.svelte";
@@ -68,13 +72,19 @@
         {/each}
       </div>
 
-      <p class="text-caption text-faint-foreground">{t("search.qualityHint")}</p>
+      <p class="text-caption text-faint-foreground">
+        {search.qualityIntent === "browser" ? t("search.qualityHintBrowser") : t("search.qualityHint")}
+      </p>
 
       <Dialog.Footer>
         <Dialog.Close>
           <Button variant="ghost">{t("common.cancel")}</Button>
         </Dialog.Close>
-        <Button onclick={onconfirm}>{t("search.qualityConfirm")}</Button>
+        <Button onclick={onconfirm}>
+          {search.qualityIntent === "browser"
+            ? t("search.qualityConfirmBrowser")
+            : t("search.qualityConfirm")}
+        </Button>
       </Dialog.Footer>
     </Dialog.Content>
   </Dialog.Portal>

@@ -233,10 +233,12 @@ export interface LocalLibraryResponse {
   bytes: number;
 }
 
-/** 试听 / 封面缓存占用（`GET /api/settings/cache`，FR-PLAY-02）。
+/** 试听 / 封面缓存占用（`GET /api/settings/cache`，FR-PLAY-02 + FR-DL-08）。
  *
  * 口径是磁盘实际字节：`preview_*`（LRU，受 `max_bytes` 与 50 条约束）与 `cover_*`
- * （同目录、按 mtime 一起进同一预算）。清理接口返回清理后的同一结构。 */
+ * （同目录、按 mtime 一起进同一预算）。`browser_*` 是浏览器下载**待取走**的临时文件：
+ * 不进那份字节预算（另有 TTL 与并存上限），单列显示，「清理缓存」会一并清掉。
+ * 清理接口返回清理后的同一结构。 */
 export interface CacheStats {
   total_bytes: number;
   max_bytes: number;
@@ -244,6 +246,11 @@ export interface CacheStats {
   preview_count: number;
   cover_bytes: number;
   cover_count: number;
+  /** 搜索二级缓存（L2）：条数与 payload 字节，不进试听/封面那份字节预算。 */
+  search_entries: number;
+  search_bytes: number;
+  browser_bytes: number;
+  browser_count: number;
 }
 
 export interface SearchResult {  chat_id: number;
@@ -276,6 +283,20 @@ export interface SearchSource {
 export interface SearchResponse {
   results: SearchResult[];
   meta: Record<string, unknown>;
+}
+
+/** `POST /api/search/browser-download`（FR-DL-08）：附件下载地址。
+ *
+ *  服务端已把这首取回临时区，`url` 是带 `Content-Disposition: attachment` 的附件流：
+ *  浏览器顶层导航过去（cookie 会话随请求带上）即落进**本机**下载目录，页面不跳走。
+ *  该地址在服务端 TTL（默认 2 小时）内**可重复取用**——浏览器分段取（Range）与
+ *  暂停后续传都要靠它；过期或被淘汰后是 404，重新点按钮即可。 */
+export interface BrowserDownloadResponse {
+  token: string;
+  /** 浏览器保存时的文件名：曲库同一份文件名模板 + 扩展名（上游实测 → 卡片 `ext` → `mime` 推定）。 */
+  file_name: string;
+  size: number;
+  url: string;
 }
 
 export interface DownloadItemResult {

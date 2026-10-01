@@ -8,6 +8,7 @@
 import { api, errorText } from "$lib/api/client";
 import { coverUrl } from "$lib/cover";
 import type {
+  BrowserDownloadResponse,
   QualityOption,
   QualityTier,
   QualitiesResponse,
@@ -32,6 +33,11 @@ export type SearchSort = (typeof SORT_OPTIONS)[number];
 /** 连续几页「一行业没多」就停止懒加载（服务端 has_more 只是「上游可能还有」的上界，
  *  池子取满而本地筛选/去重后已无新行时它会一直报 true）。 */
 const EMPTY_PAGE_LIMIT = 3;
+
+/** 浏览器下载准备阶段的超时（FR-DL-08）：服务端要先把整首取回临时区才回响应，
+ *  母带/无损 + 慢源远超 api 客户端的默认 15s。给到 10 分钟——再慢就是上游不可用，
+ *  由服务端的错误包络说清楚原因，不必在这里假装能等更久。 */
+const BROWSER_DOWNLOAD_TIMEOUT_MS = 600_000;
 
 /** 飞片用的封面：走全局封面链路（与行内封面同源），没有可查字段就飞音符占位。 */
 function coverOf(item: SearchResult): string | null {
@@ -85,6 +91,8 @@ class SearchStore {
   /** `${chat_id}-${message_id}` → preview_id（缓存的试听文件）。 */
   previews = $state<Record<string, number>>({});
   pending = $state<Record<string, true>>({});
+  /** 正在准备浏览器下载的行（服务端取数中）：键禁用 + 行内「准备中」提示。 */
+  browserPending = $state<Record<string, true>>({});
   rowError = $state<Record<string, string>>({});
   /** 多选批量下载：selectMode 开启后行首出现勾选框，selection 是勾中的行 key 集合。 */
   selectMode = $state(false);
@@ -173,6 +181,7 @@ class SearchStore {
       this.applyMeta(resp, 0);
       this.previews = {};
       this.pending = {};
+      this.browserPending = {};
       this.rowError = {};
       this.exitSelect();
       this.searched = true;
@@ -331,12 +340,52 @@ class SearchStore {
     }
   }
 
+  /** 浏览器下载（FR-DL-08）：服务端先把这首取回，再顶层导航到附件地址。
+   *
+   *  与上面那条的分工是**落点**：入队下载落 `save_path`、进下载页与曲库；浏览器下载
+   *  落**打开网页这台电脑**的浏览器下载目录，不入队、不写历史、不参与去重。
+   *
+   *  顶层导航（而不是 blob）是为了让大文件由浏览器直接写盘、带原生进度；cookie 会话
+   *  随导航带上，无需前端另造 URL。失败仍走行内提示——准备阶段是普通 POST，
+   *  错误包络读得到，不会把用户带到浏览器的错误页。
+   */
+  async browserDownload(item: SearchResult, quality?: QualityTier) {
+    const key = this.keyOf(item);
+    this.clearRowError(key);
+    this.browserPending = { ...this.browserPending, [key]: true };
+    try {
+      const resp = await api.post<BrowserDownloadResponse>(
+        "/api/search/browser-download",
+        {
+          message_refs: [
+            // 比入队那条多带两个字段：**ext / mime 决定浏览器保存的文件名**。
+            // Telegram 源取数不回报 ext（消息里那个文件就是它本身），服务端也走不到
+            // 下载服务那条「取消息补全 meta」的路——只传 title/artist 的话，用户拿到的
+            // 是一个没有扩展名的文件。file_size 仍一并回传，服务端据此对账（FR-DL-03）。
+            { ...refOf(item, quality, item.file_size), ext: item.ext, mime: item.mime },
+          ],
+        },
+        BROWSER_DOWNLOAD_TIMEOUT_MS,
+      );
+      window.location.assign(resp.url);
+    } catch (err) {
+      this.setRowError(key, errorText(err, t("common.error")));
+    } finally {
+      const next = { ...this.browserPending };
+      delete next[key];
+      this.browserPending = next;
+    }
+  }
+
   // ---- 音质弹窗（在线源才有「选哪一档」这回事）----
 
   /** 正在选音质的行（`null` = 弹窗关着）。 */
   qualityTarget = $state<SearchResult | null>(null);
   /** 弹窗里当前选中的档位。 */
   qualityChoice = $state<QualityTier>("320k");
+  /** 弹窗选完档位之后干什么：入队（`queue`）还是浏览器下载（`browser`）。
+   *  两种动作的取数档位是同一套阶梯，但落点完全不同，弹窗那一句确认文案也得跟着换。 */
+  qualityIntent = $state<"queue" | "browser">("queue");
   /** 各平台阶梯（服务端发的语义档位表，加新源不用改前端）。 */
   ladders = $state<Record<string, QualityOption[]>>({});
   private laddersLoaded = false;
@@ -349,16 +398,35 @@ class SearchStore {
     }
     await this.loadLadders();
     this.qualityChoice = this.defaultTierFor(item.provider);
+    this.qualityIntent = "queue";
     this.qualityOrigin = origin;
     this.qualityTarget = item;
   }
 
-  /** 弹窗确认：按所选档位入队。 */
+  /** 点在线源行的「浏览器下载」：同一套档位阶梯先问一次（浏览器拿到的就是这一档），
+   *  再走浏览器下载。频道行没有档位可选，直接准备。 */
+  async requestBrowserDownload(item: SearchResult) {
+    if (!this.isOnline(item)) {
+      await this.browserDownload(item);
+      return;
+    }
+    await this.loadLadders();
+    this.qualityChoice = this.defaultTierFor(item.provider);
+    this.qualityIntent = "browser";
+    this.qualityTarget = item;
+  }
+
+  /** 弹窗确认：按所选档位去干那一件事（入队 / 浏览器下载）。 */
   async confirmQuality() {
     const item = this.qualityTarget;
     if (item === null) return;
     const origin = this.qualityOrigin;
+    const intent = this.qualityIntent;
     this.qualityTarget = null;
+    if (intent === "browser") {
+      await this.browserDownload(item, this.qualityChoice);
+      return;
+    }
     await this.download(item, origin, this.qualityChoice);
   }
 

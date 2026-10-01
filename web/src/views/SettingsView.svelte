@@ -22,8 +22,9 @@
    *
    * 「退出登录」与「重新执行初始化」都会清掉登录态，故做完立刻跳回向导（放行判据含登录）。
    *
-   * 缓存占用（试听 + 封面）与上限同屏：占用取 `GET /api/settings/cache`（磁盘实际字节），
-   * 「清理缓存」走 `POST /api/settings/cache/clear`，两者只碰缓存目录，不动曲库与历史。
+   * 缓存占用（试听 + 封面，单列浏览器下载待取的临时文件）与上限同屏：占用取
+   * `GET /api/settings/cache`（磁盘实际字节），「清理缓存」走 `POST /api/settings/cache/clear`，
+   * 两者只碰缓存目录与 `temp/browser/`，不动曲库与历史。
    */
   import { onMount } from "svelte";
   import BotIcon from "@lucide/svelte/icons/bot";
@@ -102,17 +103,24 @@
   let cacheNote = $state<Feedback | null>(null);
   let clearing = $state(false);
 
-  /** 占用文案：空缓存直说「暂无」，有货就报「占用 / 上限 · 各有几份」。 */
+  /** 占用文案：空缓存直说「暂无」，有货就报「占用 / 上限 · 各有几份」；
+   *  浏览器下载的临时文件（FR-DL-08）只在真有的时候多带一段——它不进那份字节预算。 */
   const cacheDetail = $derived.by(() => {
     const stats = cacheStats;
     if (!stats) return null;
-    if (stats.total_bytes === 0) return t("settings.cacheEmpty");
-    return t("settings.cacheDetail", {
+    const browser = stats.browser_count > 0;
+    if (stats.total_bytes === 0 && !browser) return t("settings.cacheEmpty");
+    const values = {
       used: formatSize(stats.total_bytes),
       max: formatSize(stats.max_bytes),
       previews: stats.preview_count,
       covers: stats.cover_count,
-    });
+      browser: stats.browser_count,
+      browserSize: formatSize(stats.browser_bytes),
+    };
+    return browser
+      ? t("settings.cacheDetailBrowser", values)
+      : t("settings.cacheDetail", values);
   });
 
   let loaded = $state(false);
@@ -489,7 +497,12 @@
     if (clearing) return;
     clearing = true;
     cacheNote = null;
-    const before = cacheStats?.total_bytes ?? 0;
+    // 「已清理 n」要把这次真正删掉的都算上：浏览器下载临时区与搜索缓存都不在
+    // total_bytes 里（它们各有各的口径），漏了数字就会骗人
+    const before =
+      (cacheStats?.total_bytes ?? 0) +
+      (cacheStats?.browser_bytes ?? 0) +
+      (cacheStats?.search_bytes ?? 0);
     try {
       cacheStats = await api.post<CacheStats>("/api/settings/cache/clear");
       cacheNote = {
@@ -1005,7 +1018,10 @@
             <Button
               variant="outline"
               size="sm"
-              disabled={clearing || cacheStats === null || cacheStats.total_bytes === 0}
+              disabled={clearing ||
+                cacheStats === null ||
+                (cacheStats.total_bytes === 0 && cacheStats.browser_count === 0)}
+              title={t("settings.cacheClearHint")}
               onclick={() => void clearCache()}
             >
               {clearing ? t("settings.cacheClearing") : t("settings.cacheClear")}

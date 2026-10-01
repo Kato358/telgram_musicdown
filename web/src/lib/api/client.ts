@@ -28,30 +28,41 @@ export class ApiError extends Error {
 }
 
 /** API 请求超时：局域网正常请求毫秒级；卡死的请求到此为止并按 GET 重试一次，
- *  不给超时的话一次悬死的连接会一直占着浏览器的每主机并发额度。 */
+ *  不给超时的话一次悬死的连接会一直占着浏览器的每主机并发额度。
+ *
+ *  个别写操作要在服务端**先干完一件慢事**再回（见 `api.post` 的 `timeoutMs`），
+ *  它们自己带一个更长的值，不动这里的默认口径。 */
 const REQUEST_TIMEOUT_MS = 15_000;
 
-async function fetchOnce(path: string, init: RequestInit): Promise<Response> {
+async function fetchOnce(
+  path: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
   return fetch(path, {
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     ...init,
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+): Promise<T> {
   const method = init?.method ?? "GET";
   let resp: Response;
   try {
-    resp = await fetchOnce(path, { ...init });
+    resp = await fetchOnce(path, { ...init }, timeoutMs);
   } catch (err) {
     // 超时（TimeoutError）/中断（AbortError）/连接失败（TypeError）：
     // GET 幂等，静默重试一次；写操作不自动重放，直接报错
     const retryable = err instanceof TypeError || err instanceof DOMException;
     if (method !== "GET" || !retryable) throw err;
     try {
-      resp = await fetchOnce(path, { ...init });
+      resp = await fetchOnce(path, { ...init }, timeoutMs);
     } catch {
       throw new ApiError("network", "请求超时或连接失败，请稍后重试", 0);
     }
@@ -82,8 +93,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
+  /** `timeoutMs` 只给「服务端要先干完一件慢事」的写操作用（如浏览器下载的准备阶段）；
+   *  不给就走默认 15s。写操作超时不自动重放——重放等于让服务端再取一次数。 */
+  post: <T>(path: string, body?: unknown, timeoutMs?: number) =>
+    request<T>(
+      path,
+      { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) },
+      timeoutMs,
+    ),
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
