@@ -20,6 +20,7 @@ from app.appsettings import (
 )
 from app.chksz.quality import ladder
 from app.domain import PROVIDER_SCOPES, TemplateConfig, TrackMeta, meta_from_dict
+from app.services.browser_download import BrowserCacheStats
 from app.services.path_builder import render_path, resolve_field
 from app.services.preview import CacheStats
 from app.services.search_cache import SearchCacheStats
@@ -79,8 +80,15 @@ def _stored_save_path(ctx: RouteContext) -> Path:
     return Path(raw) if raw else ctx.base_dir / "downloads"
 
 
-def _cache_response(stats: CacheStats, cache: SearchCacheStats) -> schemas.CacheStatsResponse:
-    """服务层 stats → 响应契约（字段名不靠约定对齐，映射写在一处）。"""
+def _cache_response(
+    stats: CacheStats, cache: SearchCacheStats, browser: BrowserCacheStats
+) -> schemas.CacheStatsResponse:
+    """服务层 stats → 响应契约（字段名不靠约定对齐，映射写在一处）。
+
+    浏览器下载的临时区（FR-DL-08）单列，**不并进 `total_bytes`**：那个数是对着
+    试听/封面那份字节预算（`max_bytes`）看的，混进来会变成「占用超了上限、却没有
+    任何东西被淘汰」的假象。
+    """
     return schemas.CacheStatsResponse(
         total_bytes=stats.total_bytes,
         max_bytes=stats.max_bytes,
@@ -90,6 +98,8 @@ def _cache_response(stats: CacheStats, cache: SearchCacheStats) -> schemas.Cache
         cover_count=stats.cover_count,
         search_entries=cache.entries,
         search_bytes=cache.bytes,
+        browser_bytes=browser.bytes,
+        browser_count=browser.count,
     )
 
 
@@ -137,18 +147,22 @@ def register(app: FastAPI, ctx: RouteContext) -> None:
 
     @app.get("/api/settings/cache")
     async def cache_usage(_: None = Depends(ctx.check_session)) -> schemas.CacheStatsResponse:
-        """缓存占用（FR-PLAY-02）：试听按访问时间 LRU、封面按 mtime，共用一个字节上限；
-        另附搜索缓存（FR-SEARCH-01 的 L2）条数与字节。"""
+        """缓存占用（FR-PLAY-02 + FR-DL-08）：试听按访问时间 LRU、封面按 mtime，共用一个
+        字节上限；另附搜索缓存（FR-SEARCH-01 的 L2）与浏览器下载的临时区（单列）。"""
         return _cache_response(
-            await ctx.preview.cache_stats(), ctx.search.cache_stats()
+            await ctx.preview.cache_stats(), ctx.search.cache_stats(), ctx.browser_downloads.stats()
         )
 
     @app.post("/api/settings/cache/clear")
     async def cache_clear(_: None = Depends(ctx.check_session)) -> schemas.CacheStatsResponse:
-        """清空试听/封面与搜索缓存（FR-PLAY-02）：都能重下重查，返回清理后的占用。"""
+        """清空试听/封面、搜索缓存与浏览器下载临时区（FR-PLAY-02、FR-DL-08）：
+        试听封面能重下重查，浏览器下载的临时文件重新点一次按钮即可，返回清理后的占用。"""
         stats = await ctx.preview.clear_cache()
         ctx.search.clear_cache()
-        return _cache_response(stats, ctx.search.cache_stats())
+        ctx.browser_downloads.clear()
+        return _cache_response(
+            stats, ctx.search.cache_stats(), ctx.browser_downloads.stats()
+        )
 
     @app.get("/api/settings/template-fields")
     async def template_fields(_: None = Depends(ctx.check_session)) -> dict[str, Any]:

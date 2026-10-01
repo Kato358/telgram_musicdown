@@ -19,6 +19,7 @@ from app.container import Container, Overrides, build_container
 from app.errors import SessionLockedError, WebAuthConfigError
 from app.events import EventBus, attach_event_log_bridge
 from app.ports import IStore
+from app.services.browser_download import BrowserDownloadService
 from app.services.download import DownloadService
 from app.services.local_library import LocalLibraryService
 from app.services.preview import PreviewService
@@ -60,6 +61,7 @@ class AppServices:
     search: SearchService
     downloads: DownloadService
     preview: PreviewService
+    browser_downloads: BrowserDownloadService
     library: LocalLibraryService
     tg: TelegramManager
     # 组合根持有的容器：关停时经它统一释放（Container.close 是生命周期收口点）
@@ -96,6 +98,7 @@ def build_services(base_dir: Path) -> AppServices:
         search=container.search,
         downloads=container.downloads,
         preview=container.preview,
+        browser_downloads=container.browser_downloads,
         library=container.library,
         tg=tg,
         container=container,
@@ -132,6 +135,13 @@ async def run(base_dir: Path) -> None:
     except Exception:  # noqa: BLE001  同上：清缓存失败不是启动失败
         logging.getLogger(__name__).exception("startup search cache purge failed")
 
+    # 浏览器下载的临时区（FR-DL-08）：TTL 与并存上限不只在下次点击时生效——
+    # 上一个进程崩在半路的残留、以及超过 TTL 没人取的准备，都在启动这一批收掉
+    try:
+        svc.browser_downloads.sweep()
+    except Exception:  # noqa: BLE001  同上：清扫失败不该拦住启动
+        logging.getLogger(__name__).exception("startup browser download sweep failed")
+
     # 本地曲库台账随启动后台扫一次（不阻塞 web/tg 启动；扫描结果经 SSE 推给前端）
     async def _startup_library_scan() -> None:
         try:
@@ -148,6 +158,7 @@ async def run(base_dir: Path) -> None:
         sources=svc.sources,
         search=svc.search,
         preview=svc.preview,
+        browser_downloads=svc.browser_downloads,
         tg=svc.tg,
         library=svc.library,
         registry=svc.container.registry,

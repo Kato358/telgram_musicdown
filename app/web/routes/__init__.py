@@ -1,7 +1,7 @@
 """FastAPI 应用装配（SDD §4）：错误包络、SSE、静态资源；路由按资源分模块注册。
 
 装配本身不写任何业务端点——端点在各资源模块（auth/setup/stats/sources/
-downloads/history/preview/settings/search），本文件只负责应用级横切面（SRP）。
+downloads/history/preview/browser_download/settings/search），本文件只负责应用级横切面（SRP）。
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from app.errors import AppError
 from app.events import EventBus
 from app.ports import IStore
 from app.ports.music import MusicSourceIndexProto
+from app.services.browser_download import BrowserDownloadService
 from app.services.download import DownloadService
 from app.services.local_library import LocalLibraryService
 from app.services.preview import PreviewService
@@ -54,6 +55,7 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
     *,
     library: LocalLibraryService | None = None,
     registry: MusicSourceIndexProto | None = None,
+    browser_downloads: BrowserDownloadService | None = None,
     base_dir: Path,
     web_host: str = "127.0.0.1",
     web_login_secret: str = "",
@@ -72,6 +74,14 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
     library_service = library
     if library_service is None:
         library_service = LocalLibraryService(store, base_dir / "downloads", tags, events)
+    # 浏览器下载（FR-DL-08）：未显式传入时就地兜底装配，取下载服务手上那份来源索引、
+    # 临时目录与模板——三者本来就该是同一个，另起一份就等于「搜索里点的」与
+    # 「浏览器下到的」可能不是一路。
+    browser_service = browser_downloads
+    if browser_service is None:
+        browser_service = BrowserDownloadService(
+            source_registry, downloads.temp_dir, downloads.cfg
+        )
     ctx = RouteContext(
         store=store,
         events=events,
@@ -80,6 +90,7 @@ def create_app(  # noqa: PLR0915  应用级横切面注册
         sources=sources,
         search=search,
         preview=preview,
+        browser_downloads=browser_service,
         library=library_service,
         tg=tg,
         tags=tags,

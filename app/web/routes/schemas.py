@@ -198,10 +198,12 @@ class SettingsUpdateRequest(BaseModel):
 
 
 class CacheStatsResponse(BaseModel):
-    """缓存占用（`GET /api/settings/cache`，FR-PLAY-02 + SDD §2.6）。
+    """缓存占用（`GET /api/settings/cache`，FR-PLAY-02 + FR-DL-08 + SDD §2.6）。
 
-    试听/封面按磁盘实际字节算；搜索缓存是 L2 表里的元数据（口径是 payload 字节），
-    三者一起显示，但搜索缓存不参与试听/封面的字节预算。
+    试听/封面按磁盘实际字节算；搜索缓存是 L2 表里的元数据（口径是 payload 字节）；
+    浏览器下载的临时区（FR-DL-08）同样按磁盘实际字节单列——它**不进**试听/封面的
+    字节预算（那份预算管的是可随时重下的 LRU 缓存，浏览器下载的临时文件另有 TTL
+    与并存上限），故 `total_bytes` 仍是「试听 + 封面」，浏览器那项单独显示。
     `POST /api/settings/cache/clear` 返回清理后的同一结构。
     """
 
@@ -213,6 +215,9 @@ class CacheStatsResponse(BaseModel):
     cover_count: int
     search_entries: int
     search_bytes: int
+    #: 浏览器下载待取走的临时文件（FR-DL-08）：字节与份数。
+    browser_bytes: int
+    browser_count: int
 
 
 class LogEntry(BaseModel):

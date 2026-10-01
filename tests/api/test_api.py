@@ -954,7 +954,12 @@ def test_put_settings_applies_templates_immediately(tmp_path: Path) -> None:
 
 
 def test_cache_usage_and_clear(client: TestClient, tmp_path: Path) -> None:
-    """设置页的缓存占用/清理（FR-PLAY-02）：占用按磁盘字节报，清理后文件与占用都归零。"""
+    """设置页的缓存占用/清理（FR-PLAY-02 + FR-DL-08）：占用按磁盘字节报，
+    清理后文件与占用都归零。
+
+    浏览器下载的临时区（`temp/browser/`）单列在 `browser_*`：它不进 `total_bytes`
+    那份字节预算（试听/封面才受 `preview_cache_max_bytes` 约束）。本例没有它，故为 0。
+    """
     preview = tmp_path / "temp" / "preview"
     preview.mkdir(parents=True)
     (preview / "cover_deadbeef.jpg").write_bytes(b"\xff\xd8jpeg")  # 6 字节
@@ -972,6 +977,8 @@ def test_cache_usage_and_clear(client: TestClient, tmp_path: Path) -> None:
         "cover_count": 1,
         "search_entries": 0,
         "search_bytes": 0,
+        "browser_bytes": 0,
+        "browser_count": 0,
     }
 
     cleared = client.post("/api/settings/cache/clear")

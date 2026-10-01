@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException, Request
 from app.events import EventBus
 from app.ports import IStore
 from app.ports.music import MusicSourceIndexProto
+from app.services.browser_download import BrowserDownloadService
 from app.services.download import DownloadService
 from app.services.local_library import LocalLibraryService
 from app.services.preview import PreviewService
@@ -37,6 +38,8 @@ class RouteContext:
     sources: SourceService
     search: SearchService
     preview: PreviewService
+    #: 浏览器下载（FR-DL-08）：把一首取回临时区交给浏览器，不入队、不写历史。
+    browser_downloads: BrowserDownloadService
     library: LocalLibraryService
     tg: TelegramManager
     base_dir: Path
@@ -62,6 +65,7 @@ def register_all(app: FastAPI, ctx: RouteContext) -> None:  # noqa: PLC0415  模
     """按资源注册全部路由模块（每个模块一个 register 函数，SRP）。"""
     from app.web.routes import (  # noqa: PLC0415
         auth,
+        browser_download,
         cover,
         downloads,
         history,
@@ -83,6 +87,7 @@ def register_all(app: FastAPI, ctx: RouteContext) -> None:  # noqa: PLC0415  模
     downloads.register(app, ctx)
     history.register(app, ctx)
     preview.register(app, ctx)
+    browser_download.register(app, ctx)
     settings.register(app, ctx)
     search.register(app, ctx)
     logs.register(app, ctx)

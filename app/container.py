@@ -19,6 +19,7 @@ from app.events import EventBus
 from app.ports import IStore
 from app.ports.telegram import MediaClientProto, UserClientProto
 from app.registry import SourceRegistry
+from app.services.browser_download import BrowserDownloadService
 from app.services.download import DownloadService
 from app.services.local_library import LocalLibraryService
 from app.services.preview import PreviewService
@@ -59,6 +60,8 @@ class Container:
     sources: SourceService
     search: SearchService
     preview: PreviewService
+    #: 浏览器下载（FR-DL-08）：与 downloads 共用模板与来源索引，但不入队、不写历史。
+    browser_downloads: BrowserDownloadService
     library: LocalLibraryService
 
     def close(self) -> None:
@@ -131,6 +134,9 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
         preview_quality=settings.chksz.preview_quality,
     )
     library = LocalLibraryService(store, dirs["save_path"], downloads.tags, events)
+    # 模板与来源索引都取自上面那两份同一个对象：浏览器下载目录里的文件名与曲库一致，
+    # 取数走的也是同一个来源（否则「搜索里点的」和「浏览器下到的」可能不是一路）。
+    browser_downloads = BrowserDownloadService(registry, dirs["temp"], settings.template)
     return Container(
         base_dir=base_dir,
         dirs=dirs,
@@ -142,5 +148,6 @@ def build_container(base_dir: Path, overrides: Overrides | None = None) -> Conta
         sources=sources,
         search=search,
         preview=preview,
+        browser_downloads=browser_downloads,
         library=library,
     )
