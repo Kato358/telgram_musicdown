@@ -10,7 +10,9 @@
 - 入队同时建 history 行（status=queued）并把 id 挂到 tasks.history_id：历史页、恢复流程
   与去重都以它为准（SDD §2.3/§3.2）。
 - 元数据走 TrackMeta 单一契约（SDD §2.2）：渲染路径、写 history、写标签共用一份。
-- 完整性：os.path.getsize(temp) == file_size 必须一致才 os.replace（NFR-01）。
+- 完整性：`getsize(temp) == file_size` 必须一致才落盘（NFR-01）；temp 与 save_path
+  可能分处两个挂载点（compose 把 `./data` 与 `./downloads` 各挂一次），落盘走
+  `utils.fs.move_into_place`：同盘原子 rename，跨盘复制后替换，不报 EXDEV。
 - 去重在入队时做（FR-DL-05）；「强制重新下载」绕过检查。
 - 重试计数存 tasks 表；指数退避 min(2^n * 30s, 1h)。
 - 依赖注入 TelegramClient 协议（FakeUserClient 可替换，NFR-07）。
@@ -21,7 +23,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -47,6 +48,7 @@ from app.services.history_writer import HistoryWriter, history_row
 from app.services.path_builder import render_path, resolve_conflict
 from app.services.progress import ProgressReporter, TaskRunState
 from app.services.tags import TagService
+from app.utils.fs import move_into_place
 
 logger = logging.getLogger(__name__)
 
@@ -454,7 +456,9 @@ class DownloadService:
             await self._set_status(task_id, "skipped", history_id, finished=True)
             return
         target.parent.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(os.replace, temp_path, target)
+        # 跨挂载点（`/data/data/temp` → `/data/downloads`）时 rename 会 EXDEV；
+        # helper 自己退化成复制，任务不必因此重下一遍。
+        await asyncio.to_thread(move_into_place, temp_path, target)
 
         # 写标签（FR-META-01，失败仅日志不影响状态）；finish 同时把历史行
         # 结算成 success（带 save_path），故此处传 history_id=None 避免重复写。

@@ -6,7 +6,9 @@ FakeUserClient 注入依赖，不 mock 被测对象（编码规范 §6 反模式
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -87,6 +89,39 @@ async def test_download_success_saves_to_save_path(
     assert row.status == "success"
     assert row.save_path
 
+
+
+async def test_download_lands_when_temp_and_library_are_different_devices(
+    svc: tuple[DownloadService, Store, FakeUserClient],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 部署现场（FR-CFG-02）：compose 把 ./data 与 ./downloads 分别挂成两个挂载点，
+    # Linux 的 rename(2) 不许跨 mount —— temp 分片搬进 save_path 一律 EXDEV。
+    # 老代码在这里炸成「任务崩溃 → 退避重试 → 重下一遍」，永远落不了盘。
+    service, store, _ = svc
+    temp_dir = service.temp_dir
+    real_replace = os.replace
+
+    def cross_device(*args: object, **kwargs: object) -> None:
+        src, dst = Path(str(args[0])), Path(str(args[1]))
+        if src.is_relative_to(temp_dir) and not dst.is_relative_to(temp_dir):
+            raise OSError(errno.EXDEV, "Invalid cross-device link", str(src), str(dst))
+        real_replace(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "replace", cross_device)
+    task_id = await service.enqueue(req(1, file_size=100))
+    assert task_id is not None
+
+    await service._run_task(worker_row(store, task_id))
+
+    assert store.get_task(task_id).status == "success"  # type: ignore[union-attr]
+    saved = [p for p in (tmp_path / "library").rglob("*") if p.is_file()]
+    assert len(saved) == 1
+    assert saved[0].stat().st_size == 100
+    # 源分片跟着搬走了；正式路径旁也没留 .xdev 中转残骸
+    assert not list((tmp_path / "temp").glob("*"))
+    assert not [p for p in saved[0].parent.iterdir() if p.name.startswith(".")]
 
 async def test_bare_link_task_hydrates_meta(
     svc: tuple[DownloadService, Store, FakeUserClient], tmp_path: Path

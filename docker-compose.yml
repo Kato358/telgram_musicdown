@@ -30,6 +30,10 @@ services:
     volumes:
       - ./downloads:/data/downloads              # 曲库落盘（save_path）
       - ./data:/data/data                        # TG 会话 + 中转/试听缓存 + 日志 + SQLite（app.db）
+      # 这两处是**不同挂载点**：Linux 的 rename(2) 不许跨 mount，所以 temp(data) → 曲库
+      # (downloads) 的落盘走「复制 + 同目录原子替换」（app/utils/fs.py），不再报 EXDEV。
+      # 省掉那次整文件复制可以让中转区落在曲库同一挂载点（曲库扫描跳过点号开头的目录）：
+      #   environment: TGM_TEMP_DIRECTORY=/data/downloads/.temp
       # - ./config.yaml:/data/config.yaml        # 可选：持久化密钥文件（需先 touch config.yaml 再 up）
       # 绝对路径覆盖示例（config.yaml / env 同名键均可）：
       # - /mnt/nas/music:/mnt/music
