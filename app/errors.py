@@ -48,7 +48,10 @@ class UnsupportedContainerError(AppError):
 class WebAuthConfigError(AppError):
     """0.0.0.0 无密码启动拒绝（FR-WEB-02）。"""
 
-    def __init__(self, message: str = "web_login_secret required when binding 0.0.0.0") -> None:
+    def __init__(
+        self,
+        message: str = "绑 0.0.0.0 且没有 web_login_secret：拒绝以无口令状态对外提供服务",
+    ) -> None:
         super().__init__("web_auth_config", message)
 
 

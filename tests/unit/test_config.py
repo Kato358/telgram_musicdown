@@ -7,11 +7,48 @@ from pathlib import Path
 import pytest
 
 from app import config as app_config
-from app.config import app_dirs, load_path_config, load_secrets, resolve_dir, web_dist_dir
+from app.config import (
+    app_dirs,
+    config_file,
+    load_path_config,
+    load_secrets,
+    migrate_legacy_config,
+    resolve_dir,
+    web_dist_dir,
+)
 
 
 def _write_config(base: Path, text: str) -> None:
-    (base / "config.yaml").write_text(text, encoding="utf-8")
+    config_file(base).parent.mkdir(parents=True, exist_ok=True)
+    config_file(base).write_text(text, encoding="utf-8")
+
+
+def test_config_file_lives_under_data_dir(tmp_path: Path) -> None:
+    """FR-CFG-01：密钥文件收在 data/ 下——它跟 SQLite/会话同在一个数据卷里。
+
+    位置本身就是持久化契约（Docker 只需挂 data/，不必为单个文件再挂一次 bind mount），
+    故这里钉住路径，并确认写盘会自动建目录（向导首次保存即创建文件）。
+    """
+    assert config_file(tmp_path) == tmp_path / "data" / "config.yaml"
+    _write_config(tmp_path, "api_id: 1234567\n")
+    assert load_secrets(tmp_path).api_id == 1234567
+    assert not (tmp_path / "config.yaml").exists()
+
+
+def test_legacy_config_is_read_then_migrated(tmp_path: Path) -> None:
+    """老部署（文件在 base_dir 根）第一次起来自动搬家：读得到旧值，搬完旧位置不残留。"""
+    legacy = tmp_path / "config.yaml"
+    legacy.write_text("api_id: 7654321\n", encoding="utf-8")
+    assert load_secrets(tmp_path).api_id == 7654321  # 未迁移前也能读到（兜底）
+
+    assert migrate_legacy_config(tmp_path) == config_file(tmp_path)
+    assert not legacy.exists()
+    assert load_secrets(tmp_path).api_id == 7654321
+    # 幂等：已经在新位置就不再动（也绝不用旧文件覆盖新文件）
+    config_file(tmp_path).write_text("api_id: 1111111\n", encoding="utf-8")
+    legacy.write_text("api_id: 2222222\n", encoding="utf-8")
+    assert migrate_legacy_config(tmp_path) is None
+    assert load_secrets(tmp_path).api_id == 1111111
 
 
 def test_defaults_are_relative_to_base_dir(tmp_path: Path) -> None:

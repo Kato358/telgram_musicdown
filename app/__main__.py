@@ -195,17 +195,29 @@ async def run(base_dir: Path) -> None:
 
 def main() -> None:
     # Docker：TGM_BASE_DIR 指向挂载卷（/data）；默认源码根
-    from app.config import app_dirs  # noqa: PLC0415  仅 main 需要
+    from app.config import (  # noqa: PLC0415  仅 main 需要
+        app_dirs,
+        config_file,
+        migrate_legacy_config,
+    )
 
     # Windows Proactor 关连接时对已 RST 的 socket shutdown 报 10054，属 asyncio 已知噪音
     silence_proactor_connection_reset()
     base_dir = Path(os.environ.get("TGM_BASE_DIR") or Path(__file__).resolve().parent.parent)
     dirs = app_dirs(base_dir)
     setup_logging(dirs["logs"])
+    # 密钥文件从 base_dir/config.yaml 收进 data/（FR-CFG-01）：老部署第一次起来时自动搬家。
+    # 搬进 data/ 就等于从此跟着数据卷持久化，容器重建不用重走向导；迁移结果记进 app.log。
+    migrate_legacy_config(base_dir)
     try:
         asyncio.run(run(base_dir))
     except WebAuthConfigError as e:
-        logging.getLogger(__name__).error("startup refused: %s", e.message)
+        # 只报「拒绝」不够：日志（docker logs / app.log）要说清改哪个文件、哪个 env 能过闸门
+        logging.getLogger(__name__).error(
+            "startup refused: %s\n%s",
+            e.message,
+            web_auth.refused_hint(config_file(base_dir)),
+        )
         sys.exit(1)
     except SessionLockedError as e:
         logging.getLogger(__name__).error("startup refused: %s", e.message)

@@ -79,7 +79,7 @@ docker compose up -d
 
 放行判据 = 密钥齐备 + 已登录；未满足时其余页面不可达。音乐源可以随时在控制台补。
 
-数据目录需要挂载持久化，密钥写入容器内 `/data/config.yaml`，未挂卷则随容器重建丢失：
+**密钥写在数据目录里**：`<TGM_BASE_DIR>/data/config.yaml`（Docker 即宿主机 `./data/config.yaml`），和 SQLite（`app.db`）、会话、缓存、日志同处 `data/` —— 也就是**同一个卷**。它由向导首次保存时自动创建，不需要预先 `touch`，也不需要为它单独挂 bind mount；容器重建（`docker compose up -d` 在改了 compose、拉了新镜像或 `down` 之后再 `up` 时都会重建）时密钥跟着数据库一起活着，向导不会重来。旧版本留在 `<TGM_BASE_DIR>/config.yaml` 的文件首次启动会自动搬进 `data/`。
 
 ```yaml
 services:
@@ -93,16 +93,22 @@ services:
       - TGM_WEB_HOST=0.0.0.0
       - TGM_WEB_PORT=8787
       - TGM_BASE_DIR=/data
+      # 想完全不用配置文件？同名 TGM_* 环境变量优先级更高，给这几项即可：
+      # - TGM_API_ID=123456
+      # - TGM_API_HASH=abcdef
+      # - TGM_BOT_TOKEN=123:abc
+      # - TGM_WEB_LOGIN_SECRET=改成你自己的口令   # 绑 0.0.0.0 时启动闸门要求非空
     volumes:
       - ./downloads:/data/downloads   # 曲库落盘
-      - ./data:/data/data             # TG 会话 + 缓存 + 日志 + SQLite
-      # - ./config.yaml:/data/config.yaml  # 可选：持久化密钥文件
+      - ./data:/data/data             # 密钥 + TG 会话 + 缓存 + 日志 + SQLite
 ```
 
 镜像已发布到 GHCR：`ghcr.io/kato358/telgram_musicdown:latest`；`docker compose up -d` 会自动拉取，也可 `docker pull ghcr.io/kato358/telgram_musicdown:latest`。
 镜像以非 root 用户（`tgm`，`useradd` 默认分配 UID/GID）运行，宿主机挂载目录需允许该用户读写。
 
-**标签分工与发版**：`:latest` 只跟着 `main` 移动；版本号由**打标签**产生——先在 `docs/releases/v0.2.0.md` 写好这条版本的正文（首行写成 `# v0.2.0 一句话标题` 时，它会当 Release 标题、正文从第二行起；不写这行就只用标签名当标题），再 `git tag -a v0.2.0 && git push origin v0.2.0`：CI 推 `:0.2.0` 与 `:0.2` 两个镜像标签，并**自动建一条 GitHub Release**，正文取那个 md（文件不在就退回 GitHub 自动生成的 release notes；`docs/releases` 里没有对应文件也能发，只是正文是自动生成的）。要锁版本就把 `image:` 钉到 `:0.2.0`，跟着最新开发走则留 `:latest`。
+**标签分工与发版**：`:latest` 只跟着 `main` 移动；每次 push 到 `main` 还会推一个 `:sha-<完整提交>` 标签。版本号由**打标签**产生——先在 `docs/releases/v0.2.0.md` 写好这条版本的正文（首行写成 `# v0.2.0 一句话标题` 时，它会当 Release 标题、正文从第二行起；不写这行就只用标签名当标题），再 `git tag -a v0.2.0 && git push origin v0.2.0`：CI 推 `:0.2.0` 与 `:0.2` 两个镜像标签，并**自动建一条 GitHub Release**，正文取那个 md（文件不在就退回 GitHub 自动生成的 release notes；`docs/releases` 里没有对应文件也能发，只是正文是自动生成的）。要锁版本就把 `image:` 钉到 `:0.2.0`，跟着最新开发走则留 `:latest`。
+
+**发版不重复构建**：`git push` 到 `main` 和 `git push` 标签是**两个独立的 push 事件**，GitHub 不会因为两者指向同一个提交就合并成一次运行——所以同一次发版天然会有两个流水线。为省掉这份重复，main 那次会把镜像推成 `:sha-<完整提交>`，标签那次探到这份镜像在就**只做 retag**（`docker buildx imagetools create`，几秒），test/build 全部跳过：镜像存在 ⇒ 该提交已经在 main 上过了测试与构建。所以常规发版顺序是「push main → 等 CI 绿 → 打标签」；标签打在没推过 main 的提交上（`:sha-…` 不存在）时自动退回完整流水线，与以前一样，不会发布未测代码。retag 复用同一份 manifest，镜像 config 里的 label 仍是 main 那次构建写的。
 
 ### 本地运行（开发）
 
@@ -120,7 +126,7 @@ python -m app
 
 ### config.yaml 参考
 
-复制 `config.yaml.example` 后填写；同名 `TGM_*` 环境变量优先级更高。
+文件位置 `<TGM_BASE_DIR>/data/config.yaml`（源码运行时就是 `data/config.yaml`，Docker 里是宿主机 `./data/config.yaml`），向导首次保存时自动创建。也可以复制 `config.yaml.example` 手工预置，或**整份用环境变量替代**——同名 `TGM_*` 变量优先级高于文件（`TGM_API_ID` / `TGM_API_HASH` / `TGM_BOT_TOKEN` / `TGM_WEB_LOGIN_SECRET` / `TGM_CHKSZ_API_KEY` / `TGM_PROXY_HOST` / `TGM_PROXY_PORT` / `TGM_SAVE_DIRECTORY` 等），env 给全了就不需要这个文件。
 
 | 配置键 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -176,10 +182,10 @@ python run.py lint    # ruff check + mypy --strict
 
 ## 安全说明
 
-- session、`api_hash`、`bot_token`、Web 密码不进 git（NFR-02）；`config.yaml` 与 `data/` 已在 `.gitignore`。
+- session、`api_hash`、`bot_token`、Web 密码不进 git（NFR-02）；密钥文件（`data/config.yaml`）与 `data/`、`config.yaml` 都已在 `.gitignore`。
 - 手机号与验证码只走本机服务，不写日志。
 - Web 默认本机监听；音频流与标签 API 需会话，禁止目录遍历。
-- `data/` 目录包含 Telegram 会话文件与下载数据库，请视为敏感配置并限制访问权限。
+- `data/` 目录包含密钥文件、Telegram 会话文件与下载数据库，请视为敏感配置并限制访问权限。
 
 音乐文件、歌词、封面及外部数据源返回内容的版权和服务条款不因本项目许可证而改变，使用时请自行获得必要授权并遵守相应条款。
 

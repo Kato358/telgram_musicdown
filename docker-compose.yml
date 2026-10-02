@@ -2,12 +2,17 @@
 #
 # 首次部署：docker compose up -d 后浏览器打开 http://<host>:8787
 # Web 内完成初始化：api_id / api_hash / bot_token / proxy / 登录 TG（生成会话）。
-# 密钥写入容器内 /data/config.yaml（= TGM_BASE_DIR/config.yaml，未挂卷则随容器重建丢失）。
+#
+# 密钥写在 /data/data/config.yaml（= TGM_BASE_DIR/data/config.yaml）：和 SQLite（app.db）、
+# 会话、中转、日志同处 data/，也就是**同一个 ./data 卷**——容器重建（改了 compose /
+# 拉了新镜像 / down 后再 up）密钥跟着数据库一起活着，向导不会重来。文件由向导首次保存时
+# 自动创建，不需要宿主机预先 touch，也不需要为它单独挂一个 bind mount（那还会踩「宿主文件
+# 忘建，Docker 把它建成目录」的坑）。旧位置 <TGM_BASE_DIR>/config.yaml 首次启动自动搬过来。
 #
 # 目录布局（FR-CFG-02，与 app.config.app_dirs 默认一致）：
 #   TGM_BASE_DIR=/data；save=downloads、session=data/sessions、temp=data/temp 相对 /data 解析：
 #   曲库 /data/downloads、会话 /data/data/sessions、中转 /data/data/temp、日志与 SQLite /data/data。
-#   会话/temp/日志默认收在 data/ 下，不再单独挂卷。
+#   会话/temp/日志/密钥默认收在 data/ 下，不再单独挂卷。
 services:
   musicdown:
     image: ghcr.io/kato358/telgram_musicdown:latest
@@ -16,7 +21,17 @@ services:
     ports:
       - "8787:8787"
     environment:
-      # 可选：env 覆盖 config.yaml（FR-CFG-01）
+      # env 与 config.yaml 同名键等价、优先级更高（FR-CFG-01）：只给这几项就能整份替换掉
+      # 配置文件（例如完全不用向导、纯 env 部署）。端口用 TGM_WEB_PORT 覆盖。
+      # - TGM_API_ID=123456
+      # - TGM_API_HASH=abcdef
+      # - TGM_BOT_TOKEN=123:abc
+      # - TGM_CHKSZ_API_KEY=chksz_xxx
+      # - TGM_PROXY_HOST=192.168.31.11
+      # - TGM_PROXY_PORT=7890
+      # - TGM_WEB_LOGIN_SECRET=改成你自己的口令
+      # 绑 0.0.0.0 时启动闸门要求 web_login_secret 非空（写进 data/config.yaml，或用上面的
+      # TGM_WEB_LOGIN_SECRET）：没口令又没显式关登录会直接 exit 1，页面上连向导都看不到。
       - TGM_WEB_HOST=0.0.0.0
       - TGM_WEB_PORT=8787
       - TGM_BASE_DIR=/data
@@ -24,17 +39,13 @@ services:
       # - TGM_SAVE_DIRECTORY=downloads
       # - TGM_SESSION_DIRECTORY=data/sessions
       # - TGM_TEMP_DIRECTORY=data/temp
-      # - TGM_API_ID=123456
-      # - TGM_API_HASH=abcdef
-      # - TGM_BOT_TOKEN=123:abc
     volumes:
       - ./downloads:/data/downloads              # 曲库落盘（save_path）
-      - ./data:/data/data                        # TG 会话 + 中转/试听缓存 + 日志 + SQLite（app.db）
+      - ./data:/data/data                        # 密钥 + TG 会话 + 中转/试听缓存 + 日志 + SQLite（app.db）
       # 这两处是**不同挂载点**：Linux 的 rename(2) 不许跨 mount，所以 temp(data) → 曲库
       # (downloads) 的落盘走「复制 + 同目录原子替换」（app/utils/fs.py），不再报 EXDEV。
       # 省掉那次整文件复制可以让中转区落在曲库同一挂载点（曲库扫描跳过点号开头的目录）：
       #   environment: TGM_TEMP_DIRECTORY=/data/downloads/.temp
-      # - ./config.yaml:/data/config.yaml        # 可选：持久化密钥文件（需先 touch config.yaml 再 up）
       # 绝对路径覆盖示例（config.yaml / env 同名键均可）：
       # - /mnt/nas/music:/mnt/music
       # environment: TGM_SAVE_DIRECTORY=/mnt/music

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from hashlib import md5
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import SecretConfig, load_secrets
+from app.config import SecretConfig, config_file, load_secrets
 from app.db.models import History, Task
 from app.db.store import Store
 from app.domain import PROVIDER_SCOPES, TemplateConfig
@@ -144,6 +145,28 @@ def test_zero_zero_host_without_secret_rejected(tmp_path: Path) -> None:
         web_auth.check_auth_config("0.0.0.0", "")  # noqa: S104  测试注入的是绑定字符串
 
 
+def test_refusal_hint_names_the_ways_out(tmp_path: Path) -> None:
+    """被拒后的日志必须给出路（运维只看 docker logs）：文件名、env、显式放行三样都在。"""
+    hint = web_auth.refused_hint(config_file(tmp_path))
+    assert str(config_file(tmp_path)) in hint
+    assert "TGM_WEB_LOGIN_SECRET" in hint and "TGM_WEB_LOGIN_ENABLED=false" in hint
+
+
+def test_disabled_login_on_public_bind_warns(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """0.0.0.0 + 关登录 = 敞开的面板：不拦启动，但日志里要留痕（有意为之 vs 漏配口令）。"""
+    with caplog.at_level(logging.WARNING, logger="app.web.auth"):
+        web_auth.check_auth_config("0.0.0.0", "", web_login_enabled=False)  # noqa: S104
+        assert any("0.0.0.0" in r.message for r in caplog.records)  # noqa: S104
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="app.web.auth"):
+        # 本机豁免模式（127.0.0.1 无口令）不是暴露面，不该刷警告
+        web_auth.check_auth_config("127.0.0.1", "")
+        assert not caplog.records
+
+
 def test_auth_required_with_secret(tmp_path: Path) -> None:
     # 有 secret：无会话 401（验收 #16）
     store = Store(tmp_path / "app.db")
@@ -236,6 +259,13 @@ def test_web_login_switch_disabled(tmp_path: Path) -> None:
     assert not client.cookies.get(web_auth.SESSION_COOKIE)
 
 
+def _config_path(base: Path) -> Path:
+    """密钥文件位置（FR-CFG-01）：<base>/data/config.yaml，跟着数据卷一起持久化。"""
+    path = base / "data" / "config.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def test_events_stream_requires_session(tmp_path: Path) -> None:
     """/api/events 是最后一个无鉴权的 /api/*：未登录可订阅等于把任务进度与错误日志公网裸奔。
 
@@ -250,8 +280,9 @@ def test_events_stream_requires_session(tmp_path: Path) -> None:
     assert client.get("/api/events").status_code == 401
 
 
-def test_setup_secrets_writes_to_base_dir(tmp_path: Path) -> None:
-    # FR-OPS-02：密钥写入 base_dir/config.yaml；session_directory 可配置到别处也不影响
+def test_setup_secrets_writes_under_data_dir(tmp_path: Path) -> None:
+    # FR-OPS-02：密钥写入 <base_dir>/data/config.yaml（跟着数据卷持久化）；
+    # session_directory 可配置到别处也不影响它落在哪
     store = Store(tmp_path / "app.db")
     events = EventBus()
     registry = fake_registry(store)
@@ -270,8 +301,8 @@ def test_setup_secrets_writes_to_base_dir(tmp_path: Path) -> None:
     app = create_app(store, events, downloads, sources, search, preview, tg, base_dir=tmp_path)
     r = TestClient(app).post("/api/setup/secrets", json={"api_id": 1234567, "api_hash": API_HASH})
     assert r.status_code == 200
-    assert API_HASH in (tmp_path / "config.yaml").read_text(encoding="utf-8")
-    assert not (tmp_path / "elsewhere" / "config.yaml").exists()
+    assert API_HASH in _config_path(tmp_path).read_text(encoding="utf-8")
+    assert not (tmp_path / "elsewhere" / "data" / "config.yaml").exists()
 
 
 def _client_with(
@@ -322,12 +353,12 @@ def test_setup_secrets_rejects_bad_api_id_and_keeps_file(tmp_path: Path) -> None
     r = client.post("/api/setup/secrets", json={"api_id": 12, "api_hash": API_HASH})
     assert r.status_code == 400
     assert r.json()["error"]["code"] == "invalid_secrets"
-    assert not (tmp_path / "config.yaml").exists()
+    assert not _config_path(tmp_path).exists()
 
 
 def test_setup_secrets_proxy_null_clears_existing(tmp_path: Path) -> None:
     # 关掉「走代理」后保存：config.yaml 里的 proxy 段被清除（不残留旧代理）
-    (tmp_path / "config.yaml").write_text(
+    _config_path(tmp_path).write_text(
         "api_id: 1234567\n"
         f"api_hash: {API_HASH}\n"
         "proxy:\n  scheme: http\n  hostname: 127.0.0.1\n  port: 7890\n",
@@ -336,12 +367,12 @@ def test_setup_secrets_proxy_null_clears_existing(tmp_path: Path) -> None:
     client, _ = _client_with(tmp_path)
     r = client.post("/api/setup/secrets", json={"proxy": None})
     assert r.status_code == 200
-    assert "proxy" not in (tmp_path / "config.yaml").read_text(encoding="utf-8")
+    assert "proxy" not in _config_path(tmp_path).read_text(encoding="utf-8")
 
 
 def test_setup_secrets_proxy_keeps_unseen_credentials(tmp_path: Path) -> None:
     # 向导不回显代理用户名/密码（NFR-02）：表单没填时沿用已有值，不能因为看不见就删掉
-    (tmp_path / "config.yaml").write_text(
+    _config_path(tmp_path).write_text(
         "api_id: 1234567\n"
         f"api_hash: {API_HASH}\n"
         "proxy:\n  scheme: socks5\n  hostname: 10.0.0.9\n  port: 1080\n"
@@ -354,7 +385,7 @@ def test_setup_secrets_proxy_keeps_unseen_credentials(tmp_path: Path) -> None:
         json={"proxy": {"scheme": "http", "hostname": "10.0.0.10", "port": 8080}},
     )
     assert r.status_code == 200
-    body = (tmp_path / "config.yaml").read_text(encoding="utf-8")
+    body = _config_path(tmp_path).read_text(encoding="utf-8")
     assert "hostname: 10.0.0.10" in body
     assert "username: alice" in body and "password: s3cret" in body
     assert "enable_proxy: true" in body
@@ -400,7 +431,7 @@ def test_setup_secrets_requires_session_when_auth_on(tmp_path: Path) -> None:
     )
     r = client.post("/api/setup/secrets", json={"api_id": 1234567, "api_hash": API_HASH})
     assert r.status_code == 401
-    assert not (tmp_path / "config.yaml").exists()
+    assert not _config_path(tmp_path).exists()
 
 
 def test_logout_deletes_session_files_and_keeps_data(tmp_path: Path) -> None:
@@ -432,7 +463,7 @@ def test_logout_keeps_web_console_session(tmp_path: Path) -> None:
 
 def test_setup_reset_clears_keys_and_sessions(tmp_path: Path) -> None:
     # FR-OPS-02「重新执行初始化」：密钥段与会话全清，Web 口令与部署路径一个不动
-    (tmp_path / "config.yaml").write_text(
+    _config_path(tmp_path).write_text(
         "api_id: 1234567\n"
         f"api_hash: {API_HASH}\n"
         "bot_token: 123456:ABC-DEF\n"
@@ -450,7 +481,7 @@ def test_setup_reset_clears_keys_and_sessions(tmp_path: Path) -> None:
 
     body = client.post("/api/setup/reset").json()
     assert body["cleared_keys"] == ["api_id", "api_hash", "bot_token", "proxy"]
-    text = (tmp_path / "config.yaml").read_text(encoding="utf-8")
+    text = _config_path(tmp_path).read_text(encoding="utf-8")
     assert "api_id" not in text and "bot_token" not in text and "proxy" not in text
     assert "web_login_secret: keepme" in text
     assert "save_directory: /data/downloads" in text
@@ -461,7 +492,7 @@ def test_setup_reset_clears_keys_and_sessions(tmp_path: Path) -> None:
 
 def test_setup_status_hides_proxy_credentials(tmp_path: Path) -> None:
     # NFR-02：状态接口只回协议/地址/端口，用户名密码不出网
-    (tmp_path / "config.yaml").write_text(
+    _config_path(tmp_path).write_text(
         "api_id: 1234567\n"
         f"api_hash: {API_HASH}\n"
         "proxy:\n  scheme: socks5\n  hostname: 10.0.0.9\n  port: 1080\n"

@@ -1,7 +1,11 @@
 # telegram-musicdown config.yaml 示例（FR-CFG-01）
 #
-# 复制为 config.yaml 后填写；本文件仅作模板，不含真实密钥（NFR-02）。
-# 同名 TGM_* 环境变量优先级高于本文件（如 TGM_API_ID）。
+# 放到 <TGM_BASE_DIR>/data/config.yaml（源码运行 = ./data/config.yaml，Docker = 宿主机
+# ./data/config.yaml），也就是数据目录里——它跟 SQLite/会话同一个卷，容器重建不会丢。
+# 向导首次保存会自动创建这个文件，本示例只用于「先手工预置好再启动」。
+# 旧版本放在 <TGM_BASE_DIR>/config.yaml 的文件首次启动会自动搬进 data/。
+#
+# 也可以完全不建这个文件：同名 TGM_* 环境变量优先级高于本文件，见文末「环境变量替代」。
 
 # ── Telegram 密钥（必填）──────────────────────────────────────
 # https://my.telegram.org 申请；bot_token 来自 @BotFather（可选，留空则仅用户登录）。
@@ -37,3 +41,11 @@ proxy:
   port: 1080
   username: null
   password: null
+
+# ── 环境变量替代（可选）───────────────────────────────────────
+# 只在 env 里给够，就不需要 data/config.yaml：同名键优先级更高，值留空 = 不覆盖文件。
+#   TGM_API_ID / TGM_API_HASH / TGM_BOT_TOKEN
+#   TGM_WEB_HOST / TGM_WEB_PORT / TGM_WEB_LOGIN_SECRET / TGM_WEB_LOGIN_ENABLED
+#   TGM_CHKSZ_API_KEY / TGM_CHKSZ_BASE_URL
+#   TGM_SAVE_DIRECTORY / TGM_SESSION_DIRECTORY / TGM_TEMP_DIRECTORY
+#   TGM_PROXY_HOST / TGM_PROXY_PORT

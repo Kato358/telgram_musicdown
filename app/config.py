@@ -2,11 +2,14 @@
 
 密钥（api_id/api_hash/bot_token/proxy/web_login_secret/web_host/web_port）与
 部署路径（save_directory/session_directory/temp_directory）只在 config.yaml 或
-环境变量；业务配置入库 settings 表。
+环境变量；业务配置入库 settings 表。文件本身落在 ``<base_dir>/data/config.yaml``
+（Docker 即宿主机挂出来的 ``./data/config.yaml``），旧位置 ``<base_dir>/config.yaml``
+首次启动自动迁移。
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,9 +19,82 @@ import yaml
 
 ENV_PREFIX = "TGM_"
 
+# 密钥文件位置：<base_dir>/data/config.yaml（FR-CFG-01）。刻意收在 data/ 里——那是部署时
+# 唯一必须挂出来的状态目录（SQLite、会话、日志都在它下面），密钥于是跟着一起持久化，
+# 不必为单个文件再挂一次 bind mount，也就没有「宿主文件忘建，Docker 把它建成目录」那种坑。
+CONFIG_DIR = "data"
+CONFIG_FILE_NAME = "config.yaml"
+
+logger = logging.getLogger(__name__)
+
+# 旧位置提示只打一次：读路径被 settings/registry 等按请求触发，日志不能被它刷屏。
+_legacy_read_warned = False
 
 # ChKSz 在线源的默认服务地址（可自建部署，用 TGM_CHKSZ_BASE_URL 或 config.yaml 覆盖）。
 DEFAULT_CHKSZ_BASE_URL = "https://api.chksz.com"
+
+
+def config_file(base_dir: Path) -> Path:
+    """密钥文件的唯一事实源位置：<base_dir>/data/config.yaml。"""
+    return base_dir / CONFIG_DIR / CONFIG_FILE_NAME
+
+
+def _legacy_config_file(base_dir: Path) -> Path:
+    """v0.17 前的位置 <base_dir>/config.yaml；只读兜底与一次性迁移用，不再写。"""
+    return base_dir / CONFIG_FILE_NAME
+
+
+def load_config_data(base_dir: Path) -> dict[str, Any]:
+    """读取密钥文件；缺失或非映射时返回空字典。
+
+    新位置没有而旧位置有 → 读旧位置并提示一次（`migrate_legacy_config` 会把它搬过去；
+    兜底覆盖没走 ``main()`` 的调用方：测试、直接装配 build_services）。
+    """
+    path = config_file(base_dir)
+    if not path.is_file():
+        legacy = _legacy_config_file(base_dir)
+        if not legacy.is_file():
+            return {}
+        global _legacy_read_warned  # noqa: PLW0603  只为一处「提示一次」的开关
+        if not _legacy_read_warned:
+            _legacy_read_warned = True
+            logger.warning("config.yaml 在旧位置 %s 生效，目标位置是 %s", legacy, path)
+        path = legacy
+    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def migrate_legacy_config(base_dir: Path) -> Path | None:
+    """把旧位置的 config.yaml 搬进 data/（一次性，尽力而为；已迁移或不存在返回 None）。
+
+    搬而不是拷：两个位置并存会让「向导到底写哪个」变成猜谜，留下一个被忽略的文件就是
+    下一次「改了密钥怎么不生效」的源头。跨挂载点（旧位置被人手动 bind mount 过）会
+    ``EXDEV``，此时只告警——读取兜底仍在，向导保存也会写到新位置。
+    """
+    legacy, target = _legacy_config_file(base_dir), config_file(base_dir)
+    if not legacy.exists() or target.exists():
+        return None
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        legacy.replace(target)
+    except OSError:
+        logger.warning(
+            "迁移 config.yaml 失败：%s 与 %s 可能不在同一挂载点，请删掉旧位置的手动挂载后重启",
+            legacy,
+            target,
+            exc_info=True,
+        )
+        return None
+    logger.info("config.yaml 已迁移：%s → %s", legacy, target)
+    return target
+
+
+def write_config_data(base_dir: Path, data: dict[str, Any]) -> Path:
+    """写回密钥文件；父目录按需建——向导首次保存即完成「自动创建」（FR-OPS-02）。"""
+    path = config_file(base_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    return path
 
 
 def _env(key: str) -> str | None:
@@ -95,15 +171,6 @@ class SecretConfig:
         return self.api_id != 0 and bool(self.api_hash)
 
 
-def _load_config_file(base_dir: Path) -> dict[str, Any]:
-    """读取 base_dir/config.yaml；缺失或非映射时返回空字典。"""
-    path = base_dir / "config.yaml"
-    if not path.exists():
-        return {}
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return loaded if isinstance(loaded, dict) else {}
-
-
 def secrets_from_data(data: dict[str, Any]) -> SecretConfig:
     """config.yaml 内容 → SecretConfig（不含环境变量覆盖）。
 
@@ -133,8 +200,8 @@ def secrets_from_data(data: dict[str, Any]) -> SecretConfig:
 
 
 def load_secrets(base_dir: Path) -> SecretConfig:
-    """从 base_dir/config.yaml 与环境变量装配密钥；env 覆盖文件。"""
-    cfg = secrets_from_data(_load_config_file(base_dir))
+    """从 data/config.yaml 与环境变量装配密钥；env 覆盖文件。"""
+    cfg = secrets_from_data(load_config_data(base_dir))
     cfg.api_id = int(_env("api_id") or cfg.api_id)
     cfg.api_hash = _env("api_hash") or cfg.api_hash
     cfg.bot_token = _env("bot_token") or cfg.bot_token
@@ -165,7 +232,7 @@ class PathConfig:
 
 def load_path_config(base_dir: Path) -> PathConfig:
     """路径布局：config.yaml 的 save/session/temp_directory，同名 TGM_* env 覆盖。"""
-    data = _load_config_file(base_dir)
+    data = load_config_data(base_dir)
     cfg = PathConfig()
     for field in ("save_directory", "session_directory", "temp_directory"):
         value = _env(field) or data.get(field)

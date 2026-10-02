@@ -389,7 +389,7 @@ export const zhCN: Dict = {
     save: "保存更改",
     saving: "保存中",
     saved: "已保存",
-    savedRestart: "已保存；密钥已写入 config.yaml，已连上的客户端要重启服务后才按新配置生效。",
+    savedRestart: "已保存；密钥已写入 data/config.yaml，已连上的客户端要重启服务后才按新配置生效。",
     unsaved: "有未保存的更改",
     notSaved: "没保存：{items}",
     downloadSection: "下载与试听",
@@ -427,7 +427,7 @@ export const zhCN: Dict = {
     botHint: "填了 token 才能用私聊发链接、转发音频下单；不填只影响 Bot 命令，Web 搜索与下载照常。",
     botSet: "已设置",
     botUnset: "未设置",
-    botReadOnly: "token 存在 config.yaml 里，界面不回显。",
+    botReadOnly: "token 存在 data/config.yaml 里，界面不回显。",
     botToken: "bot_token",
     botTokenPlaceholder: "123456:ABC-DEF…（留空表示不改动）",
     botTokenHint: "从 @BotFather 复制；换新 token 直接粘贴覆盖。",
@@ -454,7 +454,7 @@ export const zhCN: Dict = {
     reset: "重新初始化",
     resetTitle: "重新执行初始化？",
     resetBody:
-      "config.yaml 里的 api_id / api_hash / bot_token / 代理会被删除，会话文件也会被删除。",
+      "data/config.yaml 里的 api_id / api_hash / bot_token / 代理会被删除，会话文件也会被删除。",
     resetKeep: "下载文件、下载历史、音乐源与 Web 登录口令保留",
     resetKeepWizard: "随后回到初始化向导第 1 步",
     resetConfirm: "重新初始化",
@@ -585,15 +585,15 @@ export const zhCN: Dict = {
     proxyPass: "密码（可选）",
     save: "保存密钥",
     saving: "保存中",
-    keysFile: "写到 config.yaml，不进 git、不入库。",
+    keysFile: "写到 data/config.yaml，不进 git、不入库。",
     savedItemProxy: "代理 {scheme} {host}:{port}",
     listSep: "、",
     keysSaved:
-      "已写入 config.yaml（{items}）。本向导的登录立即用新密钥；已连上的常驻客户端要重启服务后才按新配置重连。",
+      "已写入 data/config.yaml（{items}）。本向导的登录立即用新密钥；已连上的常驻客户端要重启服务后才按新配置重连。",
     keysSavedBot:
-      "已写入 config.yaml（{items}）。本向导的登录立即用新密钥；已连上的常驻客户端与 Bot 都要重启服务后才按新配置重连。",
-    keysUnchanged: "表单是空的，没有要写入的改动：api_id / api_hash 沿用 config.yaml 里的现值。",
-    keysSavedFresh: "已写入 config.yaml（{items}）。现在没有已连上的客户端，登录会直接用新配置。",
+      "已写入 data/config.yaml（{items}）。本向导的登录立即用新密钥；已连上的常驻客户端与 Bot 都要重启服务后才按新配置重连。",
+    keysUnchanged: "表单是空的，没有要写入的改动：api_id / api_hash 沿用 data/config.yaml 里的现值。",
+    keysSavedFresh: "已写入 data/config.yaml（{items}）。现在没有已连上的客户端，登录会直接用新配置。",
     keysInvalidOne: "没保存：{items}",
     apiIdInvalid: "api_id 是 5–10 位数字（my.telegram.org → App 页复制）",
     apiHashInvalid: "api_hash 是 32 位十六进制",
@@ -697,12 +697,12 @@ export const zhCN: Dict = {
   login: {
     lede: "这台部署设了控制台口令，先登录再使用。",
     secret: "控制台口令",
-    secretHint: "config.yaml 里的 web_login_secret。",
+    secretHint: "data/config.yaml 里的 web_login_secret。",
     submit: "登录",
     submitting: "正在登录…",
     failed: "登录失败",
     where:
-      "口令存在服务器的 config.yaml 中；忘记时可在服务器上查看或修改该文件的 web_login_secret。",
+      "口令存在服务器的 data/config.yaml 中（Docker 部署即宿主机 ./data/config.yaml）；忘记时可在服务器上查看或修改该文件的 web_login_secret。",
   },
 
   common: {
@@ -1112,7 +1112,7 @@ export const en: Dict = {
     saving: "Saving",
     saved: "Saved",
     savedRestart:
-      "Saved; keys were written to config.yaml — connected clients pick them up after a service restart.",
+      "Saved; keys were written to data/config.yaml — connected clients pick them up after a service restart.",
     unsaved: "Unsaved changes",
     notSaved: "Not saved: {items}",
     downloadSection: "Downloads and preview",
@@ -1154,7 +1154,7 @@ export const en: Dict = {
       "With a token the bot can take links and forwarded audio in private chat; without one only bot commands are gone — web search and downloads keep working.",
     botSet: "Configured",
     botUnset: "Not configured",
-    botReadOnly: "The token lives in config.yaml and is never echoed back.",
+    botReadOnly: "The token lives in data/config.yaml and is never echoed back.",
     botToken: "bot_token",
     botTokenPlaceholder: "123456:ABC-DEF… (leave empty to keep the current one)",
     botTokenHint: "Copy it from @BotFather; paste a new token to replace the current one.",
@@ -1182,7 +1182,7 @@ export const en: Dict = {
     reset: "Run setup again",
     resetTitle: "Run setup again?",
     resetBody:
-      "api_id / api_hash / bot_token / proxy are removed from config.yaml, and the session file is deleted too.",
+      "api_id / api_hash / bot_token / proxy are removed from data/config.yaml, and the session file is deleted too.",
     resetKeep: "Downloads, history, sources and the web login secret stay",
     resetKeepWizard: "You land on step 1 of the wizard again",
     resetConfirm: "Run setup again",
@@ -1319,17 +1319,17 @@ export const en: Dict = {
     proxyPass: "Password (optional)",
     save: "Save keys",
     saving: "Saving",
-    keysFile: "Written to config.yaml; never committed, never stored in the database.",
+    keysFile: "Written to data/config.yaml; never committed, never stored in the database.",
     savedItemProxy: "proxy {scheme} {host}:{port}",
     listSep: ", ",
     keysSaved:
-      "Written to config.yaml ({items}). Sign-in below uses the new keys right away; connected clients pick them up after a service restart.",
+      "Written to data/config.yaml ({items}). Sign-in below uses the new keys right away; connected clients pick them up after a service restart.",
     keysSavedBot:
-      "Written to config.yaml ({items}). Sign-in below uses the new keys right away; connected clients and the bot pick them up after a service restart.",
+      "Written to data/config.yaml ({items}). Sign-in below uses the new keys right away; connected clients and the bot pick them up after a service restart.",
     keysUnchanged:
-      "Nothing to write: the form is empty, so api_id / api_hash keep the values already in config.yaml.",
+      "Nothing to write: the form is empty, so api_id / api_hash keep the values already in data/config.yaml.",
     keysSavedFresh:
-      "Written to config.yaml ({items}). No client is connected yet, so sign-in uses the new config directly.",
+      "Written to data/config.yaml ({items}). No client is connected yet, so sign-in uses the new config directly.",
     keysInvalidOne: "Not saved: {items}",
     apiIdInvalid: "api_id is 5–10 digits (copy it from the App page at my.telegram.org)",
     apiHashInvalid: "api_hash is 32 hex characters",
@@ -1441,12 +1441,12 @@ export const en: Dict = {
   login: {
     lede: "This deployment is password-protected. Sign in to continue.",
     secret: "Console password",
-    secretHint: "The web_login_secret in config.yaml.",
+    secretHint: "The web_login_secret in data/config.yaml.",
     submit: "Sign in",
     submitting: "Signing in…",
     failed: "Sign-in failed",
     where:
-      "The password lives in config.yaml on the server; if you forgot it, read or edit web_login_secret there.",
+      "The password lives in data/config.yaml on the server (the host's ./data/config.yaml under Docker); if you forgot it, read or edit web_login_secret there.",
   },
 
   common: {

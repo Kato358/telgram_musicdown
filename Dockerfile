@@ -26,7 +26,9 @@ RUN pnpm build
 
 # 代码 + 前端产物；目录布局（FR-CFG-02）与 app.config.app_dirs 默认一致：
 # save=downloads、session=data/sessions、temp=data/temp 相对 TGM_BASE_DIR=/data 解析：
-# 曲库 /data/downloads，会话/中转/日志/SQLite /data/data。
+# 曲库 /data/downloads，密钥/会话/中转/日志/SQLite 全在 /data/data。
+# 密钥文件（/data/data/config.yaml）跟 SQLite 同目录，所以下面那个 VOLUME 一并覆盖它，
+# 容器重建不丢，也不必为它单独挂一个文件。
 FROM base
 COPY app ./app
 COPY --from=frontend /build/dist ./web/dist

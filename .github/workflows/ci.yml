@@ -15,7 +15,48 @@ permissions:
   packages: write
 
 jobs:
+  # 同一份代码只真正构建一次。
+  #
+  # push 到 main 与 push v* 标签是**两个独立的 push 事件**（GitHub 按 ref 触发，不会因为
+  # 两者指向同一个 commit 就合并成一次运行），所以发版时必然有两个 run。省时间的办法不是
+  # 合并事件，而是让 tag 那次不再重复构建：main 的 run 把镜像推成 `:sha-<完整 sha>`，
+  # tag 的 run 探到这份镜像在，就只做 retag（几秒），test / build 全跳过——
+  # 镜像在 ⇒ 该 commit 已经在 main 上过了 test + build + smoke，这个复用是安全的。
+  #
+  # 标签打在没推过 main 的提交上（`:sha-<sha>` 不存在）时 reuse=false，tag 那次走与 main
+  # 完全相同的完整流水线，行为与改动前一致，不会因为「先打标签后推 main」而发布未测代码。
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      reuse: ${{ steps.probe.outputs.reuse }}
+    steps:
+      - name: Normalize image name
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      # 只有 tag 事件才需要碰 registry；main / PR 由下面的探测步骤直接给出 reuse=false
+      - name: Login to GHCR
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Probe the per-commit image
+        id: probe
+        run: |
+          reuse=false
+          if [[ "${{ github.ref }}" == refs/tags/v* ]] \
+             && docker buildx imagetools inspect \
+                  "${REGISTRY}/${IMAGE_NAME}:sha-${GITHUB_SHA}" >/dev/null 2>&1; then
+            reuse=true
+            echo "::notice::复用 main 上构建的 ${REGISTRY}/${IMAGE_NAME}:sha-${GITHUB_SHA}：本次跳过 test / build，只 retag"
+          fi
+          echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
+
   test:
+    needs: plan
+    if: needs.plan.outputs.reuse != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +85,8 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [plan, test]
+    if: needs.plan.outputs.reuse != 'true'
     steps:
       - uses: actions/checkout@v4
       # GHA 表达式无 lower()，job 内用 bash 把 owner/repo 降小写写入 GITHUB_ENV
@@ -87,10 +129,18 @@ jobs:
           docker logs tgm-smoke; docker rm -f tgm-smoke; exit 1
 
   publish:
-    # push 到 main 发滚动标签；打 v* tag 发版本标签
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    # push 到 main 发滚动标签（:main / :latest / 每提交的 :sha-<sha>）。
+    # push v* 标签：有现成的 :sha-<sha> 就 retag（同一份 manifest，不重建），否则完整
+    # build + push。retag 出来的是同一份镜像，config 里的 label 仍是 main 那次构建写的
+    # （imagetools 只能改 tag，改不了 config），需要 label 精确到版本号时看 Release 正文。
+    needs: [plan, test, build]
+    # test/build 被跳过（tag 复用了 main 的镜像）也要跑，所以不能只靠 needs 默认的「依赖成功」；
+    # 有任何一个失败（failure()）就整体不发——哪怕 build 因此被跳过。
+    if: >-
+      !cancelled() && !failure()
+      && github.event_name == 'push'
+      && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
-    needs: build
     permissions:
       contents: read
       packages: write
@@ -110,6 +160,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=sha-${{ github.sha }}
 
       - uses: docker/setup-buildx-action@v3
 
@@ -120,7 +171,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # tag 事件且 plan 探到镜像已在：把 main 那份 manifest 直接挂上版本标签，不重建
+      - name: Retag the image built for this commit
+        if: needs.plan.outputs.reuse == 'true'
+        run: |
+          src="${REGISTRY}/${IMAGE_NAME}:sha-${GITHUB_SHA}"
+          tags=()
+          while IFS= read -r tag; do
+            # metadata 里也含 :sha-<sha> 本身；源与目标同名时不必再挂一次，跳过
+            if [[ -n "$tag" && "$tag" != "$src" ]]; then tags+=(-t "$tag"); fi
+          done <<< "${{ steps.meta.outputs.tags }}"
+          echo "retag ${src} -> ${tags[*]}"
+          docker buildx imagetools create "${tags[@]}" "$src"
+
+      # main 的 push（或 tag 提交没在 main 上构建过）：照旧完整构建
       - name: Build and push
+        if: needs.plan.outputs.reuse != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .

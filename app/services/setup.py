@@ -1,6 +1,8 @@
 """首次部署初始化（FR-OPS-02）：Web 内保存密钥并写入 config.yaml。
 
-- 密钥不进 git、不入库（NFR-02）：保存到 config.yaml，env 仍可覆盖。
+- 密钥不进 git、不入库（NFR-02）：保存到 ``<base_dir>/data/config.yaml``，env 仍可覆盖。
+  位置与写入收口在 ``app.config``（`config_file`/`write_config_data`）：向导首次保存
+  即自动创建文件，文件跟着 data/ 卷一起持久化，容器重建不重来。
 - 校验看的是**即将落盘的内容**（合并后的 config.yaml），不信任前端；
   待修项一次性列全，前端行内提示与后端用同一套判据。
 - 已连上的客户端不会热换密钥：返回 ``restart_required``，由界面说明重启后生效。
@@ -12,9 +14,13 @@ import re
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from app.config import SecretConfig, load_secrets, secrets_from_data
+from app.config import (
+    SecretConfig,
+    load_config_data,
+    load_secrets,
+    secrets_from_data,
+    write_config_data,
+)
 from app.errors import SetupError
 
 # ---- 校验判据（SRS §5.1 FR-AUTH-01/03/04）----
@@ -28,14 +34,6 @@ CHKSZ_KEY_RE = re.compile(r"^chksz_[A-Za-z0-9_-]{8,}$")
 
 # 允许写入 config.yaml 的密钥类字段（FR-CFG-01）
 SECRET_KEYS = ("api_id", "api_hash", "bot_token", "web_login_secret", "chksz_api_key")
-
-
-def _load(base_dir: Path) -> dict[str, Any]:
-    path = base_dir / "config.yaml"
-    if not path.exists():
-        return {}
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return loaded if isinstance(loaded, dict) else {}
 
 
 def merge_values(data: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
@@ -99,13 +97,11 @@ def save_secrets(base_dir: Path, values: dict[str, Any]) -> SecretConfig:
 
     ``chksz_api_key`` 是可选的：留空即「不改动」，不写也不影响 Telegram 侧的校验。
     """
-    merged = merge_values(_load(base_dir), values)
+    merged = merge_values(load_config_data(base_dir), values)
     problems = validate_secrets(secrets_from_data(merged))
     if problems:
         raise SetupError("；".join(problems) + "。")
-    (base_dir / "config.yaml").write_text(
-        yaml.safe_dump(merged, allow_unicode=True, sort_keys=False), encoding="utf-8"
-    )
+    write_config_data(base_dir, merged)
     return load_secrets(base_dir)
 
 
@@ -128,10 +124,8 @@ def clear_secrets(base_dir: Path) -> SecretConfig:
     只删密钥类键，不动 ``web_host``/``web_port``/``web_login_secret`` 与
     ``save_directory`` 等路径键——那些不是向导要重新确认的内容。
     """
-    data = _load(base_dir)
+    data = load_config_data(base_dir)
     for key in RESET_KEYS:
         data.pop(key, None)
-    (base_dir / "config.yaml").write_text(
-        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
-    )
+    write_config_data(base_dir, data)
     return load_secrets(base_dir)
